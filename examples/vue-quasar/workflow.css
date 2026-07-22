@@ -1,0 +1,33 @@
+body {
+  margin: 0;
+}
+
+.workflow-filters,
+.workflow-actions,
+.workflow-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workflow-filters {
+  min-width: min(100%, 420px);
+}
+
+.workflow-filters .q-field {
+  flex: 1 1 220px;
+}
+
+.workflow-status {
+  justify-content: space-between;
+  padding-top: 16px;
+  color: #4b5563;
+}
+
+@media (max-width: 599px) {
+  .workflow-actions > *,
+  .workflow-filters > * {
+    flex: 1 1 100%;
+  }
+}

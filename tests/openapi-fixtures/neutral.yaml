@@ -1,0 +1,47 @@
+openapi: 3.1.0
+info:
+  title: Neutral API
+  version: 1.0.0
+paths:
+  /projects/:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Project list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+components:
+  schemas:
+    Project:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          minLength: 2
+        owner:
+          $ref: "#/components/schemas/User"
+    User:
+      type: object
+      required: [id, email]
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email

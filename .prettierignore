@@ -1,0 +1,9 @@
+dist
+node_modules
+pnpm-lock.yaml
+tests/openapi-generated
+etc/api
+artifacts
+.playwright-cli
+playwright-report
+test-results

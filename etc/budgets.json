@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "gzipBytes": {
+    "core": 80229,
+    "auth": 5364,
+    "http": 2843,
+    "vue": 2445,
+    "vue-router": 1352,
+    "react": 878,
+    "quasar": 15489,
+    "openapi": 6702,
+    "storage": 1479,
+    "legacy": 2460
+  },
+  "performanceMs": {
+    "schemaParse20k": 44.949,
+    "cacheMerge10k": 3.296
+  }
+}
