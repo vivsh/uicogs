@@ -19,8 +19,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command:
-      "corepack pnpm exec vite examples/vue-quasar --host 127.0.0.1 --port 4178 --strictPort",
+    command: "pnpm exec vite examples/vue-quasar --host 127.0.0.1 --port 4178 --strictPort",
     url: "http://127.0.0.1:4178",
     reuseExistingServer: false,
   },

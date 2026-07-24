@@ -53,7 +53,7 @@ UiCogs applies authentication, credentials, context contribution, and cache scop
 ## Verification
 
 - Exercise list, detail, local resource, direct cache, mutation, relation, upload, auth, live, and disposal workflows against production-equivalent endpoints.
-- Run `corepack pnpm release:check`.
+- Run `pnpm release:check`.
 - Inspect the generated software bill of materials.
 - Resolve every high or critical production dependency advisory.
 - Review bundle and performance changes above the repository thresholds.

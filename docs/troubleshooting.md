@@ -4,7 +4,7 @@
 
 Remote work resolves Fetch when the first request starts.
 
-Use a supported browser, Node.js 20 or 22, `http.fetch`, or a custom structural transport. Local resources and schema operations do not require Fetch.
+Use a supported browser, Node.js 22 or 24, `http.fetch`, or a custom structural transport. Local resources and schema operations do not require Fetch.
 
 ## A Protected Request Waits
 

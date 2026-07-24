@@ -13,47 +13,51 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        node: [22, 24]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
-      - run: corepack enable
-      - run: corepack pnpm install --frozen-lockfile
-      - run: corepack pnpm format:check
-      - run: corepack pnpm lint
-      - run: corepack pnpm typecheck
-      - run: corepack pnpm test
-      - run: corepack pnpm test:types
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm test:types
 
   release-gates:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 22
           cache: pnpm
-      - run: corepack enable
-      - run: corepack pnpm install --frozen-lockfile
-      - run: corepack pnpm test:coverage
-      - run: corepack pnpm build
-      - run: corepack pnpm api:check
-      - run: corepack pnpm budget:check
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:coverage
+      - run: pnpm build
+      - run: pnpm api:check
+      - run: pnpm budget:check
       - run: node scripts/check-api-policy.mjs
-      - run: corepack pnpm test:consumers
-      - run: corepack pnpm check:standalone
-      - run: corepack pnpm check:packages
-      - run: corepack pnpm audit --prod --audit-level high
-      - run: corepack pnpm sbom:generate
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - run: pnpm test:consumers
+      - run: pnpm check:standalone
+      - run: pnpm check:packages
+      - run: pnpm audit --prod --audit-level high
+      - run: pnpm sbom:generate
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: sbom
           path: artifacts/sbom.cdx.json
@@ -65,15 +69,17 @@ jobs:
         playwright: ["1.61.1", "1.60.1"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 22
           cache: pnpm
-      - run: corepack enable
-      - run: corepack pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - if: matrix.playwright != '1.61.1'
-        run: corepack pnpm add -Dw --lockfile=false @playwright/test@${{ matrix.playwright }}
-      - run: corepack pnpm exec playwright install --with-deps chromium firefox webkit
-      - run: corepack pnpm build
-      - run: corepack pnpm exec playwright test --project=chromium --project=firefox --project=webkit --project=mobile-chromium
+        run: pnpm add -Dw --lockfile=false @playwright/test@${{ matrix.playwright }}
+      - run: pnpm exec playwright install --with-deps chromium firefox webkit
+      - run: pnpm build
+      - run: pnpm exec playwright test --project=chromium --project=firefox --project=webkit --project=mobile-chromium

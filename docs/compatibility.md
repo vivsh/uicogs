@@ -1,6 +1,6 @@
 # Runtime Compatibility
 
-UiCogs targets modern browsers and Node.js 20 and 22.
+UiCogs targets modern browsers and Node.js 22 and 24.
 
 ## Browsers
 
@@ -16,7 +16,7 @@ The default transport requires Fetch. SSE also requires streaming Fetch and `Rea
 
 ## Node.js
 
-Node.js 20 and 22 provide the required Fetch APIs.
+Node.js 22 and 24 provide the required Fetch APIs.
 
 Schema parsing, validation, local resources, and direct cache operations do not require Fetch.
 

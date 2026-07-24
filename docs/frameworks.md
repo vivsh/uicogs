@@ -332,5 +332,5 @@ The suite covers list loading, filtering, pagination, relations, forms, file inp
 Run:
 
 ```sh
-corepack pnpm test:browser
+pnpm test:browser
 ```

@@ -32,7 +32,7 @@
     "@uicogs/vue": "workspace:^"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "peerDependencies": {
     "quasar": "^2.18.0",

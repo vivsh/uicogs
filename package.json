@@ -8,30 +8,30 @@
   "type": "module",
   "packageManager": "pnpm@11.15.1",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
-    "build": "corepack pnpm -r build",
+    "build": "pnpm -r build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:browser": "corepack pnpm build && playwright test",
+    "test:browser": "pnpm build && playwright test",
     "test:types": "tsd --typings packages/core/src/index.ts --files tests/types/*.test-d.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check:packages": "corepack pnpm -r exec publint --pack=false",
+    "check:packages": "pnpm -r exec publint --pack=false",
     "check:standalone": "node scripts/check-standalone.mjs",
-    "api:report": "corepack pnpm build && node scripts/api-report.mjs --write",
+    "api:report": "pnpm build && node scripts/api-report.mjs --write",
     "api:check": "node scripts/api-report.mjs --check",
     "test:consumers": "node scripts/test-packed-consumers.mjs",
     "test:stress": "vitest run --config vitest.stress.config.ts",
-    "budget:record": "corepack pnpm build && node scripts/check-budgets.mjs --write",
+    "budget:record": "pnpm build && node scripts/check-budgets.mjs --write",
     "budget:check": "node scripts/check-budgets.mjs --check",
-    "audit:prod": "corepack pnpm audit --prod --audit-level high",
+    "audit:prod": "pnpm audit --prod --audit-level high",
     "sbom:generate": "node scripts/generate-sbom.mjs",
-    "check": "corepack pnpm format:check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test:coverage && corepack pnpm test:types && corepack pnpm test:browser && corepack pnpm build && corepack pnpm check:standalone && corepack pnpm check:packages",
-    "release:check": "corepack pnpm format:check && corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test:coverage && corepack pnpm test:types && corepack pnpm build && corepack pnpm api:check && corepack pnpm budget:check && corepack pnpm test:browser && corepack pnpm test:consumers && corepack pnpm check:standalone && corepack pnpm check:packages && corepack pnpm audit:prod && corepack pnpm sbom:generate"
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm test:types && pnpm test:browser && pnpm build && pnpm check:standalone && pnpm check:packages",
+    "release:check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm test:types && pnpm build && pnpm api:check && pnpm budget:check && pnpm test:browser && pnpm test:consumers && pnpm check:standalone && pnpm check:packages && pnpm audit:prod && pnpm sbom:generate"
   },
   "devDependencies": {
     "@changesets/cli": "^2.29.7",

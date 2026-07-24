@@ -1,102 +1,36 @@
 # UiCogs
 
-UiCogs is a TypeScript library for client-side data workflows.
+**One definition for the data work your application repeats everywhere.**
 
-A schema describes how data is parsed, validated, written, filtered, sorted, formatted, and edited. A resource connects that schema to local or remote data. Runtime controllers add loading state, errors, forms, pagination, relations, caching, authentication, and live updates.
+UiCogs is a TypeScript library for operational applications: the products with lists, filters, forms, detail screens, relations, authentication, and APIs that all need to agree about the same entities.
 
-The same declaration is used across these workflows. This reduces repeated field lists, payload mapping, form rules, table configuration, and response handling.
+Describe an entity once. UiCogs carries that definition through parsing, validation, API payloads, filters, editors, formatting, resources, forms, relations, caching, and framework bindings—without turning your application into a global state store.
 
-UiCogs is currently `0.1.0`. The API may change before a stable 1.0 release.
-
-## Highlights
-
-- Definitions are pure, typed, deeply immutable, and reusable across runtimes.
-- Fields hold runtime type data and semantic editor, formatter, filter, and sorter descriptors.
-- Parsing is synchronous. Validation has one asynchronous API.
-- Remote resources use the built-in Fetch transport. Normal applications do not create a transport.
-- Local resources use the same controllers and forms as remote resources.
-- Entity data is normalized and shared. Loading state and errors remain local to each controller.
-- Direct cache writes synchronously update existing object and collection controllers.
-- Application context is an immutable store with automatic auth composition.
-- One optional local, session, or IndexedDB backend can persist application context and normalized cache data.
-- Forms select JSON or multipart encoding after schema writers run.
-- Relations support to-one, to-many, bulk target loading, endpoint mutations, and explicit join resources.
-- JWT and cookie authentication are runtime strategies. Authentication contributes context and cache scope automatically.
-- SSE events update the same normalized cache used by requests and direct writes.
-- Vue, React, and Quasar use the same framework-neutral controllers.
-- OpenAPI 3.0 and 3.1 documents can generate definitions and operations at build time.
-
-## When To Use UiCogs
-
-Use UiCogs when an application has structured entities and repeated data workflows.
-
-It is a good fit when several of these statements are true:
-
-- The same fields appear in forms, tables, filters, detail views, and API payloads.
-- List and detail screens must share entity data without sharing page loading or error state.
-- The application needs local and remote resources with the same API.
-- Forms need asynchronous validation, server field errors, or automatic file uploads.
-- Relations must stay reactive when target entities change.
-- Authentication must isolate cached data by user or tenant.
-- The UI should be generated from semantic field metadata.
-- Vue and React consumers must share the same data engine.
-
-UiCogs is designed for operational applications, administration interfaces, CRUD-heavy products, and schema-driven tools.
-
-## When Not To Use UiCogs
-
-Do not use UiCogs only for runtime validation. A dedicated validation library has a smaller surface.
-
-Do not use UiCogs as a general replacement for Pinia, Redux, or Zustand. It models resource workflows, auth-owned state, and a small runtime context consumed by those workflows. It does not model arbitrary view state.
-
-Do not use UiCogs when the application has a few requests and no repeated field behavior. Direct Fetch calls and local component state will be simpler.
-
-Do not use UiCogs as an ORM or server framework. It does not own a database, server authorization, routing, or business transactions.
-
-Do not use the OpenAPI generator when unsupported schema constructs must be reproduced without review. Strict generation fails instead of guessing.
-
-Do not assume final 1.0 stability while the package version is below 1.0.
-
-## Packages
-
-Install only the runtime and adapters used by the application.
-
-This work does not publish packages automatically. Use workspace links or packed artifacts until a package release is published. The commands below show the package installation surface after publication.
-
-```sh
-# Headless runtime
-pnpm add @uicogs/core
-
-# Vue runtime
-pnpm add @uicogs/vue vue
-
-# React runtime
-pnpm add @uicogs/react react
-
-# Optional packages
-pnpm add @uicogs/auth @uicogs/http
-pnpm add @uicogs/storage
-pnpm add @uicogs/quasar quasar
+```text
+fields + schema + resource
+          │
+          ├── forms and validation
+          ├── lists, filters, sorting, and pagination
+          ├── normalized cache and relations
+          ├── local or remote operations
+          └── Vue, React, and Quasar interfaces
 ```
 
-| Package              | Responsibility                                                                          |
-| -------------------- | --------------------------------------------------------------------------------------- |
-| `@uicogs/core`       | Definitions, runtime, Fetch transport, cache, controllers, forms, relations, and events |
-| `@uicogs/auth`       | JWT and cookie auth strategies, token storage adapters, and auth-owned state            |
-| `@uicogs/http`       | SSE, additional pagination adapters, multipart exports, and server-error adapters       |
-| `@uicogs/vue`        | Vue-reactive controller adapter, view models, and runtime binding                       |
-| `@uicogs/vue-router` | Controlled Vue Router state for resource workflows                                      |
-| `@uicogs/react`      | React hooks based on `useSyncExternalStore`                                             |
-| `@uicogs/quasar`     | Quasar editors, formatters, forms, tables, actions, and resource views                  |
-| `@uicogs/openapi`    | OpenAPI reader, generator, and CLI                                                      |
-| `@uicogs/storage`    | Shared local, session, and IndexedDB persistence backends                               |
-| `@uicogs/legacy`     | Migration adapters for older constructor and mutable data-source code                   |
+> **Status:** UiCogs is `0.1.0`. It is usable as a workspace or packed artifact, but its public API can change before 1.0.
 
-The Vue and React packages re-export the core authoring surface.
+## Why UiCogs?
 
-## First Example
+Most client applications repeat the same knowledge in several places: a type, validation rules, form configuration, a table column list, a filter, payload mapping, endpoint code, and cache updates. They gradually drift apart.
 
-Definitions do not need a runtime.
+UiCogs gives that knowledge one immutable home.
+
+It is a good fit for admin tools, back-office products, CRUD-heavy SaaS applications, internal platforms, and schema-driven interfaces where entities appear in more than one workflow.
+
+It is not a replacement for a small `fetch()` call, a validation-only library, an ORM, a server framework, or general view-state management. Use it when repeated entity workflows are the problem.
+
+## A complete small example
+
+Start with pure definitions. They have no cache, network client, auth session, or framework state, so they can live anywhere and be reused by more than one runtime.
 
 ```ts
 import { fields, filter, format, operation, resource, schema } from "@uicogs/core";
@@ -127,7 +61,7 @@ export const Tasks = resource({
 });
 ```
 
-The application creates one shared runtime.
+Create one application-owned runtime.
 
 ```ts
 import { createUiCogs } from "@uicogs/core";
@@ -140,333 +74,178 @@ export const api = createUiCogs({
 });
 ```
 
-Each resource lookup creates a fresh workflow controller.
-
-```ts
-const pageTasks = api.resource(Tasks);
-const sidebarTasks = api.resource(Tasks);
-
-pageTasks !== sidebarTasks; // true
-
-await pageTasks.filter({ complete: false }).sort("title").page(1, 25).load();
-
-pageTasks.all();
-pageTasks.loading;
-pageTasks.error;
-pageTasks.pageInfo;
-
-const task = pageTasks.get(42);
-await task.load();
-
-task.value;
-task.loading;
-task.error;
-```
-
-The two resource controllers do not share loading, errors, filters, or pagination. They do share immutable cached entity snapshots.
-
-## Definitions And Runtime
-
-UiCogs has two layers.
-
-```text
-definition layer
-  schema -> view/form -> resource -> operation reference
-
-runtime layer
-  createUiCogs -> cache -> requests -> auth/live -> controllers
-```
-
-Definitions are safe to import from any module. They contain no cache, Fetch client, auth session, reactive state, or current context value.
-
-`createUiCogs()` creates an application-owned runtime. The package does not create a process-global runtime. A second call creates an independent cache, request coordinator, auth controller, and live connection.
-
-The application should export its normal runtime from one module.
-
-```ts
-// api.ts
-export const api = createUiCogs({ ... });
-```
-
-Call `api.dispose()` when that runtime is permanently shut down.
-
-## Runtime Context
-
-Application context is an immutable external store.
-
-```ts
-api.context.value.locale;
-
-api.context.update({ locale: "fr" });
-
-api.context.set({
-  locale: "fr",
-  timeZone: "Europe/Paris",
-});
-```
-
-`value` is deeply readonly. Updates replace the snapshot and notify context-sensitive workflows automatically. There is no `contextChanged()` call.
-
-An authenticated runtime composes the exact auth snapshot into context:
-
-```ts
-api.context.value.auth === api.auth.value;
-```
-
-One optional backend can persist application context and normalized cache data. It never stores composed auth context.
-
-```ts
-import { storage } from "@uicogs/storage";
-
-const api = createUiCogs({
-  context: { locale: "en", timeZone: "UTC" },
-  persistence: {
-    backend: storage.indexedDb({
-      database: "application",
-      store: "uicogs",
-      namespace: "main-api",
-    }),
-  },
-});
-```
-
-Context and cache persistence are enabled by default when a backend is configured. Local storage, session storage, and IndexedDB backends are available. A context parsing schema is optional.
-
-See [Runtime Context](docs/context.md).
-
-## Schemas
-
-Object and decorator syntax produce the same immutable `Schema` implementation.
-
-```ts
-const parsed = Task.parse({ id: "42", title: "Review" });
-const result = await Task.validate(parsed);
-const payload = Task.write(parsed);
-```
-
-`parse()` performs deterministic structural conversion. It accepts no context. It throws `ParseError` for invalid external data.
-
-`validate()` always returns a promise. Validators may be synchronous or asynchronous. Rule failures are returned as structured issues.
-
-`write()` applies field aliases and writers. Read-only and computed fields are omitted.
-
-Schema composition never mutates the source.
-
-```ts
-const TaskSummary = Task.keep("id", "title");
-const TaskEdit = Task.drop("id").toForm({ mode: "patch" });
-const ExtendedTask = Task.extend({ note: fields.Text() });
-```
-
-See [Schemas](docs/schemas.md) and [Validation](docs/validation.md).
-
-## Resources And Cache
-
-A resource definition owns one canonical entity identity. It defines the schema, key, source, URL, views, queries, and operations.
-
-A resource controller owns one local workflow. The default controller is also a collection.
-
-The normalized cache uses this entity identity:
-
-```text
-authentication scope -> resource name -> encoded key
-```
-
-Collections store ordered entity keys. They do not store entity copies.
-
-Use the typed resource cache facade for synchronous ingestion.
+Use fresh controllers for each workflow. They share entity data, but never page-local loading, errors, filters, pagination, drafts, or cancellation.
 
 ```ts
 const tasks = api.resource(Tasks);
 
-tasks.cache.add({ id: 1, title: "Draft", complete: false });
-tasks.cache.upsert({ id: 1, title: "Reviewed" });
-tasks.cache.remove(1);
+await tasks.filter({ complete: false }).sort("title").page(1, 25).load();
+
+tasks.all();
+tasks.loading;
+tasks.error;
+
+const task = tasks.get(42);
+await task.load();
+
+const edit = task.form(Task.keep("title", "complete").toForm({ mode: "patch" }));
+edit.set("title", "Ship UiCogs");
+await edit.submit();
 ```
 
-Existing object and collection controllers repaint immediately after these calls. A follow-up `load()` is not required.
+## The model: definitions, runtime, controllers
 
-See [Resources](docs/resources.md) and [Caching](docs/caching.md).
+UiCogs stays predictable because its ownership boundaries are explicit.
 
-## Local Resources
+| Layer           | Owns                                                                                 | Does not own                                             |
+| --------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| **Definitions** | fields, schemas, resources, operations, forms, views                                 | a network client, cache, current user, or reactive state |
+| **Runtime**     | registry, Fetch requests, normalized cache, auth, context, persistence, live updates | a process-global singleton                               |
+| **Controllers** | one list, object, form, relation, or action workflow                                 | another controller's loading state or draft              |
 
-A local resource has no URL.
+Within one runtime, these are shared:
+
+- immutable normalized entity snapshots and collection keys;
+- request execution for equivalent in-flight requests;
+- application context, authentication state and cache scope;
+- optional persistence and server-sent events.
+
+These remain local to each controller:
+
+- loading and request errors;
+- filters, sorting, pagination, and cancellation;
+- form drafts, dirty state, validation, and submission progress;
+- action progress and result state.
+
+Two screens can therefore show the same task without fighting over each other's pagination spinner or unsaved form draft.
+
+## What it handles
+
+### Typed, immutable schemas
+
+Fields carry runtime parsing and semantic metadata for forms and displays. Schemas can be composed with `keep`, `drop`, `extend`, `modify`, `partial`, `required`, `view`, `toQuery`, and `toForm`; every operation returns a new immutable definition.
+
+Parsing is synchronous and context-free. Validation always returns a promise, so a field can perform a cancellable server check while preserving one API:
 
 ```ts
-import { local, resource } from "@uicogs/core";
-
-const SelectedTasks = resource({
-  name: "selected-tasks",
-  schema: Task,
-  key: "id",
-  source: local({
-    initial: [{ id: 1, title: "Review", complete: false }],
-    generateKey: ({ existing }) => Math.max(0, ...existing.map(Number)) + 1,
+const Account = schema.withContext<AppContext>()({
+  username: fields.Str({
+    validate: [
+      async ({ value, context, signal }) =>
+        (await context.names.isAvailable(value, signal))
+          ? undefined
+          : "This username is already taken",
+    ],
   }),
 });
 ```
 
-Local CRUD methods remain asynchronous. Forms and framework adapters do not branch on the source type.
+Interactive form validation can be debounced; a newer validation cancels the old generation. Submit validation runs immediately.
 
-## Forms And Uploads
+### Resources that work locally or remotely
 
-Forms own isolated drafts. Editing a form never mutates the cache.
+Resources are the home for base URLs, operations, request/response schemas, pagination, encodings, and failure mapping. Remote resources use Fetch; local resources expose the same controller and form APIs, so UI code does not branch by source.
 
-```ts
-const TaskEdit = Task.keep("title", "complete")
-  .extend({ attachment: fields.File() })
-  .toForm({ mode: "patch", encoding: "auto" });
+Payload writers run before JSON or multipart selection. File values automatically select multipart encoding when necessary.
 
-const form = api.resource(Tasks).get(42).form(TaskEdit);
+### A cache designed for UI workflows
 
-form.set("title", "Updated title");
-const result = await form.submit();
-
-if (!result.success) {
-  console.log(result.failure.issues);
-}
-```
-
-`encoding: "auto"` runs schema and form writers first. It sends JSON when no binary value remains. It sends `FormData` when a file or blob remains.
-
-Nested file paths, file lists, unchanged remote files, replacements, and removals are handled by multipart adapters. Fetch upload progress is indeterminate because Fetch does not expose reliable upload progress.
-
-See [Forms](docs/forms.md) and [Transport](docs/transport.md).
-
-## Relations And Views
-
-Relations refer to resource definitions.
+Entity identity is scoped by resource and key. Collections hold ordered keys rather than duplicate entity objects. Detail responses, lists, relations, mutations, direct writes, and live events all normalize through the same cache entry.
 
 ```ts
-const Comment = schema({
-  id: fields.ID(),
-  author: fields.Ref({ resource: Users, required: true }),
-  reviewers: fields.RefList({ resource: Users }),
-});
+const tasks = api.resource(Tasks);
+
+tasks.cache.add(value);
+tasks.cache.upsert(patch);
+tasks.cache.remove(id);
+tasks.cache.replaceAll(values);
 ```
 
-Included target objects are normalized into the target resource cache. Key-backed `RefList` relations load missing remote targets with one configurable list request. The default encoding is `?id=3&id=7&id=12`.
+Those writes synchronously notify existing controllers. Vue and React views update without an extra `load()`.
 
-Attributed many-to-many relations use an explicit join resource. Relation controllers expose target values and join entries separately.
+Cache policies include `cache-first`, `network-only`, and `stale-while-revalidate`. Equivalent concurrent requests share one network execution while each controller retains its own loading and error state.
 
-Views select read-only resource fields and may add synchronous computed fields. Views do not create another entity cache and cannot be mutation payloads.
+### Relations, auth, persistence, and live data
 
-See [Resources](docs/resources.md#relations).
+- To-one, key-backed to-many, query-driven, and explicit join-resource relations.
+- Page, offset, cursor, link-header, client, and custom pagination adapters.
+- JWT and cookie authentication strategies with auth-owned cache scope.
+- Local storage, session storage, and IndexedDB persistence backends.
+- Optional Fetch-stream server-sent events that update the normalized cache.
+- OpenAPI 3.0 and 3.1 definition and operation generation at build time.
 
-## Authentication
+## Frameworks
 
-Authentication is an immutable strategy passed to the runtime.
+The core owns behavior; framework packages observe controllers rather than duplicating cache or request logic.
 
-```ts
-import { jwtAuth, memoryAuthStorage } from "@uicogs/auth";
+| Package              | Use it for                                                                |
+| -------------------- | ------------------------------------------------------------------------- |
+| `@uicogs/core`       | definitions, runtime, Fetch transport, cache, resources, forms, relations |
+| `@uicogs/vue`        | Vue-reactive controllers and an application-bound injection plugin        |
+| `@uicogs/react`      | React hooks built on `useSyncExternalStore`                               |
+| `@uicogs/quasar`     | Quasar fields, forms, tables, actions, and resource views                 |
+| `@uicogs/vue-router` | controlled resource workflow state in Vue Router                          |
+| `@uicogs/auth`       | JWT and cookie auth strategies                                            |
+| `@uicogs/http`       | SSE, pagination adapters, multipart conventions, server-error adapters    |
+| `@uicogs/storage`    | local, session, and IndexedDB persistence                                 |
+| `@uicogs/openapi`    | OpenAPI reader, generator, and CLI                                        |
+| `@uicogs/legacy`     | migration adapters for older mutable data-source code                     |
 
-const auth = jwtAuth({
-  claims: Claims,
-  login: Sessions.operation("login"),
-  refresh: Sessions.operation("refresh"),
-  logout: Sessions.operation("logout"),
-  currentUser: Users.operation("current"),
-  storage: memoryAuthStorage(),
-  permissions: ({ claims }) => claims.permissions,
-  cacheScope: ({ claims }) => ({ subject: claims.sub, tenant: claims.tenant }),
-});
-
-export const api = createUiCogs({
-  baseUrl: "/api/",
-  resources: [Users, Sessions],
-  auth,
-  context: { locale: "en" },
-});
-```
-
-The runtime creates and owns the auth controller. It injects the auth snapshot into runtime context. It applies auth request middleware. It derives cache scope from the strategy. Application context does not repeat auth state.
-
-Cookie auth uses the same runtime integration. It manages Fetch credentials and optional CSRF headers. It does not read or store HttpOnly cookies.
-
-Initialization starts automatically. There is no runtime `ready` promise. Protected requests wait for initialization. Local and unauthenticated operations do not wait.
-
-Client-side JWT parsing does not verify a token signature. Server authentication and authorization remain authoritative.
-
-See [Authentication](docs/authentication.md).
-
-## Live Updates
-
-`@uicogs/http` provides a Fetch-based SSE source.
-
-```ts
-import { sse } from "@uicogs/http";
-
-const api = createUiCogs({
-  baseUrl: "/api/",
-  resources: [Tasks],
-  live: sse({ url: "events/" }),
-});
-```
-
-Default event names are `<resource>`, `<resource>:delete`, and `<resource>:invalidate`. Upserts, tombstones, and invalidations use the same cache paths as ordinary resource writes.
-
-SSE is one-way. Creates, updates, relation mutations, and actions still use normal operations.
-
-## Vue, React, And Quasar
-
-Vue is the primary reactive integration.
+Vue applications can bind the exact runtime they created, without a package-global singleton:
 
 ```ts
 import { bindUiCogs, createUiCogs } from "@uicogs/vue";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
 export const { UiCogsPlugin, useUiCogs } = bindUiCogs(api);
+
+// main.ts
+app.use(UiCogsPlugin);
+
+// a component
+const api = useUiCogs();
 ```
 
-The plugin provides the exact application-owned runtime. It does not create or dispose another runtime.
+## Installation
 
-React hooks observe the same controllers through `useSyncExternalStore`. Controller creation should be memoized by logical identity.
-
-Quasar provides schema-driven fields, forms, tables, resource views, actions, deletion, cancellation, alerts, and confirmations. Quasar components do not construct URLs or own cache logic.
-
-See [Frameworks](docs/frameworks.md).
-
-## Current Limits
-
-- Binary download response modes are not part of 1.0.
-- Fetch upload progress is indeterminate.
-- One live source is supported per runtime.
-- SSE replay IDs survive reconnects in one process only. They are not persisted across reloads.
-- Client predicates can update collection membership only when membership is provable. Uncertain collections become stale.
-- SSR-specific hydration and request-lifecycle APIs are not provided.
-- Axios is not supported. A structural custom transport exists for specialized environments and tests.
-- The legacy package is a migration tool. It is not the preferred authoring API.
-
-## Documentation
-
-The guides use short, literal statements. Each guide defines terms before using them. Code examples use public exports.
-
-- [Architecture](docs/architecture.md)
-- [Schemas](docs/schemas.md)
-- [Validation](docs/validation.md)
-- [Runtime context and persistence](docs/context.md)
-- [Resources, operations, views, and relations](docs/resources.md)
-- [Caching and request coordination](docs/caching.md)
-- [Forms, files, and server failures](docs/forms.md)
-- [Authentication and context](docs/authentication.md)
-- [Default Fetch transport](docs/transport.md)
-- [Vue, React, Vue Router, and Quasar](docs/frameworks.md)
-- [OpenAPI generation](docs/openapi.md)
-- [Runtime compatibility](docs/compatibility.md)
-- [Production checklist](docs/production.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Migration](docs/migration.md)
-- [Package stability](docs/stability.md)
-- [Implemented workflow matrix](docs/parity.md)
-
-## Repository Verification
-
-Run the deterministic release gate:
+Install only the runtime and adapters your application uses once packages are published:
 
 ```sh
-corepack pnpm release:check
+pnpm add @uicogs/core
+pnpm add @uicogs/vue vue       # or @uicogs/react react
+pnpm add @uicogs/auth @uicogs/storage  # optional
 ```
 
-It runs formatting, linting, TypeScript, runtime coverage, type assertions, builds, API reports, bundle budgets, browser workflows, packed consumers, standalone-content checks, package audits, dependency audit, and SBOM generation.
+Until publication, use workspace links or packed artifacts.
 
-The browser suite covers Chromium, Firefox, WebKit, and mobile Chromium. Packed consumers cover ESM, CommonJS, and strict TypeScript.
+## Choose UiCogs when
+
+- one entity needs to drive forms, tables, filters, payloads, and detail views;
+- list and detail views should share data but not their temporary UI state;
+- local and remote data need the same workflow interface;
+- forms need async validation, server issues, or file uploads;
+- relations must remain current as target entities change;
+- a Vue and React product should share one data engine.
+
+## Read next
+
+- [Architecture](docs/architecture.md) — runtime lifecycle, ownership, data flow, and cache identity.
+- [Schemas](docs/schemas.md) and [Validation](docs/validation.md) — fields, composition, parsing, and async checks.
+- [Resources](docs/resources.md), [Forms](docs/forms.md), and [Caching](docs/caching.md) — the primary application workflow.
+- [Authentication](docs/authentication.md), [Context](docs/context.md), and [Transport](docs/transport.md) — runtime services and request behavior.
+- [Frameworks](docs/frameworks.md) — Vue, React, Quasar, and Vue Router.
+- [OpenAPI](docs/openapi.md), [Migration](docs/migration.md), and [Production](docs/production.md) — generation, adoption, and release readiness.
+
+## Development
+
+The repository uses Node.js 22+ and pnpm 11.15.1.
+
+```sh
+pnpm install
+pnpm typecheck
+pnpm test
+pnpm test:types
+pnpm build
+```
+
+Run `pnpm release:check` before a release. It includes formatting, linting, type checks, coverage, browser tests, packed-consumer tests, public API and package checks, production dependency audit, and SBOM generation.
