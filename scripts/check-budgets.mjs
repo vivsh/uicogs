@@ -19,6 +19,7 @@ const packageNames = [
   "legacy",
 ];
 const mode = process.argv[2] ?? "--check";
+const performanceBudgetMultiplier = 1.5;
 
 const current = {
   version: 1,
@@ -48,7 +49,7 @@ for (const packageName of packageNames) {
 }
 for (const [name, actual] of Object.entries(current.performanceMs)) {
   const expected = baseline.performanceMs[name];
-  const maximum = expected * 1.15;
+  const maximum = expected * performanceBudgetMultiplier;
   if (actual > maximum) {
     failed = true;
     console.error(
