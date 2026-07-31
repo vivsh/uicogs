@@ -25,16 +25,23 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --external vue"
+    "build": "tsup src/index.ts --format esm,cjs --dts --external vue --external vue-router"
   },
   "dependencies": {
-    "@uicogs/core": "workspace:^"
+    "@uicogs/core": "workspace:^",
+    "@uicogs/routes": "workspace:^"
   },
   "engines": {
     "node": ">=22"
   },
   "peerDependencies": {
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "vue-router": "^4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vue-router": {
+      "optional": true
+    }
   },
   "publishConfig": {
     "access": "public"

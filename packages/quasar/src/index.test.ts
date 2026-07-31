@@ -79,6 +79,17 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.find("button").text()).toBe("Submit");
   });
 
+  /** Verifies that a form view limits only its generated controls. */
+  it("uses an optional view for generated controls", () => {
+    const schema = defineSchema({ title: fields.Str(), complete: fields.Bool() });
+    const form = createFormController(schema.toForm(), { title: "One", complete: false });
+    const wrapper = mount(UcForm, {
+      props: { form, view: schema.view({ fields: ["title"] as const }) },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.findAll("input")).toHaveLength(1);
+  });
+
   it("renders field errors, summaries, progress, submit state, and success", async () => {
     const schema = defineSchema({ title: fields.Str({ required: true }) });
     const form = createFormController(
@@ -319,7 +330,7 @@ describe("Quasar views and tables", () => {
 
   it("derives columns, selection, pagination, sorting, aggregation, and loading", async () => {
     const requests: TransportRequest[] = [];
-    const { resource } = await resourceFixture(async (request) => {
+    const { resource, schema } = await resourceFixture(async (request) => {
       requests.push(request);
       return {
         status: 200,
@@ -338,7 +349,7 @@ describe("Quasar views and tables", () => {
         serial: true,
         selection: "multiple",
         selectedKeys: [1],
-        exclude: ["secret"],
+        view: schema.view({ fields: ["id", "title"] as const }),
         aggregate: (rows) => [{ title: `Count ${rows.length}` }],
       },
       global: { stubs: quasarStubs },
@@ -364,6 +375,31 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("Count 2");
   });
 
+  /** Verifies that a table can render and control a named query collection. */
+  it("accepts a named query collection", async () => {
+    const requests: TransportRequest[] = [];
+    const { resource } = await resourceFixture(async (request) => {
+      requests.push(request);
+      return { status: 200, data: [{ id: 1, title: "One", secret: "hidden" }] };
+    });
+    const collection = resource.query("search", { text: "one" });
+    await collection.load();
+
+    const wrapper = mount(UcTable, {
+      props: { collection },
+      global: { stubs: quasarStubs },
+    });
+    const table = wrapper.findComponent({ name: "QTableStub" });
+    expect(table.props("rows")).toEqual(collection.all());
+
+    table.vm.$emit("request", {
+      pagination: { page: 2, rowsPerPage: 10, sortBy: "title", descending: true },
+    });
+    await flushPromises();
+    expect(requests.at(-1)?.url).toContain("tasks/search/");
+    expect(requests.at(-1)?.query).toMatchObject({ text: "one", page: 2, page_size: 10 });
+  });
+
   it("auto-loads empty tables and emits load failures", async () => {
     const successful = externalResource({ rows: [] });
     mount(UcTable, {
@@ -382,17 +418,14 @@ describe("Quasar views and tables", () => {
     expect(wrapper.emitted("failure")?.[0]?.[0]).toBeInstanceOf(Error);
   });
 
-  it("supports included custom columns, custom body slots, and guarded infinite loading", async () => {
+  /** Verifies a view replaces component-level column filtering. */
+  it("uses a view with custom body slots and guarded infinite loading", async () => {
     const resource = externalResource({ rows: [{ id: 1, title: "One" }], hasMore: true });
     const wrapper = mount(UcTable, {
       props: {
         resource,
         infinite: true,
-        include: ["title"],
-        columns: [
-          { name: "id", label: "Id", field: "id" },
-          { name: "title", label: "Title", field: "title" },
-        ],
+        view: { shape: { title: {} } },
       },
       slots: { body: () => h("div", { class: "custom-body" }, "Custom") },
       global: { stubs: quasarStubs },
@@ -1158,11 +1191,19 @@ async function resourceFixture(
     title: fields.Str({ required: true, format: format.Text(), sort: "title" }),
     secret: fields.Str({ writeonly: true }),
   });
-  const definition = registerResource(cogs)({ name: "tasks", url: "tasks/", schema, key: "id" });
+  const Search = defineSchema({ text: fields.Str() });
+  const definition = registerResource(cogs)({
+    name: "tasks",
+    url: "tasks/",
+    schema,
+    key: "id",
+    queries: { search: { input: Search, path: "search/" } },
+  });
   const resource = cogs.resource(definition);
   await resource.load();
   return {
     resource,
+    schema,
     editForm: schema.keep("title").toForm({ mode: "patch" }),
     createForm: schema.keep("title").toForm({ mode: "create" }),
   };

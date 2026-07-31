@@ -71,6 +71,11 @@ interface FormLike extends ExternalStore<object> {
   submit(): Promise<unknown>;
 }
 
+/** Immutable field projection used only to choose automatically rendered controls or columns. */
+interface ViewLike {
+  readonly shape: Readonly<Record<string, unknown>>;
+}
+
 interface IssueLike {
   readonly path: readonly (string | number)[];
   readonly message: string;
@@ -132,6 +137,20 @@ interface ResourceLike extends ExternalStore<object> {
   get(...args: never[]): ResourceObjectLike;
 }
 
+interface TableCollectionLike extends ExternalStore<object> {
+  readonly resource: ResourceLike["definition"];
+  readonly loading: boolean;
+  readonly pageInfo?: unknown;
+  all(): readonly object[];
+  load(): Promise<unknown>;
+  page(index: number, size?: number): TableCollectionLike;
+  sort(field?: string, descending?: boolean): TableCollectionLike;
+  nextPage(): TableCollectionLike;
+  hasMore(): boolean;
+}
+
+type TableSource = ResourceLike | TableCollectionLike;
+
 interface ActionLike extends ExternalStore<object> {
   readonly loading: boolean;
   readonly progress: FormProgress;
@@ -192,6 +211,7 @@ export const UcForm = defineComponent({
   name: "UcForm",
   props: {
     form: { type: Object as PropType<FormLike>, required: true },
+    view: Object as PropType<ViewLike>,
     failureMessage: {
       type: String,
       default: "Form validation failed. Please check the error messages.",
@@ -204,7 +224,7 @@ export const UcForm = defineComponent({
     return () => {
       const summary = [...form.unboundIssues, ...form.issues.filter((issue) => !issue.path.length)];
       const children = slots.default?.() ?? [
-        ...Object.keys(form.schema.fields.shape).map((name) => h(UcField, { key: name, name })),
+        ...Object.keys(formView(form, props.view)).map((name) => h(UcField, { key: name, name })),
         h(UcSubmit, { key: "$submit" }),
       ];
       return h(
@@ -481,10 +501,10 @@ export const UcTable = defineComponent({
   name: "UcTable",
   inheritAttrs: false,
   props: {
-    resource: { type: Object as PropType<ResourceLike>, required: true },
+    resource: Object as PropType<ResourceLike>,
+    collection: Object as PropType<TableCollectionLike>,
+    view: Object as PropType<ViewLike>,
     columns: Array as PropType<readonly UcResourceColumn[]>,
-    include: Array as PropType<readonly string[]>,
-    exclude: { type: Array as PropType<readonly string[]>, default: () => [] },
     selectedKeys: { type: Array as PropType<readonly EntityKey[]>, default: () => [] },
     selection: { type: String as PropType<"none" | "single" | "multiple">, default: "none" },
     serial: { type: Boolean, default: false },
@@ -503,22 +523,19 @@ export const UcTable = defineComponent({
   },
   emits: ["update:selectedKeys", "select", "loaded", "failure"],
   setup(props, { attrs, slots, emit }) {
-    const resource = vueReactive(props.resource);
-    const rows = computed(() => resource.all().map(entityRecord));
+    const source = tableSource(props.resource, props.collection);
+    const collection = vueReactive(source);
+    const definition = collectionDefinition(source, props.view);
+    const rows = computed(() => collection.all().map(entityRecord));
     const selectedRows = computed(() => {
       const selected = new Set(props.selectedKeys);
-      return rows.value.filter((row) => selected.has(keyFor(resource, row)));
+      return rows.value.filter((row) => selected.has(keyFor(definition, row)));
     });
     const columns = computed(() => {
-      const excluded = new Set(props.exclude);
-      const included = props.include ? new Set(props.include) : undefined;
-      const source = props.columns ?? columnsFor(resource);
-      const filtered = source.filter(
-        (column) => !excluded.has(column.name) && (!included || included.has(column.name)),
-      );
+      const sourceColumns = props.columns ?? columnsFor(definition);
       return props.serial
-        ? [{ name: "$serial", label: "#", field: "$serial", align: "right" as const }, ...filtered]
-        : filtered;
+        ? [{ name: "$serial", label: "#", field: "$serial", align: "right" as const }, ...sourceColumns]
+        : sourceColumns;
     });
     const run = async (load: () => Promise<unknown>): Promise<void> => {
       try {
@@ -538,22 +555,22 @@ export const UcTable = defineComponent({
     }): void => {
       const page = details.pagination;
       if (!page) return;
-      resource.sort(page.sortBy, page.descending);
-      if (page.page) resource.page(page.page, page.rowsPerPage || props.pageSize);
-      void run(() => resource.load());
+      collection.sort(page.sortBy, page.descending);
+      if (page.page) collection.page(page.page, page.rowsPerPage || props.pageSize);
+      void run(() => collection.load());
     };
     const scroll = (event: Event): void => {
-      if (!props.infinite || resource.loading || !resource.hasMore()) return;
+      if (!props.infinite || collection.loading || !collection.hasMore()) return;
       const target = event.target as HTMLElement | null;
       if (!target || target.scrollTop + target.clientHeight + 24 < target.scrollHeight) return;
-      resource.nextPage();
-      void run(() => resource.load());
+      collection.nextPage();
+      void run(() => collection.load());
     };
     onMounted(() => {
-      if (props.autoLoad && !rows.value.length) void run(() => resource.load());
+      if (props.autoLoad && !rows.value.length) void run(() => collection.load());
     });
     return () => {
-      const page = pageInfo(resource.pageInfo, props.pageSize);
+      const page = pageInfo(collection.pageInfo, props.pageSize);
       const tableSlots = { ...slots } as Record<
         string,
         ((...args: unknown[]) => unknown) | undefined
@@ -591,7 +608,7 @@ export const UcTable = defineComponent({
                 h(QTd, { props: rowProps, key: column.name }, () =>
                   column.name === "$serial"
                     ? rows.value.indexOf(item.row) + 1
-                    : renderField(resource, column.name, column.value, item.row),
+                    : renderField(definition, column.name, column.value, item.row),
                 ),
               ),
             ],
@@ -614,14 +631,14 @@ export const UcTable = defineComponent({
           ...attrs,
           rows: rows.value,
           columns: columns.value,
-          rowKey: (row: Readonly<Record<string, unknown>>) => keyFor(resource, row),
-          loading: resource.loading,
+          rowKey: (row: Readonly<Record<string, unknown>>) => keyFor(definition, row),
+          loading: collection.loading,
           selection: props.selection,
           selected: selectedRows.value,
           "onUpdate:selected": (selected: readonly Readonly<Record<string, unknown>>[]) =>
             emit(
               "update:selectedKeys",
-              selected.map((row) => keyFor(resource, row)),
+              selected.map((row) => keyFor(definition, row)),
             ),
           pagination: page,
           "onUpdate:pagination": () => undefined,
@@ -681,10 +698,10 @@ export const UcResourceView = defineComponent({
     const editController = shallowRef<FormLike>();
     const creating = shallowRef(false);
     const rows = computed(() => resource.all().map(entityRecord));
-    const columns = computed(() => props.columns ?? columnsFor(resource));
+    const columns = computed(() => props.columns ?? columnsFor(resource.definition));
     const selectedRows = computed(() => {
       const keys = new Set(props.selectedKeys);
-      return rows.value.filter((row) => keys.has(keyFor(resource, row)));
+      return rows.value.filter((row) => keys.has(keyFor(resource.definition, row)));
     });
 
     const run = async (operation: () => Promise<unknown>): Promise<void> => {
@@ -715,7 +732,7 @@ export const UcResourceView = defineComponent({
       emit("view", "list");
     };
     const open = (row: Readonly<Record<string, unknown>>): void => {
-      const key = keyFor(resource, row);
+      const key = keyFor(resource.definition, row);
       emit("select", row);
       emit("update:modelValue", key);
       bind(key);
@@ -1088,8 +1105,33 @@ function dialogResult(options: QDialogOptions): Promise<boolean> {
   });
 }
 
-function columnsFor(resource: ResourceLike): readonly UcResourceColumn[] {
-  return Object.entries(resource.definition.schema.shape).flatMap(([name, field]) => {
+function tableSource(
+  resource: ResourceLike | undefined,
+  collection: TableCollectionLike | undefined,
+): TableSource {
+  if (resource && collection) throw new Error("UcTable accepts either resource or collection, not both");
+  if (resource) return resource;
+  if (collection) return collection;
+  throw new Error("UcTable requires a resource or collection");
+}
+
+function collectionDefinition(source: TableSource, view?: ViewLike): ResourceLike["definition"] {
+  const definition = "definition" in source ? source.definition : source.resource;
+  if (!view) return definition;
+  return Object.freeze({ ...definition, schema: Object.freeze({ shape: view.shape }) });
+}
+
+function formView(form: FormLike, view?: ViewLike): Readonly<Record<string, unknown>> {
+  if (!view) return form.schema.fields.shape;
+  for (const name of Object.keys(view.shape)) {
+    if (!(name in form.schema.fields.shape))
+      throw new Error(`UcForm view field ${name} is not present in the form definition`);
+  }
+  return view.shape;
+}
+
+function columnsFor(definition: ResourceLike["definition"]): readonly UcResourceColumn[] {
+  return Object.entries(definition.schema.shape).flatMap(([name, field]) => {
     const options = fieldOptions(field);
     if (options?.writeonly === true) return [];
     return [
@@ -1104,8 +1146,11 @@ function columnsFor(resource: ResourceLike): readonly UcResourceColumn[] {
   });
 }
 
-function keyFor(resource: ResourceLike, row: Readonly<Record<string, unknown>>): EntityKey {
-  const key = resource.definition.key;
+function keyFor(
+  definition: ResourceLike["definition"],
+  row: Readonly<Record<string, unknown>>,
+): EntityKey {
+  const key = definition.key;
   const value =
     typeof key === "function"
       ? (key as (value: Readonly<Record<string, unknown>>) => unknown)(row)
@@ -1207,19 +1252,19 @@ function pageInfo(value: unknown, fallbackSize: number): Readonly<Record<string,
 }
 
 function renderField(
-  resource: ResourceLike,
+  definition: ResourceLike["definition"],
   name: string,
   value: unknown,
   row: Readonly<Record<string, unknown>>,
 ): RenderedField {
-  const field = resource.definition.schema.shape[name];
+  const field = definition.schema.shape[name];
   const descriptor = fieldOptions(field)?.format as Descriptor | undefined;
   if (!descriptor) return String(value ?? "");
   const options = optionsFor(descriptor);
   const formatter = quasarRenderers.formatter(descriptor);
   if (typeof formatter === "function")
     return (formatter as FormatterRenderer)(value, options, name, row) as RenderedField;
-  const column = columnsFor(resource).find((candidate) => candidate.name === name);
+  const column = columnsFor(definition).find((candidate) => candidate.name === name);
   return column?.format?.(value, row) ?? String(value ?? "");
 }
 
@@ -1318,7 +1363,7 @@ function defaultDetail(
       columns.map((column) => {
         const raw = typeof column.field === "function" ? column.field(value) : value[column.field];
         const formatted =
-          column.format?.(raw, value) ?? renderField(resource, column.name, raw, value);
+          column.format?.(raw, value) ?? renderField(resource.definition, column.name, raw, value);
         return h("div", { class: "q-mb-md" }, [
           h("dt", { class: "text-caption text-grey-7" }, column.label),
           h("dd", { class: "q-ma-none" }, formatted),

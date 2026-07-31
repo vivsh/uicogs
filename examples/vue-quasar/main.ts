@@ -13,7 +13,6 @@ import "quasar/dist/quasar.css";
 import "@quasar/extras/material-icons/material-icons.css";
 import iconSet from "quasar/icon-set/svg-material-icons.js";
 import {
-  bindUiCogs,
   createUiCogs,
   editor,
   fields,
@@ -24,11 +23,18 @@ import {
   resource,
   schema,
   type Transport,
-} from "@uicogs/vue";
+} from "@uicogs/core";
 import { sse } from "@uicogs/http";
 import { storage } from "@uicogs/storage";
 import { UcAction, UcDelete, UcResourceView } from "@uicogs/quasar";
+import { UcEChart, chart, useUcChart } from "@uicogs/echarts";
+import * as echarts from "echarts/core";
+import { BarChart } from "echarts/charts";
+import { GridComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
 import "./workflow.css";
+
+echarts.use([BarChart, GridComponent, CanvasRenderer]);
 
 interface ExampleContext {
   readonly locale: string;
@@ -227,6 +233,11 @@ const LocalTasks = resource({
   key: "id",
   source: local(),
 });
+const LocalTaskBars = chart.collection(LocalTask, (tasks) => ({
+  xAxis: { type: "category", data: tasks.map((task) => task.title) },
+  yAxis: { type: "value" },
+  series: [{ type: "bar", data: tasks.map((task) => task.title.length) }],
+}));
 const Person = schema({
   id: fields.ID(),
   name: fields.Str({ required: true }),
@@ -344,7 +355,6 @@ const cogs = createUiCogs<ExampleContext>({
     retry: { initialMs: 20, maximumMs: 100, jitter: 0 },
   }),
 });
-const { UiCogsPlugin } = bindUiCogs(cogs);
 
 const liveItems = cogs.resource(LiveItems);
 liveItems.cache.add({ id: 2, title: "To delete" });
@@ -358,6 +368,7 @@ const app = defineComponent({
     const search = ref("");
     const lastEvent = ref("Ready");
     const localTasks = cogs.resource(LocalTasks);
+    const localTaskChart = useUcChart(LocalTaskBars, localTasks);
     const teamMembers = cogs.resource(Teams).get(1).relation("members");
     void teamMembers.load();
     const remoteTeamMembers = cogs.resource(RemoteTeams).get(1).relation("members");
@@ -472,6 +483,13 @@ const app = defineComponent({
                         .map((task) => task.title)
                         .join(","),
                     ),
+                    h(UcEChart, {
+                      chart: localTaskChart,
+                      engine: echarts,
+                      autoresize: false,
+                      "data-testid": "local-task-chart",
+                      style: "height: 220px; width: 360px",
+                    }),
                   ]),
                   h("section", { "aria-label": "Context workflow" }, [
                     h(QBtn, {
@@ -523,7 +541,7 @@ const app = defineComponent({
   },
 });
 
-createApp(app).use(Quasar, { iconSet, plugins: {} }).use(UiCogsPlugin).mount("#app");
+createApp(app).use(Quasar, { iconSet, plugins: {} }).mount("#app");
 
 function resourceKey(url: string): number | undefined {
   const match = /\/tasks\/(\d+)\/$/.exec(url);

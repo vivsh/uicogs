@@ -24,26 +24,52 @@ The application does not install auth middleware manually.
 
 The application does not copy auth state into its application context.
 
-## Operation References
+## Safe Startup And Login State
 
-Auth lifecycle requests use resource operation references.
+Await the common runtime boundary before mounting the application or resolving the
+first route:
 
 ```ts
-const login = Sessions.operation("login");
-const refresh = Sessions.operation("refresh");
-const logout = Sessions.operation("logout");
+await api.ready;
+```
+
+It restores persistent context, resolves JWT or cookie authentication, then hydrates
+the active cache scope. Components therefore do not need to handle a startup auth
+state. Check login state with the core helper:
+
+```ts
+import { isLoggedIn } from "@uicogs/core";
+
+const loggedIn = isLoggedIn(api.auth);
+```
+
+This is client-side state for rendering and navigation only; endpoint authorization
+remains the server's responsibility.
+
+## Operation References
+
+Auth lifecycle requests use resource or service operation references. Use a service when
+login, refresh, and logout do not represent cached entities.
+
+```ts
+const login = Authentication.operation("login");
+const refresh = Authentication.operation("refresh");
+const logout = Authentication.operation("logout");
 const currentUser = Users.operation("current");
 ```
 
-An operation reference is immutable. It contains the resource definition and operation name. It contains no runtime or transport state.
+An operation reference is immutable. It contains its resource or service definition and
+operation name. It contains no runtime or transport state.
 
-Every referenced resource must be registered in the runtime.
+Every referenced resource or service must be registered in the runtime.
 
 ## JWT Definitions
 
-Define the wire schemas and resources first.
+Define the wire schemas, resources, and services first.
 
 ```ts
+import { fields, operation, resource, schema, service } from "@uicogs/core";
+
 const Credentials = schema({
   email: fields.Email({ required: true }),
   password: fields.Password({ required: true }),
@@ -62,12 +88,10 @@ const Claims = schema({
   nbf: fields.Int(),
 });
 
-const Sessions = resource({
-  name: "sessions",
+const Authentication = service({
+  name: "authentication",
   url: "sessions/",
-  schema: User,
-  key: "id",
-  operations: {
+  actions: {
     login: operation.action({
       path: "login/",
       input: Credentials,
@@ -92,9 +116,9 @@ import { jwtAuth, memoryAuthStorage } from "@uicogs/auth";
 
 const auth = jwtAuth({
   claims: Claims,
-  login: Sessions.operation("login"),
-  refresh: Sessions.operation("refresh"),
-  logout: Sessions.operation("logout"),
+  login: Authentication.operation("login"),
+  refresh: Authentication.operation("refresh"),
+  logout: Authentication.operation("logout"),
   currentUser: Users.operation("current"),
   storage: memoryAuthStorage(),
   state: () => ({ selectedProject: undefined as number | undefined }),
@@ -111,11 +135,27 @@ Create the runtime.
 ```ts
 const api = createUiCogs({
   baseUrl: "/api/",
-  resources: [Users, Sessions],
+  resources: [Users],
+  services: [Authentication],
   auth,
   context: { locale: "en", timeZone: "UTC" },
 });
 ```
+
+## Route Permissions And Roles
+
+Route declarations consume the effective `api.auth.permissions` set. A guest-only
+route omits `auth`; authenticated routes use either `auth: { all: [...] }` or
+`auth: { any: [...] }`. `{ all: [] }` means any authenticated user.
+
+Role-based applications should map roles to stable capabilities in the strategy:
+
+```ts
+permissions: ({ user }) => user.roles.flatMap((role) => rolePermissions[role] ?? []);
+```
+
+The Vue and React bindings use that set to hide unavailable links and block client
+navigation. Endpoint authorization must still be enforced by the server.
 
 ## JWT Behavior
 
@@ -164,8 +204,8 @@ Cookie auth lets the browser own an HttpOnly session cookie.
 import { cookieAuth } from "@uicogs/auth";
 
 const auth = cookieAuth({
-  login: Sessions.operation("login"),
-  logout: Sessions.operation("logout"),
+  login: Authentication.operation("login"),
+  logout: Authentication.operation("logout"),
   session: Users.operation("current"),
   credentials: "same-origin",
   csrf: {
@@ -207,7 +247,7 @@ Protected requests wait for initialization.
 
 Operations with `auth: "none"` do not wait.
 
-Local resources do not wait.
+Local resources and services do not wait.
 
 A cookie session `401` produces anonymous state. Other initialization failures produce error state.
 

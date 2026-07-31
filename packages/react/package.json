@@ -28,7 +28,8 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --external react"
   },
   "dependencies": {
-    "@uicogs/core": "workspace:^"
+    "@uicogs/core": "workspace:^",
+    "@uicogs/routes": "workspace:^"
   },
   "engines": {
     "node": ">=22"

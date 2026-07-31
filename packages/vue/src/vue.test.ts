@@ -1,11 +1,19 @@
 import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { describe, expect, it, vi } from "vitest";
-import { effectScope, nextTick, ref, watchEffect } from "vue";
-import { Store, createFormController, editor, fields, type LiveSource } from "@uicogs/core";
+import { createApp, defineComponent, effectScope, nextTick, ref, watchEffect } from "vue";
 import {
+  createUiCogs as createCoreUiCogs,
+  Store,
+  createFormController,
+  editor,
+  fields,
+  type LiveSource,
+} from "@uicogs/core";
+import {
+  buildPlugin,
+  useUiCogs,
   createRendererRegistry,
-  createUiCogs,
   useUcAction,
   useUcCollection,
   useUcController,
@@ -18,6 +26,13 @@ import {
   useUcTableModel,
   vueReactive,
 } from "./index.js";
+
+const createUiCogs = ((options: Parameters<typeof createCoreUiCogs>[0]) => {
+  const core = createCoreUiCogs(options);
+  const app = createApp(defineComponent({ setup: () => () => null }));
+  app.use(buildPlugin(core));
+  return app.runWithContext(() => useUiCogs()) as unknown as typeof core;
+}) as typeof createCoreUiCogs;
 
 describe("Vue controller integration", () => {
   it("reacts to runtime context updates", async () => {

@@ -79,6 +79,18 @@ test("reacts to local cache writes and attributed relation mutations", async ({ 
   await expect(relationValues).toHaveText("");
 });
 
+test("renders and updates a modular ECharts chart from a local resource", async ({ page }) => {
+  const chart = page.getByTestId("local-task-chart");
+  const canvas = chart.locator("canvas");
+  await expect(canvas).toHaveCount(1);
+  const emptyImage = await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+
+  await page.getByRole("button", { name: "Add local task" }).click();
+  await expect
+    .poll(async () => canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL()))
+    .not.toBe(emptyImage);
+});
+
 test("reacts to and restores persisted runtime context", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("context-locale")).toHaveText("en");

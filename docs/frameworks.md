@@ -1,4 +1,4 @@
-# Vue, React, Vue Router, And Quasar
+# Vue, React, Routing, And Quasar
 
 This guide describes framework adapters. Core owns all data behavior.
 
@@ -21,15 +21,17 @@ The Vue runtime adapts `api.context` through the same external-store mechanism. 
 
 ## Vue Runtime
 
-Import `createUiCogs` from `@uicogs/vue` when controllers should be directly Vue-reactive.
+Create the common runtime from core. The application owns Vue Router, then installs
+the UiCogs Vue plugin.
 
 ```ts
-import { createUiCogs } from "@uicogs/vue";
+import { createUiCogs } from "@uicogs/core";
+import { buildPlugin, toRoutes } from "@uicogs/vue";
+import { createRouter, createWebHistory } from "vue-router";
 
-export const api = createUiCogs({
-  resources: [Tasks],
-  baseUrl: "/api/",
-});
+export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
+const router = createRouter({ history: createWebHistory(), routes: toRoutes(api.routes) });
+app.use(router).use(buildPlugin(api));
 ```
 
 The Vue adapter returns readonly proxies. A controller property read tracks one shallow reactive revision.
@@ -51,39 +53,18 @@ Chain methods that return `this` return the reactive proxy.
 tasks.filter({ complete: false }).sort("title").page(1, 25);
 ```
 
-## Application-Owned Vue Binding
+## Vue Application Binding
 
-The application owns the runtime. Bind that exact object to Vue injection.
-
-```ts
-import { bindUiCogs } from "@uicogs/vue";
-import { api } from "./api.js";
-
-export const { UiCogsPlugin, useUiCogs } = bindUiCogs(api);
-```
-
-Install the bound plugin.
-
-```ts
-app.use(UiCogsPlugin);
-```
-
-Use the exact runtime type in components.
+`buildPlugin(api)` is a standard Vue plugin. Install Vue Router first when the runtime
+declares routes; it then provides the bound runtime and makes newly created controllers
+reactive. Use the injected runtime in components.
 
 ```ts
 const api = useUiCogs();
 const tasks = api.resource(Tasks);
 ```
 
-`bindUiCogs(api)` creates a unique injection key.
-
-Two runtimes can be bound independently.
-
-Calling `useUiCogs()` without installing its plugin throws a clear error.
-
-The plugin does not create or dispose the runtime. Application bootstrap owns final disposal.
-
-There is no package-global Vue runtime or injection key.
+Calling `useUiCogs()` without `buildPlugin()` throws a clear error.
 
 ## Vue Adapter Functions
 
@@ -112,17 +93,24 @@ These view models derive rendering state. They do not own request or cache logic
 
 ## React
 
-`@uicogs/react` re-exports core and provides hooks.
+`@uicogs/react` provides `withReact()` and hooks around the same core runtime.
 
 Create the application runtime normally.
 
 ```ts
-import { createUiCogs } from "@uicogs/react";
+import { createUiCogs } from "@uicogs/core";
+import { withReact } from "@uicogs/react";
 
-export const api = createUiCogs({
-  resources: [Tasks],
-  baseUrl: "/api/",
-});
+export const api = withReact(
+  createUiCogs({
+    resources: [Tasks],
+    baseUrl: "/api/",
+  }),
+  {
+    router,
+    useLocation,
+  },
+);
 ```
 
 Memoize controller creation by logical identity.
@@ -158,22 +146,17 @@ The hooks use `useSyncExternalStore`.
 
 React Strict Mode may mount effects more than once. Equivalent requests still deduplicate in the shared runtime. Memoization avoids unnecessary controller replacement.
 
-React has no package-global runtime.
+Render the application beneath `api.Provider`; `useUiCogs()` then exposes the same
+React-bound runtime, including reactive route navigation and breadcrumbs.
 
-## Vue Router
+## Routing
 
-`@uicogs/vue-router` provides `useUcResourceRoute()`.
-
-It maps controlled route state to:
-
-- active object key;
-- create mode;
-- action mode;
-- query values.
-
-The adapter accepts structural router and route interfaces. Core and Quasar do not import Vue Router.
-
-The application remains responsible for its route names, path structure, and navigation policy.
+Pass immutable `routes`, `navigation`, and `breadcrumbsFrom` to `createUiCogs()`.
+Use `toRoutes(api.routes)` while constructing the application router, then install
+`buildPlugin(api)` after it. The plugin observes the installed router, adds UiCogs
+access checks, and exposes reactive `api.routes.navigationTree()`,
+`api.routes.breadcrumbs()`, and `api.routes.hasPermission()`. The server remains
+responsible for endpoint authorization.
 
 ## Quasar Package
 
@@ -203,6 +186,12 @@ There is no `UcViewset` export.
 
 ## Quasar Forms
 
+Field selection and writing belong to the immutable form definition passed to the
+controller. Define `Task.keep("title", "complete").toForm(...)` for an edit surface
+with those fields. `UcForm` also accepts an optional view to select only its generated
+controls; it must be a subset of that form definition and never changes validation or
+the payload writer.
+
 ```vue
 <UcForm :form="form" @success="saved">
   <UcField name="title" />
@@ -221,9 +210,26 @@ File and image fields use the form's typed file values and progress state.
 
 ## Quasar Table
 
-`UcTable` derives columns from schema fields and format descriptors.
+`UcTable` derives columns from the resource schema unless its optional immutable view
+declares the table projection. Pass a resource controller for its default collection,
+or pass a named collection directly:
 
-The collection controller remains the source of truth for sorting and pagination.
+```vue
+<UcTable :resource="tasks" />
+<UcTable :collection="searchResults" />
+<UcTable :resource="tasks" :view="TaskSummary" />
+```
+
+```ts
+const searchResults = api.resource(Tasks).query("search", { text: "review" });
+```
+
+In both forms, the collection controller is the source of truth for filtering,
+sorting, paging, loading, and errors. A query collection carries the resource schema
+and key metadata required for generated columns and key-based selection.
+
+`UcTable` has no `include` or `exclude` props. Define and pass a view instead, so field
+selection remains immutable and reusable across tables, detail panels, and query output.
 
 Controlled pagination passes page size and page metadata to Quasar. Quasar does not silently replace the server page size.
 

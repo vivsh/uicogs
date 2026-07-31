@@ -35,6 +35,9 @@ importers:
       '@uicogs/core':
         specifier: workspace:*
         version: link:packages/core
+      '@uicogs/echarts':
+        specifier: workspace:*
+        version: link:packages/echarts
       '@uicogs/http':
         specifier: workspace:*
         version: link:packages/http
@@ -56,6 +59,9 @@ importers:
       '@vue/test-utils':
         specifier: ^2.4.11
         version: 2.4.11(@vue/compiler-dom@3.5.40)(@vue/server-renderer@3.5.40)(vue@3.5.40(typescript@5.9.3))
+      echarts:
+        specifier: ^6.1.0
+        version: 6.1.0
       eslint:
         specifier: ^9.39.2
         version: 9.39.5(supports-color@7.2.0)
@@ -101,6 +107,9 @@ importers:
       vue:
         specifier: ^3.5.26
         version: 3.5.40(typescript@5.9.3)
+      vue-router:
+        specifier: ^4.6.4
+        version: 4.6.4(vue@3.5.40(typescript@5.9.3))
       yaml:
         specifier: ^2.8.2
         version: 2.9.0
@@ -111,7 +120,24 @@ importers:
         specifier: workspace:^
         version: link:../core
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      '@uicogs/routes':
+        specifier: workspace:^
+        version: link:../routes
+
+  packages/echarts:
+    dependencies:
+      '@uicogs/core':
+        specifier: workspace:^
+        version: link:../core
+    devDependencies:
+      echarts:
+        specifier: ^6.1.0
+        version: 6.1.0
+      vue:
+        specifier: ^3.5.0
+        version: 3.5.40(typescript@5.9.3)
 
   packages/http:
     dependencies:
@@ -154,9 +180,14 @@ importers:
       '@uicogs/core':
         specifier: workspace:^
         version: link:../core
+      '@uicogs/routes':
+        specifier: workspace:^
+        version: link:../routes
       react:
         specifier: ^18.3.0 || ^19.0.0
         version: 19.2.7
+
+  packages/routes: {}
 
   packages/storage:
     dependencies:
@@ -169,15 +200,15 @@ importers:
       '@uicogs/core':
         specifier: workspace:^
         version: link:../core
+      '@uicogs/routes':
+        specifier: workspace:^
+        version: link:../routes
       vue:
         specifier: ^3.5.0
         version: 3.5.40(typescript@5.9.3)
-
-  packages/vue-router:
-    dependencies:
-      vue:
-        specifier: ^3.5.0
-        version: 3.5.40(typescript@5.9.3)
+      vue-router:
+        specifier: ^4.0.0
+        version: 4.6.4(vue@3.5.40(typescript@5.9.3))
 
 packages:
 
@@ -1043,6 +1074,9 @@ packages:
   '@vue/compiler-ssr@3.5.40':
     resolution: {integrity: sha512-rrE5xiXG663+vHCHa3J9p2z5OcBRjXmoqenprJxAFQxg5pSshzeBiCE6pu46axapRJ2Adk0YDA2BRZVjiHXnhg==}
 
+  '@vue/devtools-api@6.6.4':
+    resolution: {integrity: sha512-sGhTPMuXqZ1rVOk32RylztWkfXTRhuS7vgAKv0zjqk8gbsHkJ7xfFf+jbySxt7tWObEJwyKaHMikV/WGDiQm8g==}
+
   '@vue/reactivity@3.5.40':
     resolution: {integrity: sha512-B7ot9UlUZOi1zbq61/LvE88ZLTV8IlajTdiZTAEiDQgrnIMIZoPr9kGw0Zw46ObW62O9+H/Be3kMbfb7kYPQZA==}
 
@@ -1299,6 +1333,9 @@ packages:
 
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==}
+
+  echarts@6.1.0:
+    resolution: {integrity: sha512-q0yaFPggC9FUdsWH4blavRWFmxdrIodbkoKNAjJudAI6CA9gNPxHtV2RcZNEepZVlk4yvBYkOkbk6HIVpIyHZA==}
 
   editorconfig@1.0.7:
     resolution: {integrity: sha512-e0GOtq/aTQhVdNyDU9e02+wz9oDDM+SIOQxWME2QRjzRX5yyLAuHDE+0aE8vHb9XRC8XD37eO2u57+F09JqFhw==}
@@ -2373,6 +2410,9 @@ packages:
     engines: {node: '>=14.16'}
     hasBin: true
 
+  tslib@2.3.0:
+    resolution: {integrity: sha512-N82ooyxVNm6h1riLCoyS9e3fuJ3AMG2zIZs2Gd1ATcSFjSA23Q0fzjjZeh0jbJvWVDZ0cJT8yaNNaaXHzueNjg==}
+
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
@@ -2534,6 +2574,11 @@ packages:
   vue-component-type-helpers@3.3.7:
     resolution: {integrity: sha512-Skkhw9agYSgsWqv7bxSOGJZa9SaiJbZVGdXuFWnrzKaQYHnw9qbjD630rw6RyMqDbp54nfLCLw5SZA55if7JLg==}
 
+  vue-router@4.6.4:
+    resolution: {integrity: sha512-Hz9q5sa33Yhduglwz6g9skT8OBPii+4bFn88w6J+J4MfEo4KRRpmiNG/hHHkdbRFlLBOqxN8y8gf2Fb0MTUgVg==}
+    peerDependencies:
+      vue: ^3.5.0
+
   vue@3.5.40:
     resolution: {integrity: sha512-+8PJ4SJXdn/cHGImF4CKdxlWHIN5Dkt7DoufRREM6h6uVCx2m7QxgcEQmmzyOK8A9mcafg7sFbJFYsdFVubTig==}
     peerDependencies:
@@ -2602,6 +2647,9 @@ packages:
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
+
+  zrender@6.1.0:
+    resolution: {integrity: sha512-oEGMDB6pOP2S6OwRR4PdVv610zrjnA3Bh+JnSG12fYJlBKjtNAoEb5fSUoCOOINlH96I2fU38/A2UpRKs67xYQ==}
 
 snapshots:
 
@@ -3433,6 +3481,8 @@ snapshots:
       '@vue/compiler-dom': 3.5.40
       '@vue/shared': 3.5.40
 
+  '@vue/devtools-api@6.6.4': {}
+
   '@vue/reactivity@3.5.40':
     dependencies:
       '@vue/shared': 3.5.40
@@ -3657,6 +3707,11 @@ snapshots:
   dom-accessibility-api@0.5.16: {}
 
   eastasianwidth@0.2.0: {}
+
+  echarts@6.1.0:
+    dependencies:
+      tslib: 2.3.0
+      zrender: 6.1.0
 
   editorconfig@1.0.7:
     dependencies:
@@ -4721,6 +4776,8 @@ snapshots:
       path-exists: 4.0.0
       read-pkg-up: 7.0.1
 
+  tslib@2.3.0: {}
+
   tslib@2.8.1:
     optional: true
 
@@ -4838,6 +4895,11 @@ snapshots:
 
   vue-component-type-helpers@3.3.7: {}
 
+  vue-router@4.6.4(vue@3.5.40(typescript@5.9.3)):
+    dependencies:
+      '@vue/devtools-api': 6.6.4
+      vue: 3.5.40(typescript@5.9.3)
+
   vue@3.5.40(typescript@5.9.3):
     dependencies:
       '@vue/compiler-dom': 3.5.40
@@ -4898,3 +4960,7 @@ snapshots:
   yargs-parser@20.2.9: {}
 
   yocto-queue@0.1.0: {}
+
+  zrender@6.1.0:
+    dependencies:
+      tslib: 2.3.0

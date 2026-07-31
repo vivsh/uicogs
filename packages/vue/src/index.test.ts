@@ -2,11 +2,18 @@ import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, effectScope, nextTick, ref, watchEffect } from "vue";
-import { Store, createFormController, editor, fields, type LiveSource } from "@uicogs/core";
 import {
-  bindUiCogs,
+  createUiCogs as createCoreUiCogs,
+  Store,
+  createFormController,
+  editor,
+  fields,
+  type LiveSource,
+} from "@uicogs/core";
+import {
+  buildPlugin,
   createRendererRegistry,
-  createUiCogs,
+  useUiCogs,
   useUcAction,
   useUcCollection,
   useUcController,
@@ -20,34 +27,41 @@ import {
   vueReactive,
 } from "./index.js";
 
+const createUiCogs = ((options: Parameters<typeof createCoreUiCogs>[0]) => {
+  const core = createCoreUiCogs(options);
+  const app = createApp(defineComponent({ setup: () => () => null }));
+  app.use(buildPlugin(core));
+  return app.runWithContext(() => useUiCogs()) as unknown as typeof core;
+}) as typeof createCoreUiCogs;
+
 describe("Vue controller integration", () => {
+  /** Verifies that a route-free runtime installs as a standard Vue plugin. */
   it("binds one application-owned runtime without owning its disposal", () => {
-    const runtime = createUiCogs({ context: undefined });
-    const binding = bindUiCogs(runtime);
-    let injected: typeof runtime | undefined;
+    const runtime = createCoreUiCogs({ context: undefined });
     const app = createApp(
       defineComponent({
         setup() {
-          injected = binding.useUiCogs();
           return () => null;
         },
       }),
     );
-    app.use(binding.UiCogsPlugin);
+    app.use(buildPlugin(runtime));
+    let injected: typeof runtime | undefined;
+    let binding: ReturnType<typeof useUiCogs<typeof runtime>> | undefined;
     app.runWithContext(() => {
-      injected = binding.useUiCogs();
+      binding = useUiCogs<typeof runtime>();
+      injected = binding.core;
     });
     expect(injected).toBe(runtime);
+    expect(binding).toBeDefined();
+    expect("router" in binding!).toBe(false);
     expect(runtime.requests.isDisposed).toBe(false);
     runtime.dispose();
   });
 
-  it("fails clearly when the bound runtime plugin is missing", () => {
-    const binding = bindUiCogs(createUiCogs({ context: undefined }));
+  it("fails clearly when buildPlugin is missing", () => {
     const app = createApp(defineComponent({ setup: () => () => null }));
-    expect(() => app.runWithContext(() => binding.useUiCogs())).toThrow(
-      "UiCogsPlugin is not installed",
-    );
+    expect(() => app.runWithContext(() => useUiCogs())).toThrow("buildPlugin() has not been installed");
   });
 
   it("invalidates direct property reads from external-store notifications", async () => {

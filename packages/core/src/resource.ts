@@ -180,6 +180,13 @@ export interface ResourceDefinitionIdentity {
   readonly resourceName: string;
 }
 
+/** An immutable, operation-only API definition with no entity or cache semantics. */
+export interface ServiceDefinitionIdentity {
+  readonly name: string;
+  readonly serviceName: string;
+  readonly operations: ActionMap<unknown>;
+}
+
 export interface QueryDefinition<
   TInputSchema extends SchemaLike<TContext>,
   TView extends string | undefined,
@@ -403,8 +410,52 @@ export class ResourceDefinition<
   }
 }
 
+export interface ServiceDefinitionOptions<TActions extends ActionMap<TContext>, TContext> {
+  readonly name: string;
+  readonly url?: string;
+  readonly source?: ResourceSource<TContext>;
+  readonly actions?: TActions;
+  readonly operations?: TActions;
+  readonly errorAdapters?: readonly ErrorAdapter[];
+}
+
+export class ServiceDefinition<
+  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TContext = unknown,
+> {
+  readonly serviceName: string;
+  readonly name: string;
+  readonly url: string;
+  readonly source: ResourceSource<TContext>;
+  readonly actions: TActions;
+  readonly operations: TActions;
+  readonly errorAdapters: readonly ErrorAdapter[];
+
+  constructor(options: ServiceDefinitionOptions<TActions, TContext>) {
+    this.serviceName = options.name;
+    this.name = options.name;
+    this.source = options.source ?? http();
+    this.url = options.url ?? "";
+    if (this.source.kind === "http" && !this.url)
+      throw new Error(`HTTP service ${options.name} requires a URL`);
+    this.operations = Object.freeze({
+      ...(options.actions ?? {}),
+      ...(options.operations ?? {}),
+    }) as TActions;
+    this.actions = this.operations;
+    this.errorAdapters = Object.freeze([...(options.errorAdapters ?? [])]);
+    Object.freeze(this);
+  }
+
+  operation<K extends keyof TActions & string>(name: K): OperationReference<this, K> {
+    if (!(name in this.operations))
+      throw new Error(`Operation ${name} is not defined on service ${this.name}`);
+    return Object.freeze({ resource: this, name }) as OperationReference<this, K>;
+  }
+}
+
 export interface OperationReference<
-  TResource = ResourceDefinitionIdentity,
+  TResource = ResourceDefinitionIdentity | ServiceDefinitionIdentity,
   TName extends string = string,
 > {
   readonly resource: TResource;
@@ -426,7 +477,15 @@ export interface OperationReference<
           : never
         : never
       : never
-    : never;
+    : TResource extends { readonly operations: infer TActions }
+      ? TName extends keyof TActions
+        ? TActions[TName] extends { readonly output?: infer TOutput }
+          ? TOutput extends { readonly _output: infer T }
+            ? T
+            : unknown
+          : unknown
+        : never
+      : never;
 }
 
 export type OperationInput<TReference> = TReference extends { readonly _input?: infer T }
@@ -439,6 +498,11 @@ export type OperationOutput<TReference> = TReference extends { readonly _output?
 type NamedResourceDefinition<TName extends string, TDefinition> = TDefinition & {
   readonly name: TName;
   readonly resourceName: TName;
+};
+
+type NamedServiceDefinition<TName extends string, TDefinition> = TDefinition & {
+  readonly name: TName;
+  readonly serviceName: TName;
 };
 
 export function resource<
@@ -494,13 +558,29 @@ export function resource(options: unknown): unknown {
   return new ResourceDefinition(options as never);
 }
 
+export function service<
+  const TName extends string,
+  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TContext = unknown,
+>(
+  options: Omit<ServiceDefinitionOptions<TActions, TContext>, "name"> & { readonly name: TName },
+): NamedServiceDefinition<TName, ServiceDefinition<TActions, TContext>> {
+  if (!isServiceOptions(options)) throw new Error("Invalid service definition");
+  return new ServiceDefinition(options) as NamedServiceDefinition<
+    TName,
+    ServiceDefinition<TActions, TContext>
+  >;
+}
+
 interface UiCogsBaseOptions<
   TContext,
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
 > {
   readonly context?: TContext;
   readonly resources?: TResources;
+  readonly services?: TServices;
   readonly auth?: TAuth;
   readonly baseUrl?: string;
   readonly middleware?: readonly TransportMiddleware[];
@@ -518,7 +598,8 @@ export type UiCogsOptions<
   TContext,
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
-> = UiCogsBaseOptions<TContext, TAuth, TResources> &
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
+> = UiCogsBaseOptions<TContext, TAuth, TResources, TServices> &
   (
     | {
         readonly persistence?: PersistenceOptions<TContext>;
@@ -703,10 +784,18 @@ type RuntimeResourceOf<TDefinition, TFallbackContext = unknown> =
         TFallbackContext
       >;
 
+type RuntimeServiceOf<TDefinition, TFallbackContext = unknown> =
+  TDefinition extends ServiceDefinition<infer TActions, infer TDefinitionContext>
+    ? Service<TActions, TDefinitionContext>
+    : Service<ActionMap<TFallbackContext>, TFallbackContext>;
+
 export class UiCogs<
   TContext,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
 > {
+  /** Resolves after context, authentication, and the active persistent cache scope initialize. */
+  readonly ready: Promise<void>;
   readonly cache: CacheStore;
   readonly requests = new RequestCoordinator();
   readonly live: LiveController<TContext>;
@@ -714,6 +803,7 @@ export class UiCogs<
   protected readonly contextController: ContextStoreController<unknown, TContext>;
   private readonly definitions = new Map<string, RuntimeDefinition<TContext>>();
   private readonly sourceDefinitions = new Map<string, ResourceDefinitionIdentity>();
+  private readonly services = new Map<string, ServiceDefinitionIdentity>();
   private readonly contextListeners = new Set<() => void>();
   private readonly liveCollections = new Map<string, CollectionLiveBucket>();
   private readonly runtime: Runtime<TContext>;
@@ -721,8 +811,12 @@ export class UiCogs<
   private authUnsubscribe?: () => void;
   private authLogoutUnsubscribe?: () => void;
   private contextUnsubscribe?: () => void;
+  private controllerAdapter: ControllerAdapter;
 
-  constructor(options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources>) {
+  constructor(
+    options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources, TServices>,
+  ) {
+    this.controllerAdapter = options.adapter ?? identityAdapter;
     this.auth = options.auth?.create();
     const cachePersistence = options.persistence?.cache !== false;
     if (options.cache && options.persistence && cachePersistence)
@@ -740,7 +834,7 @@ export class UiCogs<
       [...(options.middleware ?? []), ...(this.auth ? [this.auth.middleware()] : [])],
     );
     let lastTimestamp = 0;
-    this.contextController = (options.adapter ?? identityAdapter)(
+    this.contextController = this.controllerAdapter(
       new ContextStoreController(
         options.context,
         options.persistence && options.persistence.context !== false
@@ -763,7 +857,7 @@ export class UiCogs<
       baseUrl: options.baseUrl ?? "",
       cache: this.cache,
       coordinator: this.requests,
-      adapter: options.adapter ?? identityAdapter,
+      adapter: (controller) => this.controllerAdapter(controller),
       definitions: this.definitions,
       errorAdapters: options.errorAdapters ?? [],
       cachePolicy: options.cachePolicy ?? "cache-first",
@@ -821,6 +915,7 @@ export class UiCogs<
         throw new Error(`Resource ${definition.name} is not a UiCogs resource definition`);
       this.registerDefinition(definition);
     }
+    for (const definition of options.services ?? []) this.registerService(definition);
     this.validateRelations();
     void this.managedCache.activateScope?.(runtime.scope());
     this.live = runtime.adapter(
@@ -868,26 +963,39 @@ export class UiCogs<
         scope = nextScope;
         this.contextController.setAuthSnapshot(this.auth!.value);
       });
-      queueMicrotask(() => {
-        if (!this.requests.isDisposed) void this.auth?.initialize();
-      });
     }
-    queueMicrotask(() => {
-      if (!this.requests.isDisposed) void this.contextController.initialize();
-    });
+    this.ready = this.initializeRuntime();
+  }
+
+  /** Binds future controllers to one framework-owned reactive adapter. */
+  bindControllerAdapter(adapter: ControllerAdapter): void {
+    this.controllerAdapter = adapter;
+  }
+
+  private async initializeRuntime(): Promise<void> {
+    if (this.requests.isDisposed) return;
+    await this.contextController.initialize();
+    if (this.requests.isDisposed) return;
+    await this.auth?.initialize();
+    if (this.requests.isDisposed) return;
+    await this.managedCache.awaitHydration?.(this.runtime.scope());
   }
 
   private validateAuthOperations(strategy: AuthStrategyDefinition): void {
     const roles = new Map<string, string>();
     for (const reference of strategy.operations) {
-      const registered = this.sourceDefinitions.get(reference.resource.name);
+      const resource = this.sourceDefinitions.get(reference.resource.name);
+      const service = this.services.get(reference.resource.name);
+      const registered = resource ?? service;
       if (!registered)
         throw new Error(
           `Authentication operation ${reference.resource.name}.${reference.name} uses an unregistered resource`,
         );
       if (registered !== reference.resource)
         throw new Error(
-          `Authentication operation ${reference.resource.name}.${reference.name} conflicts with the registered resource`,
+          `Authentication operation ${reference.resource.name}.${reference.name} conflicts with the registered ${
+            service ? "service" : "resource"
+          }`,
         );
       const identity = `${reference.resource.name}.${reference.name}`;
       if (roles.has(identity))
@@ -899,21 +1007,21 @@ export class UiCogs<
   private authBindings(): AuthRuntimeBindings {
     return {
       execute: async (reference, input, role, signal) => {
-        const source = this.sourceDefinitions.get(reference.resource.name);
+        const source =
+          this.sourceDefinitions.get(reference.resource.name) ??
+          this.services.get(reference.resource.name);
         if (source !== reference.resource)
           throw new Error(
             `Authentication operation ${reference.resource.name}.${reference.name} is not registered`,
           );
+        if (source instanceof ServiceDefinition)
+          return new Service(this.runtime, source as never).runOperation(reference.name, input, {
+            authentication: role,
+            signal,
+          }) as never;
         const definition = this.definitions.get(reference.resource.name);
         if (!definition) throw new Error(`Resource ${reference.resource.name} is not registered`);
-        const controller = new Resource(this.runtime, definition as never) as unknown as {
-          runOperation(
-            name: string,
-            value: unknown,
-            options: MutationRequestOptions,
-          ): Promise<unknown>;
-        };
-        return controller.runOperation(reference.name, input, {
+        return new Resource(this.runtime, definition as never).runOperation(reference.name, input, {
           authentication: role,
           signal,
         }) as never;
@@ -948,6 +1056,28 @@ export class UiCogs<
     throw new Error("Expected a registered resource name or definition");
   }
 
+  service<TDefinition extends TServices[number]>(
+    definition: TDefinition,
+  ): RuntimeServiceOf<TDefinition, TContext>;
+  service<TName extends TServices[number]["name"] & string>(
+    name: TName,
+  ): string extends TServices[number]["name"]
+    ? RuntimeServiceOf<ServiceDefinitionIdentity, TContext>
+    : RuntimeServiceOf<Extract<TServices[number], { readonly name: TName }>, TContext>;
+  service(value: unknown): unknown {
+    const definition =
+      typeof value === "string"
+        ? this.services.get(value)
+        : value instanceof ServiceDefinition
+          ? value
+          : undefined;
+    if (!definition) throw new Error("Expected a registered service name or definition");
+    const registered = this.services.get(definition.name);
+    if (registered !== definition)
+      throw new Error(`Service ${definition.name} is not registered in this UiCogs runtime`);
+    return new Service(this.runtime, definition as never);
+  }
+
   private registerDefinition(definition: ResourceDefinitionIdentity): void {
     if (!(definition instanceof ResourceDefinition))
       throw new Error(`Resource ${definition.name} is not a UiCogs resource definition`);
@@ -959,6 +1089,8 @@ export class UiCogs<
         `Resource ${definition.name} is already registered with a conflicting definition`,
       );
     }
+    if (this.services.has(definition.name))
+      throw new Error(`Resource ${definition.name} conflicts with a registered service`);
     const bound = bindRuntimeDefinition(
       definition as unknown as RuntimeDefinition<unknown>,
       this.runtime.context,
@@ -966,6 +1098,21 @@ export class UiCogs<
     this.sourceDefinitions.set(definition.name, definition);
     this.definitions.set(definition.name, bound);
     if (bound.source.kind === "local") initializeLocalSource(this.runtime, bound);
+  }
+
+  private registerService(definition: ServiceDefinitionIdentity): void {
+    if (!(definition instanceof ServiceDefinition))
+      throw new Error(`Service ${definition.name} is not a UiCogs service definition`);
+    if (this.sourceDefinitions.has(definition.name))
+      throw new Error(`Service ${definition.name} conflicts with a registered resource`);
+    const existing = this.services.get(definition.name);
+    if (existing === definition)
+      throw new Error(`Service ${definition.name} is registered more than once`);
+    if (existing)
+      throw new Error(
+        `Service ${definition.name} is already registered with a conflicting definition`,
+      );
+    this.services.set(definition.name, definition);
   }
 
   private validateRelations(): void {
@@ -1370,6 +1517,25 @@ export class Resource<
     ) as FormController<TFormSchema>;
   }
 
+  actionForm<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+  ): FormController<TFormSchema> {
+    const action = this.definition.actions[name];
+    if (!action)
+      throw new Error(`Action ${name} is not defined on resource ${this.definition.name}`);
+    const bound = bindFormContext(schema, this.runtime.context);
+    return this.runtime.adapter(
+      createFormController(bound, initial, async (payload, options) =>
+        this.executeAction(name, payload as ActionInput<TActions[K]>, options),
+      ),
+    ) as FormController<TFormSchema>;
+  }
+
   async action<K extends keyof TActions & string>(
     name: K,
     input: ActionInput<TActions[K]>,
@@ -1663,6 +1829,110 @@ export class Resource<
 
   private encodeKey(key: TKey): EntityKey {
     return this.definition.keyEncoder?.(key) ?? key;
+  }
+}
+
+/** A runtime controller for an operation-only service definition. */
+export class Service<TActions extends ActionMap<TContext>, TContext> {
+  readonly serviceName: string;
+  private readonly actions: TActions;
+
+  constructor(
+    private readonly runtime: Runtime<TContext>,
+    readonly definition: ServiceDefinition<TActions, TContext>,
+  ) {
+    this.serviceName = definition.name;
+    this.actions = bindServiceActions(
+      definition.actions as ActionMap<unknown>,
+      runtime.context,
+    ) as TActions;
+  }
+
+  async action<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): Promise<ServiceActionOutput<TActions[K]>> {
+    return this.executeAction(name, input);
+  }
+
+  runOperation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+    options: MutationRequestOptions = {},
+  ): Promise<ServiceActionOutput<TActions[K]>> {
+    return this.executeAction(name, input, options);
+  }
+
+  operation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): ActionController<ServiceActionOutput<TActions[K]>> {
+    return this.runtime.adapter(
+      new ActionController((options) => this.executeAction(name, input, options)),
+    ) as ActionController<ServiceActionOutput<TActions[K]>>;
+  }
+
+  actionForm<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+  ): FormController<TFormSchema> {
+    if (!this.actions[name])
+      throw new Error(`Action ${name} is not defined on service ${this.definition.name}`);
+    const bound = bindFormContext(schema, this.runtime.context);
+    return this.runtime.adapter(
+      createFormController(bound, initial, async (payload, options) =>
+        this.executeAction(name, payload as ActionInput<TActions[K]>, options),
+      ),
+    ) as FormController<TFormSchema>;
+  }
+
+  private async executeAction<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+    options: MutationRequestOptions = {},
+  ): Promise<ServiceActionOutput<TActions[K]>> {
+    const action = this.actions[name];
+    if (!action)
+      throw new Error(`Action ${name} is not defined on service ${this.definition.name}`);
+    if (this.definition.source.kind === "local") {
+      if (!action.local) throw new Error(`Local action ${name} requires a local handler`);
+      const output = await action.local(input, this.runtime.context());
+      return parseServiceActionOutput(action, output) as ServiceActionOutput<TActions[K]>;
+    }
+    const encodedInput = action.input ? action.input.writeInput(input) : input;
+    const request = action.request?.(input as never);
+    const path =
+      request?.path ??
+      (typeof action.path === "function"
+        ? action.path(input as never)
+        : (action.path ?? `${name}/`));
+    const method = request?.method ?? action.method ?? "POST";
+    const controller = new AbortController();
+    const response = await this.runtime.request<unknown>(
+      `${this.runtime.scope()}|${this.definition.name}|action|${name}|${stableSerialize(input)}`,
+      {
+        method,
+        url: joinUrl(this.runtime.baseUrl, joinUrl(this.definition.url, path)),
+        ...(request?.query ? { query: request.query } : {}),
+        ...(method !== "GET" ? { body: request?.body ?? encodedInput } : {}),
+        ...((request?.encoding ?? action.encoding)
+          ? { encoding: request?.encoding ?? action.encoding }
+          : {}),
+        ...((request?.multipart ?? action.multipart)
+          ? { multipart: request?.multipart ?? action.multipart }
+          : {}),
+        ...(options.onUploadProgress ? { onUploadProgress: options.onUploadProgress } : {}),
+        authentication: options.authentication ?? action.auth,
+        ...(options.credentials ? { credentials: options.credentials } : {}),
+      },
+      combineSignals(controller.signal, options.signal),
+      [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+    );
+    return parseServiceActionOutput(action, response.data) as ServiceActionOutput<TActions[K]>;
   }
 }
 
@@ -2738,10 +3008,21 @@ export interface CollectionSnapshot<T> extends ControllerState {
   readonly stale: boolean;
 }
 
+/** Immutable resource metadata carried by every collection controller. */
+export interface CollectionResourceMetadata {
+  readonly name: string;
+  readonly key: string | ((value: Readonly<Record<string, unknown>>) => EntityKey);
+  readonly schema: {
+    readonly shape: Shape;
+  };
+}
+
 export class CollectionController<T, TKey extends EntityKey, TContext> implements ExternalStore<
   CollectionSnapshot<T>
 > {
   declare readonly _key?: TKey;
+  /** The resource schema and key used to materialize this collection's values. */
+  readonly resource: CollectionResourceMetadata;
   private filters: Readonly<Record<string, unknown>> = {};
   private sortState?: { readonly field: string; readonly descending: boolean };
   private pageState: PageState = { index: 1, size: 25 };
@@ -2766,6 +3047,11 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
     private readonly inputSource?:
       Readonly<Record<string, unknown>> | (() => Readonly<Record<string, unknown>>),
   ) {
+    this.resource = Object.freeze({
+      name: definition.name,
+      key: definition.key,
+      schema: definition.schema,
+    });
     this.rebind();
   }
 
@@ -3318,6 +3604,15 @@ type ActionOutput<TSchema, TViews, TAction> = TAction extends {
       : Infer<TSchema>
   : Infer<TSchema>;
 
+type ServiceActionOutput<TAction> = TAction extends { readonly output?: infer S }
+  ? S extends { readonly _output: infer T }
+    ? T
+    : unknown
+  : unknown;
+
+type ActionFormCompatible<TFormSchema, TInput> =
+  import("./form.js").FormPayload<TFormSchema> extends TInput ? unknown : never;
+
 function normalizeEntity<TContext>(
   runtime: Runtime<TContext>,
   definition: RuntimeDefinition<TContext>,
@@ -3797,6 +4092,34 @@ function bindFormContext<TContext, TForm extends FormSchema<SchemaLike<TContext>
   return schema.bindFields(fields) as unknown as TForm;
 }
 
+function bindServiceActions<TContext>(
+  actions: ActionMap<unknown>,
+  context: () => TContext,
+): ActionMap<TContext> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(actions).map(([name, action]) => [
+        name,
+        Object.freeze({
+          ...action,
+          ...(action.input ? { input: action.input.bindContext?.(context) ?? action.input } : {}),
+          ...(action.output
+            ? { output: action.output.bindContext?.(context) ?? action.output }
+            : {}),
+        }),
+      ]),
+    ),
+  ) as ActionMap<TContext>;
+}
+
+function parseServiceActionOutput<TContext>(
+  action: ActionMap<TContext>[string],
+  data: unknown,
+): unknown {
+  if (data === undefined) return undefined;
+  return action.output ? action.output.parse(data) : data;
+}
+
 function clearObjectError<T>(state: ObjectSnapshot<T>): ObjectSnapshot<T> {
   const next: {
     error?: NormalizedFailure;
@@ -3889,5 +4212,18 @@ function isResourceOptions(value: unknown): value is {
     ("url" in value || "source" in value) &&
     "schema" in value &&
     "key" in value
+  );
+}
+
+function isServiceOptions(value: unknown): value is {
+  readonly name: string;
+  readonly url?: string;
+  readonly source?: ResourceSource<unknown>;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    ("url" in value || "source" in value)
   );
 }

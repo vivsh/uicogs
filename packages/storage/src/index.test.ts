@@ -67,6 +67,7 @@ describe("shared persistence backends", () => {
   });
 
   it("reports unavailable native session storage", async () => {
+    vi.stubGlobal("sessionStorage", undefined);
     const persistence = session({ namespace: "application" });
     await expect(persistence.read("context")).rejects.toThrow("sessionStorage is unavailable");
   });

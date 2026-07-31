@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store, fields, type LiveSource } from "@uicogs/core";
 import {
   createUiCogs,
+  useUiCogs,
+  withReact,
   useAction,
   useAuth,
   useCollection,
@@ -21,6 +23,26 @@ import {
 afterEach(cleanup);
 
 describe("React controller integration", () => {
+  it("binds one core runtime and resolves route navigation through React hooks", () => {
+    const core = createUiCogs({
+      routes: [{ path: "/login", component: () => null }],
+      navigation: { shortcuts: [{ route: "/login", label: "Sign in" }] },
+    });
+    const cogs = withReact(core, {
+      router: {},
+      useLocation: () => ({ path: "/login", params: {}, query: {} }),
+    });
+    function View() {
+      const runtime = useUiCogs();
+      const links = runtime.routes.useNavigationTree("shortcuts");
+      return createElement("span", null, links[0]?.kind === "route" ? links[0].label : "none");
+    }
+
+    render(createElement(cogs.Provider, null, createElement(View)));
+    expect(screen.getByText("Sign in")).toBeDefined();
+    core.dispose();
+  });
+
   it("rerenders from runtime context updates", () => {
     const api = createUiCogs({ context: { locale: "en" } });
     function View() {

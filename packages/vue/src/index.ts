@@ -1,7 +1,5 @@
 import {
-  createUiCogs as createCoreUiCogs,
-  type AuthStrategyDefinition,
-  type CogsOptions,
+  type ControllerAdapter,
   type Descriptor,
   type EntityKey,
   type ExternalStore,
@@ -10,8 +8,17 @@ import {
   type FormSchema,
   type Schema,
   type Shape,
-  type ResourceDefinitionIdentity,
+  type RuntimeAuthController,
+  isLoggedIn,
 } from "@uicogs/core";
+import {
+  type Breadcrumb,
+  type ResolvedNavigationNode,
+  type RouteAccess,
+  type RouteEntry,
+  type RouteLocation,
+  type RouteRegistry,
+} from "@uicogs/routes";
 import {
   computed,
   getCurrentScope,
@@ -22,38 +29,18 @@ import {
   shallowRef,
   type ComputedRef,
   type App,
+  type Plugin,
   type Ref,
   type ShallowRef,
   type InjectionKey,
-  type Plugin,
 } from "vue";
+import { type RouteRecordRaw, type RouteLocationNormalizedLoaded, type Router } from "vue-router";
 
 export * from "@uicogs/core";
 
 const proxies = new WeakMap<object, object>();
 
-export interface BoundUiCogs<T> {
-  readonly UiCogsPlugin: Plugin;
-  useUiCogs(): T;
-}
-
-export function bindUiCogs<T extends object>(runtime: T): BoundUiCogs<T> {
-  const key: InjectionKey<T> = Symbol("UiCogs runtime");
-  const UiCogsPlugin: Plugin = Object.freeze({
-    install(app: App) {
-      app.provide(key, runtime);
-    },
-  });
-  return Object.freeze({
-    UiCogsPlugin,
-    useUiCogs(): T {
-      const injected = inject(key, undefined);
-      if (!injected)
-        throw new Error("UiCogsPlugin is not installed in the current Vue application");
-      return injected;
-    },
-  });
-}
+const uiCogsKey: InjectionKey<VueBoundUiCogs<VueRuntimeSource>> = Symbol("UiCogs runtime");
 
 export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
   const existing = proxies.get(controller);
@@ -82,25 +69,164 @@ export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
   return proxy;
 }
 
-type VueUiCogsOptions<
-  TApplicationContext,
-  TAuth extends AuthStrategyDefinition | undefined,
-  TResources extends readonly ResourceDefinitionIdentity[],
-> = Omit<CogsOptions<TApplicationContext, TAuth, TResources>, "adapter">;
+export interface VuePluginOptions {
+  readonly onDenied?: (input: {
+    readonly route: RouteEntry<unknown, object>;
+    readonly location: RouteLocation;
+  }) => string | false | void;
+}
 
-export function createUiCogs<
-  TApplicationContext = undefined,
-  TEvents extends object = Readonly<Record<never, never>>,
-  TAuth extends AuthStrategyDefinition | undefined = undefined,
-  const TResources extends readonly ResourceDefinitionIdentity[] =
-    readonly ResourceDefinitionIdentity[],
->(options: VueUiCogsOptions<TApplicationContext, TAuth, TResources>) {
-  const adapted = { ...options, adapter: vueReactive } as CogsOptions<
-    TApplicationContext,
-    TAuth,
-    TResources
-  >;
-  return createCoreUiCogs<TApplicationContext, TEvents, TAuth, TResources>(adapted);
+export interface VueRouteRuntime<TIcon = unknown> {
+  readonly registry: RouteRegistry<unknown, TIcon, object>;
+  navigationTree(placement: string): ComputedRef<readonly ResolvedNavigationNode<TIcon>[]>;
+  breadcrumbs(): ComputedRef<readonly Breadcrumb<TIcon>[]>;
+  hasPermission(path: string): ComputedRef<boolean>;
+}
+
+interface VueRuntimeSource extends Record<never, never> {
+  readonly ready: Promise<void>;
+  readonly routes: RouteRegistry<unknown, unknown, Record<never, never>>;
+  readonly context: ExternalStore<object>;
+  readonly live: ExternalStore<object>;
+  readonly auth?: RuntimeAuthController;
+  bindControllerAdapter(adapter: ControllerAdapter): void;
+}
+
+export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<
+  T,
+  "routes" | "context" | "live" | "auth"
+> & {
+  readonly core: T;
+  readonly routes: VueRouteRuntime;
+  readonly context: T["context"];
+  readonly live: T["live"];
+  readonly auth: T["auth"];
+};
+
+/** Builds a Vue plugin that binds one UiCogs runtime to an application and its installed router. */
+export function buildPlugin<T extends VueRuntimeSource>(
+  cogs: T,
+  options: VuePluginOptions = {},
+): Plugin {
+  return {
+    install(app: App) {
+      cogs.bindControllerAdapter(vueReactive);
+      const router = cogs.routes.entries.length ? routerFor(app) : undefined;
+      const revision = shallowRef(0);
+      const unsubscribe = cogs.auth?.subscribe(() => {
+        revision.value += 1;
+      });
+      app.onUnmount(() => unsubscribe?.());
+      const access = (): RouteAccess => {
+        void revision.value;
+        return accessFor(cogs.auth);
+      };
+      const location = (): RouteLocation =>
+        router ? locationFor(router.currentRoute.value) : emptyLocation;
+      if (router) {
+        router.beforeEach(async (to) => {
+          await cogs.ready;
+          const entry = cogs.routes.match(to.path);
+          if (!entry || cogs.routes.hasPermission(entry.path, access())) return true;
+          const denied = options.onDenied?.({
+            route: entry as RouteEntry<unknown, object>,
+            location: locationFor(to),
+          });
+          return typeof denied === "string" ? { path: denied } : false;
+        });
+      }
+      const routeRuntime: VueRouteRuntime = Object.freeze({
+        registry: cogs.routes,
+        navigationTree: (placement: string) =>
+          computed(() => cogs.routes.navigationTree(placement, access(), location())),
+        breadcrumbs: () => computed(() => cogs.routes.breadcrumbs(access(), location())),
+        hasPermission: (path: string) => computed(() => cogs.routes.hasPermission(path, access())),
+      });
+      const bound = Object.create(cogs) as VueBoundUiCogs<T>;
+      Object.defineProperties(bound, {
+        core: { value: cogs },
+        routes: { value: routeRuntime },
+        context: { value: vueReactive(cogs.context) },
+        live: { value: vueReactive(cogs.live) },
+        ...(cogs.auth ? { auth: { value: vueReactive(cogs.auth) } } : {}),
+      });
+      app.provide(uiCogsKey, bound as VueBoundUiCogs<VueRuntimeSource>);
+    },
+  };
+}
+
+/** Returns the Vue-bound application runtime installed by buildPlugin(). */
+export function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T> {
+  const injected = inject(uiCogsKey, undefined);
+  if (!injected)
+    throw new Error("buildPlugin() has not been installed in the current Vue application");
+  return injected as VueBoundUiCogs<T>;
+}
+
+const emptyLocation: RouteLocation = Object.freeze({
+  path: "",
+  params: Object.freeze({}),
+  query: Object.freeze({}),
+});
+
+function routerFor(app: App): Router {
+  const router = app.config.globalProperties.$router as unknown;
+  if (!isRouter(router))
+    throw new Error(
+      "Vue Router must be installed before buildPlugin(api): app.use(router).use(buildPlugin(api))",
+    );
+  return router;
+}
+
+function isRouter(value: unknown): value is Router {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "currentRoute" in value &&
+    "beforeEach" in value &&
+    typeof value.beforeEach === "function"
+  );
+}
+
+function accessFor(auth: RuntimeAuthController | undefined): RouteAccess {
+  if (!auth) return { authenticated: false, permissions: new Set<string>() };
+  const candidate = auth as RuntimeAuthController & {
+    readonly permissions?: ReadonlySet<string>;
+  };
+  return {
+    authenticated: isLoggedIn(candidate),
+    permissions: candidate.permissions ?? new Set<string>(),
+  };
+}
+
+function locationFor(route: RouteLocationNormalizedLoaded): RouteLocation {
+  const params: Record<string, string | readonly string[] | undefined> = {};
+  for (const [name, value] of Object.entries(route.params)) {
+    if (typeof value === "string") params[name] = value;
+    else if (Array.isArray(value) && value.every((item) => typeof item === "string"))
+      params[name] = value;
+  }
+  return {
+    path: route.path,
+    params: Object.freeze(params),
+    query: route.query,
+  };
+}
+
+/** Compiles UiCogs route entries into standard Vue Router records. */
+export function toRoutes(
+  registry: RouteRegistry<unknown, unknown, object>,
+): readonly RouteRecordRaw[] {
+  return Object.freeze(
+    registry.entries.map(
+      (entry) =>
+        Object.freeze({
+          path: entry.path,
+          component: entry.component as RouteRecordRaw["component"],
+          ...(entry.meta === undefined ? {} : { meta: entry.meta }),
+        }) as RouteRecordRaw,
+    ),
+  );
 }
 
 export function useUcController<T extends ExternalStore<object>>(controller: T): T {

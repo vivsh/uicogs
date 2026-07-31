@@ -63,17 +63,17 @@ describe("resource definitions and operation builders", () => {
     ).toThrow("must include key id");
   });
 
-  it("uses custom key functions, key encoders, controller adapters, and context updates", async () => {
+  it("uses custom key functions, key encoders, bound controller adapters, and context updates", async () => {
     const adapted: object[] = [];
     const cogs = createUiCogs({
       context: { version: 1 },
       transport: {
         request: async () => ({ status: 200, data: { code: "one", title: "Task" } }),
       },
-      adapter: (controller) => {
-        adapted.push(controller);
-        return controller;
-      },
+    });
+    cogs.bindControllerAdapter((controller) => {
+      adapted.push(controller);
+      return controller;
     });
     const schema = defineSchema({
       code: fields.Str({ required: true }),

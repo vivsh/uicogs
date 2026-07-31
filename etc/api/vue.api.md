@@ -1,23 +1,50 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `ec53667a8e12ddbd708e44fed39c61baaa14c78d47f2798dd3f97b7141d4d7d9`
+Declaration SHA-256: `8d26fe1ff08ddb1a5fdd318d8696e260fbc96f8a5ecb86471cecf0be3ba85790`
 
 ```ts
 // index.d.ts
 import * as _vue_reactivity from '@vue/reactivity';
 import * as _uicogs_core from '@uicogs/core';
-import { Descriptor, EntityKey, ExternalStore, AuthStrategyDefinition, ResourceDefinitionIdentity, CogsOptions, FormSchema, FormCompatibleSchema, FormController, Schema, Shape } from '@uicogs/core';
+import { Descriptor, EntityKey, ExternalStore, RuntimeAuthController, ControllerAdapter, FormSchema, FormCompatibleSchema, FormController, Schema, Shape } from '@uicogs/core';
 export * from '@uicogs/core';
-import { Plugin, ComputedRef, Ref, ShallowRef } from 'vue';
+import { RouteRegistry, ResolvedNavigationNode, Breadcrumb, RouteEntry, RouteLocation } from '@uicogs/routes';
+import { ComputedRef, Plugin, Ref, ShallowRef } from 'vue';
+import { RouteRecordRaw } from 'vue-router';
 
-interface BoundUiCogs<T> {
-    readonly UiCogsPlugin: Plugin;
-    useUiCogs(): T;
-}
-declare function bindUiCogs<T extends object>(runtime: T): BoundUiCogs<T>;
 declare function vueReactive<T extends ExternalStore<object>>(controller: T): T;
-type VueUiCogsOptions<TApplicationContext, TAuth extends AuthStrategyDefinition | undefined, TResources extends readonly ResourceDefinitionIdentity[]> = Omit<CogsOptions<TApplicationContext, TAuth, TResources>, "adapter">;
-declare function createUiCogs<TApplicationContext = undefined, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, const TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]>(options: VueUiCogsOptions<TApplicationContext, TAuth, TResources>): _uicogs_core.Cogs<TApplicationContext, TEvents, TAuth, TResources>;
+interface VuePluginOptions {
+    readonly onDenied?: (input: {
+        readonly route: RouteEntry<unknown, object>;
+        readonly location: RouteLocation;
+    }) => string | false | void;
+}
+interface VueRouteRuntime<TIcon = unknown> {
+    readonly registry: RouteRegistry<unknown, TIcon, object>;
+    navigationTree(placement: string): ComputedRef<readonly ResolvedNavigationNode<TIcon>[]>;
+    breadcrumbs(): ComputedRef<readonly Breadcrumb<TIcon>[]>;
+    hasPermission(path: string): ComputedRef<boolean>;
+}
+interface VueRuntimeSource extends Record<never, never> {
+    readonly routes: RouteRegistry<unknown, unknown, Record<never, never>>;
+    readonly context: ExternalStore<object>;
+    readonly live: ExternalStore<object>;
+    readonly auth?: RuntimeAuthController;
+    bindControllerAdapter(adapter: ControllerAdapter): void;
+}
+type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "routes" | "context" | "live" | "auth"> & {
+    readonly core: T;
+    readonly routes: VueRouteRuntime;
+    readonly context: T["context"];
+    readonly live: T["live"];
+    readonly auth: T["auth"];
+};
+/** Builds a Vue plugin that binds one UiCogs runtime to an application and its installed router. */
+declare function buildPlugin<T extends VueRuntimeSource>(cogs: T, options?: VuePluginOptions): Plugin;
+/** Returns the Vue-bound application runtime installed by buildPlugin(). */
+declare function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T>;
+/** Compiles UiCogs route entries into standard Vue Router records. */
+declare function toRoutes(registry: RouteRegistry<unknown, unknown, object>): readonly RouteRecordRaw[];
 declare function useUcController<T extends ExternalStore<object>>(controller: T): T;
 declare const useUcResource: typeof useUcController;
 declare const useUcObject: typeof useUcController;
@@ -83,5 +110,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type BoundUiCogs, type RendererRegistry, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, bindUiCogs, createRendererRegistry, createUiCogs, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, vueReactive };
+export { type RendererRegistry, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, type VueBoundUiCogs, type VuePluginOptions, type VueRouteRuntime, buildPlugin, createRendererRegistry, toRoutes, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, vueReactive };
 ```

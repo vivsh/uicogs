@@ -1,0 +1,47 @@
+{
+  "name": "@uicogs/echarts",
+  "version": "0.1.0",
+  "description": "Schema-bound ECharts bindings and Vue components for UiCogs.",
+  "license": "MIT",
+  "author": "UiCogs",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --external vue --external echarts"
+  },
+  "dependencies": {
+    "@uicogs/core": "workspace:^"
+  },
+  "devDependencies": {
+    "echarts": "^6.1.0",
+    "vue": "^3.5.0"
+  },
+  "peerDependencies": {
+    "echarts": "^6.1.0",
+    "vue": "^3.5.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

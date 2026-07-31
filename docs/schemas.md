@@ -199,6 +199,11 @@ const TaskEdit = Task.keep("title", "complete").toForm({ mode: "patch" });
 
 A form schema is not a controller. Bind it to a runtime resource or object to create a form controller.
 
+A form definition owns the editable field set and writer. Create another immutable form
+definition when a screen needs different validation or payload fields. `UcForm` can use
+an optional view as a generated-control subset, but that read-only view cannot replace a
+form definition because it has no writer.
+
 See [Forms](forms.md).
 
 ## Views
@@ -220,6 +225,10 @@ const TaskSummary = Task.view({
 Views can be operation and query outputs. Views cannot write payloads. Calling a view writer throws.
 
 Views do not create separate cache entities.
+
+Use a view to declare the read-side projection for a table, detail panel, export, or
+query output. The projection must include the resource key when it represents remote
+resource entities.
 
 ## Class And Decorator Syntax
 

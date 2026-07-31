@@ -2,6 +2,11 @@
 
 UiCogs 1.0 separates pure definitions from application runtime state.
 
+## ECharts package
+
+`@uicogs/echarts` is additive. Existing applications need no migration; install
+it with Vue and ECharts only when adding schema-bound charts.
+
 ## Definitions
 
 Create schemas, resources, operations, descriptors, and decorators with package-level factories.
@@ -25,6 +30,24 @@ export const api = createUiCogs({
 ```
 
 `api.resource()` creates controllers only. It does not declare or register a new resource.
+
+## Vue Router Plugin
+
+Vue applications construct and install their own router. Rename `toVueRoutes()` to
+`toRoutes()`, then replace `withVue(...)` with the Vue plugin:
+
+```ts
+const router = createRouter({
+  history: createWebHistory(),
+  routes: toRoutes(api.routes),
+});
+
+app.use(router).use(buildPlugin(api));
+```
+
+Install `buildPlugin(api)` after Vue Router when `api` declares routes. The plugin
+provides `useUiCogs()`, controller reactivity, access-aware navigation, and breadcrumbs;
+it does not own Vue Router, its records, or `<RouterView>`.
 
 ## Runtime Context
 

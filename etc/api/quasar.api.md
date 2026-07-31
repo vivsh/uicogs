@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `ec9e1f9d9b2a41d44074af26715fb39f6bb1a4518223b09ec16adf77b5b8c1a9`
+Declaration SHA-256: `a7c4a83ab6b431a8bbed0bd42062b49a5577266ba45b1cbc1638911c3d81b532`
 
 ```ts
 // index.d.ts
@@ -28,6 +28,10 @@ interface FormLike extends ExternalStore<object> {
     set(name: string, value: unknown): void;
     field(name: string): Readonly<Record<string, unknown>>;
     submit(): Promise<unknown>;
+}
+/** Immutable field projection used only to choose automatically rendered controls or columns. */
+interface ViewLike {
+    readonly shape: Readonly<Record<string, unknown>>;
 }
 interface IssueLike {
     readonly path: readonly (string | number)[];
@@ -94,6 +98,17 @@ interface ResourceLike extends ExternalStore<object> {
     form?(schema: unknown, initial?: Readonly<Record<string, unknown>>): FormLike;
     get(...args: never[]): ResourceObjectLike;
 }
+interface TableCollectionLike extends ExternalStore<object> {
+    readonly resource: ResourceLike["definition"];
+    readonly loading: boolean;
+    readonly pageInfo?: unknown;
+    all(): readonly object[];
+    load(): Promise<unknown>;
+    page(index: number, size?: number): TableCollectionLike;
+    sort(field?: string, descending?: boolean): TableCollectionLike;
+    nextPage(): TableCollectionLike;
+    hasMore(): boolean;
+}
 interface ActionLike extends ExternalStore<object> {
     readonly loading: boolean;
     readonly progress: FormProgress;
@@ -114,6 +129,11 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<FormLike>;
         required: true;
     };
+    view: PropType<ViewLike>;
+    failureMessage: {
+        type: StringConstructor;
+        default: string;
+    };
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("success" | "failure")[], "success" | "failure", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
@@ -121,10 +141,17 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<FormLike>;
         required: true;
     };
+    view: PropType<ViewLike>;
+    failureMessage: {
+        type: StringConstructor;
+        default: string;
+    };
 }>> & Readonly<{
     onSuccess?: ((...args: any[]) => any) | undefined;
     onFailure?: ((...args: any[]) => any) | undefined;
-}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+}>, {
+    failureMessage: string;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcField: vue.DefineComponent<vue.ExtractPropTypes<{
     name: {
         type: StringConstructor;
@@ -240,16 +267,10 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     padding: boolean;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
-    resource: {
-        type: PropType<ResourceLike>;
-        required: true;
-    };
+    resource: PropType<ResourceLike>;
+    collection: PropType<TableCollectionLike>;
+    view: PropType<ViewLike>;
     columns: PropType<readonly UcResourceColumn[]>;
-    include: PropType<readonly string[]>;
-    exclude: {
-        type: PropType<readonly string[]>;
-        default: () => never[];
-    };
     selectedKeys: {
         type: PropType<readonly EntityKey[]>;
         default: () => never[];
@@ -283,16 +304,10 @@ declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("select" | "failure" | "update:selectedKeys" | "loaded")[], "select" | "failure" | "update:selectedKeys" | "loaded", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
-    resource: {
-        type: PropType<ResourceLike>;
-        required: true;
-    };
+    resource: PropType<ResourceLike>;
+    collection: PropType<TableCollectionLike>;
+    view: PropType<ViewLike>;
     columns: PropType<readonly UcResourceColumn[]>;
-    include: PropType<readonly string[]>;
-    exclude: {
-        type: PropType<readonly string[]>;
-        default: () => never[];
-    };
     selectedKeys: {
         type: PropType<readonly EntityKey[]>;
         default: () => never[];
@@ -329,7 +344,6 @@ declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
     "onUpdate:selectedKeys"?: ((...args: any[]) => any) | undefined;
     onLoaded?: ((...args: any[]) => any) | undefined;
 }>, {
-    exclude: readonly string[];
     selectedKeys: readonly EntityKey[];
     selection: "multiple" | "none" | "single";
     serial: boolean;
@@ -378,7 +392,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     editForm: ObjectConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("select" | "failure" | "update:selectedKeys" | "loaded" | "update:modelValue" | "view" | "create")[], "select" | "failure" | "update:selectedKeys" | "loaded" | "update:modelValue" | "view" | "create", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "create")[], "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "create", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     resource: {
         type: PropType<ResourceLike>;
         required: true;

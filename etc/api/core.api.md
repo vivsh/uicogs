@@ -1,9 +1,12 @@
 # @uicogs/core API
 
-Declaration SHA-256: `8802336cc7241719d72c32cac98df5b4ab06c54473586e30b6af934ac8a6bbf4`
+Declaration SHA-256: `d320b2826d99e8f3211fd7ee1134dca9424a01cde8290030bcd73166877f70ca`
 
 ```ts
 // index.d.ts
+import { RouteRegistry, RouteEntry, NavigationPlacements } from '@uicogs/routes';
+export * from '@uicogs/routes';
+
 interface ExternalStore<TSnapshot> {
     getSnapshot(): TSnapshot;
     subscribe(listener: () => void): () => void;
@@ -1423,6 +1426,12 @@ interface ResourceDefinitionIdentity {
     readonly name: string;
     readonly resourceName: string;
 }
+/** An immutable, operation-only API definition with no entity or cache semantics. */
+interface ServiceDefinitionIdentity {
+    readonly name: string;
+    readonly serviceName: string;
+    readonly operations: ActionMap<unknown>;
+}
 interface QueryDefinition<TInputSchema extends SchemaLike<TContext>, TView extends string | undefined, TContext> {
     readonly input: TInputSchema;
     readonly view?: TView;
@@ -1554,7 +1563,26 @@ declare class ResourceDefinition<TSchema extends SchemaLike<TContext>, TKey exte
     constructor(options: ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>);
     operation<K extends keyof TActions & string>(name: K): OperationReference<this, K>;
 }
-interface OperationReference<TResource = ResourceDefinitionIdentity, TName extends string = string> {
+interface ServiceDefinitionOptions<TActions extends ActionMap<TContext>, TContext> {
+    readonly name: string;
+    readonly url?: string;
+    readonly source?: ResourceSource<TContext>;
+    readonly actions?: TActions;
+    readonly operations?: TActions;
+    readonly errorAdapters?: readonly ErrorAdapter[];
+}
+declare class ServiceDefinition<TActions extends ActionMap<TContext> = Readonly<Record<never, never>>, TContext = unknown> {
+    readonly serviceName: string;
+    readonly name: string;
+    readonly url: string;
+    readonly source: ResourceSource<TContext>;
+    readonly actions: TActions;
+    readonly operations: TActions;
+    readonly errorAdapters: readonly ErrorAdapter[];
+    constructor(options: ServiceDefinitionOptions<TActions, TContext>);
+    operation<K extends keyof TActions & string>(name: K): OperationReference<this, K>;
+}
+interface OperationReference<TResource = ResourceDefinitionIdentity | ServiceDefinitionIdentity, TName extends string = string> {
     readonly resource: TResource;
     readonly name: TName;
     readonly _input?: TResource extends {
@@ -1564,7 +1592,13 @@ interface OperationReference<TResource = ResourceDefinitionIdentity, TName exten
         readonly schema: infer TSchema;
         readonly views: infer TViews;
         readonly operations: infer TActions;
-    } ? TName extends keyof TActions ? TSchema extends SchemaLike<infer TContext> ? TViews extends ViewMap<TContext> ? ActionOutput<TSchema, TViews, TActions[TName]> : never : never : never : never;
+    } ? TName extends keyof TActions ? TSchema extends SchemaLike<infer TContext> ? TViews extends ViewMap<TContext> ? ActionOutput<TSchema, TViews, TActions[TName]> : never : never : never : TResource extends {
+        readonly operations: infer TActions;
+    } ? TName extends keyof TActions ? TActions[TName] extends {
+        readonly output?: infer TOutput;
+    } ? TOutput extends {
+        readonly _output: infer T;
+    } ? T : unknown : unknown : never : never;
 }
 type OperationInput<TReference> = TReference extends {
     readonly _input?: infer T;
@@ -1576,6 +1610,10 @@ type NamedResourceDefinition<TName extends string, TDefinition> = TDefinition & 
     readonly name: TName;
     readonly resourceName: TName;
 };
+type NamedServiceDefinition<TName extends string, TDefinition> = TDefinition & {
+    readonly name: TName;
+    readonly serviceName: TName;
+};
 declare function resource<const TName extends string, TSchema extends SchemaLike<TContext>, TKeyName extends keyof Infer<TSchema> & string, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ActionMap<TContext> = Readonly<Record<never, never>>, TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown>(options: Omit<ResourceDefinitionOptions<TSchema, Extract<Infer<TSchema>[TKeyName], EntityKey>, TViews, TQueries, TActions, TContext>, "key" | "name"> & {
     readonly name: TName;
     readonly key: TKeyName;
@@ -1583,9 +1621,13 @@ declare function resource<const TName extends string, TSchema extends SchemaLike
 declare function resource<const TName extends string, TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ActionMap<TContext> = Readonly<Record<never, never>>, TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown>(options: Omit<ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>, "name"> & {
     readonly name: TName;
 }): NamedResourceDefinition<TName, ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext>>;
-interface UiCogsBaseOptions<TContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]> {
+declare function service<const TName extends string, TActions extends ActionMap<TContext> = Readonly<Record<never, never>>, TContext = unknown>(options: Omit<ServiceDefinitionOptions<TActions, TContext>, "name"> & {
+    readonly name: TName;
+}): NamedServiceDefinition<TName, ServiceDefinition<TActions, TContext>>;
+interface UiCogsBaseOptions<TContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[]> {
     readonly context?: TContext;
     readonly resources?: TResources;
+    readonly services?: TServices;
     readonly auth?: TAuth;
     readonly baseUrl?: string;
     readonly middleware?: readonly TransportMiddleware[];
@@ -1598,7 +1640,7 @@ interface UiCogsBaseOptions<TContext, TAuth extends AuthStrategyDefinition | und
         readonly byKeys?: RelationKeyFetchOptions<TContext>;
     };
 }
-type UiCogsOptions<TContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]> = UiCogsBaseOptions<TContext, TAuth, TResources> & ({
+type UiCogsOptions<TContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[]> = UiCogsBaseOptions<TContext, TAuth, TResources, TServices> & ({
     readonly persistence?: PersistenceOptions<TContext>;
     readonly cache?: never;
 } | {
@@ -1663,7 +1705,8 @@ interface CollectionLiveRegistration {
     readonly add: (key: EntityKey) => void;
 }
 type RuntimeResourceOf<TDefinition, TFallbackContext = unknown> = TDefinition extends ResourceDefinition<infer TSchema, infer TKey, infer TViews, infer TQueries, infer TActions, infer TDefinitionContext> ? Resource<TSchema, TKey, TViews, TQueries, TActions, TDefinitionContext> : Resource<SchemaLike<TFallbackContext>, EntityKey, ViewMap<TFallbackContext>, QueryMap<TFallbackContext>, ActionMap<TFallbackContext>, TFallbackContext>;
-declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]> {
+type RuntimeServiceOf<TDefinition, TFallbackContext = unknown> = TDefinition extends ServiceDefinition<infer TActions, infer TDefinitionContext> ? Service<TActions, TDefinitionContext> : Service<ActionMap<TFallbackContext>, TFallbackContext>;
+declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[]> {
     readonly cache: CacheStore;
     readonly requests: RequestCoordinator;
     readonly live: LiveController<TContext>;
@@ -1671,6 +1714,7 @@ declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIde
     protected readonly contextController: ContextStoreController<unknown, TContext>;
     private readonly definitions;
     private readonly sourceDefinitions;
+    private readonly services;
     private readonly contextListeners;
     private readonly liveCollections;
     private readonly runtime;
@@ -1678,14 +1722,22 @@ declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIde
     private authUnsubscribe?;
     private authLogoutUnsubscribe?;
     private contextUnsubscribe?;
-    constructor(options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources>);
+    private controllerAdapter;
+    constructor(options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources, TServices>);
+    /** Binds future controllers to one framework-owned reactive adapter. */
+    bindControllerAdapter(adapter: ControllerAdapter): void;
     private validateAuthOperations;
     private authBindings;
     resource<TDefinition extends TResources[number]>(definition: TDefinition): RuntimeResourceOf<TDefinition, TContext>;
     resource<TName extends TResources[number]["name"] & string>(name: TName): string extends TResources[number]["name"] ? RuntimeResourceOf<ResourceDefinitionIdentity, TContext> : RuntimeResourceOf<Extract<TResources[number], {
         readonly name: TName;
     }>, TContext>;
+    service<TDefinition extends TServices[number]>(definition: TDefinition): RuntimeServiceOf<TDefinition, TContext>;
+    service<TName extends TServices[number]["name"] & string>(name: TName): string extends TServices[number]["name"] ? RuntimeServiceOf<ServiceDefinitionIdentity, TContext> : RuntimeServiceOf<Extract<TServices[number], {
+        readonly name: TName;
+    }>, TContext>;
     private registerDefinition;
+    private registerService;
     private validateRelations;
     private dispatchDefaultLiveEvent;
     private dispatchLiveMutation;
@@ -1733,6 +1785,7 @@ declare class Resource<TSchema extends SchemaLike<TContext>, TKey extends Entity
     update(key: TKey, input: Partial<Input<TSchema>>, options?: MutationRequestOptions): Promise<Readonly<Infer<TSchema>> | undefined>;
     remove(key: TKey): Promise<void>;
     form<TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>>(schema: TFormSchema, initial?: Partial<FormValues<TFormSchema>>): FormController<TFormSchema>;
+    actionForm<K extends keyof TActions & string, TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>>(name: K, schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>, initial?: Partial<FormValues<TFormSchema>>): FormController<TFormSchema>;
     action<K extends keyof TActions & string>(name: K, input: ActionInput<TActions[K]>): Promise<ActionOutput<TSchema, TViews, TActions[K]>>;
     runOperation<K extends keyof TActions & string>(name: K, input: ActionInput<TActions[K]>, options?: MutationRequestOptions): Promise<ActionOutput<TSchema, TViews, TActions[K]>>;
     operation<K extends keyof TActions & string>(name: K, input: ActionInput<TActions[K]>): ActionController<ActionOutput<TSchema, TViews, TActions[K]>>;
@@ -1747,6 +1800,19 @@ declare class Resource<TSchema extends SchemaLike<TContext>, TKey extends Entity
     private processActionOutput;
     private invalidateAfterAction;
     private encodeKey;
+}
+/** A runtime controller for an operation-only service definition. */
+declare class Service<TActions extends ActionMap<TContext>, TContext> {
+    private readonly runtime;
+    readonly definition: ServiceDefinition<TActions, TContext>;
+    readonly serviceName: string;
+    private readonly actions;
+    constructor(runtime: Runtime<TContext>, definition: ServiceDefinition<TActions, TContext>);
+    action<K extends keyof TActions & string>(name: K, input: ActionInput<TActions[K]>): Promise<ServiceActionOutput<TActions[K]>>;
+    runOperation<K extends keyof TActions & string>(name: K, input: ActionInput<TActions[K]>, options?: MutationRequestOptions): Promise<ServiceActionOutput<TActions[K]>>;
+    operation<K extends keyof TActions & string>(name: K, input: ActionInput<TActions[K]>): ActionController<ServiceActionOutput<TActions[K]>>;
+    actionForm<K extends keyof TActions & string, TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>>(name: K, schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>, initial?: Partial<FormValues<TFormSchema>>): FormController<TFormSchema>;
+    private executeAction;
 }
 interface LoadOptions {
     readonly policy?: CachePolicy;
@@ -1893,6 +1959,14 @@ interface CollectionSnapshot<T> extends ControllerState {
     readonly pageInfo?: unknown;
     readonly stale: boolean;
 }
+/** Immutable resource metadata carried by every collection controller. */
+interface CollectionResourceMetadata {
+    readonly name: string;
+    readonly key: string | ((value: Readonly<Record<string, unknown>>) => EntityKey);
+    readonly schema: {
+        readonly shape: Shape;
+    };
+}
 declare class CollectionController<T, TKey extends EntityKey, TContext> implements ExternalStore<CollectionSnapshot<T>> {
     private readonly runtime;
     private readonly definition;
@@ -1900,6 +1974,8 @@ declare class CollectionController<T, TKey extends EntityKey, TContext> implemen
     private readonly queryDefinition?;
     private readonly inputSource?;
     readonly _key?: TKey;
+    /** The resource schema and key used to materialize this collection's values. */
+    readonly resource: CollectionResourceMetadata;
     private filters;
     private sortState?;
     private pageState;
@@ -1997,6 +2073,12 @@ type ActionOutput<TSchema, TViews, TAction> = TAction extends {
 } ? V extends keyof TViews ? TViews[V] extends {
     readonly _output: infer T;
 } ? T : Infer<TSchema> : Infer<TSchema> : Infer<TSchema> : Infer<TSchema>;
+type ServiceActionOutput<TAction> = TAction extends {
+    readonly output?: infer S;
+} ? S extends {
+    readonly _output: infer T;
+} ? T : unknown : unknown;
+type ActionFormCompatible<TFormSchema, TInput> = FormPayload<TFormSchema> extends TInput ? unknown : never;
 
 type AuthExecutionRole = "required" | "optional" | "none" | "refresh" | "establish" | "logout";
 type AuthResult<T> = {
@@ -2053,7 +2135,7 @@ declare function withQuery(url: string, query?: Readonly<Record<string, unknown>
 declare function prepareBody(body: unknown, encoding?: BodyEncoding, adapter?: MultipartAdapter): PreparedBody;
 declare function multipart(values: Readonly<Record<string, unknown>>, adapter?: MultipartAdapter): FormData;
 
-declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]> extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources> {
+declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>> extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources, TServices> {
     readonly auth: AuthControllerOf<TAuth>;
     readonly context: RuntimeContextStore<TApplicationContext, UiCogsContext<TApplicationContext, TAuth>>;
     readonly fields: typeof fields;
@@ -2066,17 +2148,21 @@ declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record
     readonly local: typeof local;
     readonly pagination: typeof pagination;
     readonly events: EventBus<TEvents>;
-    constructor(options: CogsOptions<TApplicationContext, TAuth, TResources>);
+    readonly routes: RouteRegistry<TComponent, TIcon, TMeta>;
+    constructor(options: CogsOptions<TApplicationContext, TAuth, TResources, TServices, TComponent, TIcon, TMeta>);
 }
-type CogsOptions<TApplicationContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]> = UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources> extends infer TOptions ? TOptions extends UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources> ? Omit<TOptions, "context" | "persistence"> & {
+type CogsOptions<TApplicationContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>> = UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> extends infer TOptions ? TOptions extends UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
     readonly context?: ApplicationContext<TApplicationContext>;
+    readonly routes?: readonly RouteEntry<TComponent, TMeta>[];
+    readonly navigation?: NavigationPlacements<TIcon>;
+    readonly breadcrumbsFrom?: string;
     readonly persistence?: TOptions extends {
         readonly cache: CacheStore;
     } ? Omit<PersistenceOptions<NoInfer<TApplicationContext>>, "cache"> & {
         readonly cache: false;
     } : PersistenceOptions<NoInfer<TApplicationContext>>;
 } : never : never;
-declare function createUiCogs<TApplicationContext = undefined, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, const TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[]>(options?: CogsOptions<TApplicationContext, TAuth, TResources>): Cogs<TApplicationContext, TEvents, TAuth, TResources>;
+declare function createUiCogs<TApplicationContext = undefined, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, const TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], const TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>>(options?: CogsOptions<TApplicationContext, TAuth, TResources, TServices, TComponent, TIcon, TMeta>): Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices, TComponent, TIcon, TMeta>;
 
 type Constructor<T = object> = abstract new (...args: never[]) => T;
 type ClassSchema<T extends object, TContext = unknown> = {
@@ -2117,5 +2203,5 @@ declare const struct: {
     toSchema: <T extends object>(constructor: Constructor<T>) => ClassSchema<T>;
 };
 
-export { ActionController, type ActionDefinition, type ActionRequest, type ActionSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, LiveController, type LiveDiagnostic, type LiveEvent, type LiveFrame, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, Resource, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, UiCogs, type UiCogsContext, type UiCogsOptions, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, schema, sort, stableSerialize, struct, tombstoneEntity, withQuery };
+export { ActionController, type ActionDefinition, type ActionRequest, type ActionSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, LiveController, type LiveDiagnostic, type LiveEvent, type LiveFrame, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, Resource, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, UiCogs, type UiCogsContext, type UiCogsOptions, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
 ```

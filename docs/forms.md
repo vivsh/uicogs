@@ -34,6 +34,12 @@ create | replace | patch | query | custom
 
 The form writer returns the exact operation payload. A narrow edit form does not need server-owned required entity fields.
 
+The form definition is the authoritative editable-field and payload boundary. Define a
+different `keep`, `drop`, `extend`, or `toForm()` definition when validation or writing
+changes. `UcForm` may receive an optional read-only view only to choose its generated
+controls; every view field must already exist in the form definition. It cannot add
+fields, change validation, or become form input.
+
 ## Create A Controller
 
 Bind a create form to a resource.
@@ -49,6 +55,27 @@ const form = api.resource(Tasks).get(42).form(TaskEdit);
 ```
 
 The controller owns an isolated draft. Editing the draft never mutates cached entity data.
+
+## Render A Form View
+
+Pass a schema view when the default `UcForm` controls should render a display subset of
+an otherwise unchanged form. Slots remain fully explicit and are unaffected by `view`.
+
+```vue
+<UcForm :form="form" :view="TaskEditor">
+  <!-- omit this slot to generate TaskEditor's fields -->
+</UcForm>
+```
+
+```ts
+const TaskEditor = Task.keep("title", "complete").view({
+  fields: ["title", "complete"],
+});
+```
+
+The view must be a subset of `form.schema.fields`. A form must still include every
+value required for its validation and writer; make a narrower form definition instead
+when those semantics change.
 
 ## State
 
@@ -259,6 +286,10 @@ Editing one field clears only issues attached to that field.
 ## Quasar Forms
 
 `UcForm` renders one controller.
+
+Its controller's form definition determines the field set. `UcField` slots choose
+placement and component overrides; they do not add fields to the payload or remove
+enabled fields from validation.
 
 `UcField` resolves the field's semantic editor descriptor.
 

@@ -366,6 +366,11 @@ View responses merge their known canonical fields into the resource entity cache
 
 Views are read-only. They cannot be mutation input schemas.
 
+Use a named view as the declaration of table columns and other read-side projections.
+Pass it to `UcTable` through its optional `view` prop; there are no component-level
+include/exclude field lists. A view may be selected by a named query or operation output
+as well as by a default resource collection.
+
 ## Direct Cache Ingestion
 
 Use the resource cache facade.

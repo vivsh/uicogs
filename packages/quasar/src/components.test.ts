@@ -79,6 +79,17 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.find("button").text()).toBe("Submit");
   });
 
+  /** Verifies that a form view limits only its generated controls. */
+  it("uses an optional view for generated controls", () => {
+    const schema = defineSchema({ title: fields.Str(), complete: fields.Bool() });
+    const form = createFormController(schema.toForm(), { title: "One", complete: false });
+    const wrapper = mount(UcForm, {
+      props: { form, view: schema.view({ fields: ["title"] as const }) },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.findAll("input")).toHaveLength(1);
+  });
+
   it("renders field errors, summaries, progress, submit state, and success", async () => {
     const schema = defineSchema({ title: fields.Str({ required: true }) });
     const form = createFormController(
@@ -264,7 +275,7 @@ describe("Quasar views and tables", () => {
 
   it("derives columns, selection, pagination, sorting, aggregation, and loading", async () => {
     const requests: TransportRequest[] = [];
-    const { resource } = await resourceFixture(async (request) => {
+    const { resource, schema } = await resourceFixture(async (request) => {
       requests.push(request);
       return {
         status: 200,
@@ -283,7 +294,7 @@ describe("Quasar views and tables", () => {
         serial: true,
         selection: "multiple",
         selectedKeys: [1],
-        exclude: ["secret"],
+        view: schema.view({ fields: ["id", "title"] as const }),
         aggregate: (rows) => [{ title: `Count ${rows.length}` }],
       },
       global: { stubs: quasarStubs },
@@ -327,17 +338,14 @@ describe("Quasar views and tables", () => {
     expect(wrapper.emitted("failure")?.[0]?.[0]).toBeInstanceOf(Error);
   });
 
-  it("supports included custom columns, custom body slots, and guarded infinite loading", async () => {
+  /** Verifies a view replaces component-level column filtering. */
+  it("uses a view with custom body slots and guarded infinite loading", async () => {
     const resource = externalResource({ rows: [{ id: 1, title: "One" }], hasMore: true });
     const wrapper = mount(UcTable, {
       props: {
         resource,
         infinite: true,
-        include: ["title"],
-        columns: [
-          { name: "id", label: "Id", field: "id" },
-          { name: "title", label: "Title", field: "title" },
-        ],
+        view: { shape: { title: {} } },
       },
       slots: { body: () => h("div", { class: "custom-body" }, "Custom") },
       global: { stubs: quasarStubs },
@@ -978,6 +986,7 @@ async function resourceFixture(
   await resource.load();
   return {
     resource,
+    schema,
     editForm: schema.keep("title").toForm({ mode: "patch" }),
     createForm: schema.keep("title").toForm({ mode: "create" }),
   };

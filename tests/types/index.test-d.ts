@@ -6,10 +6,12 @@ import {
   memoryCache,
   operation,
   resource,
+  service,
   schema,
   type Encoded,
   type PersistenceBackend,
   type FormPayload,
+  type FormController,
   type FormValues,
   type Infer,
   type Input,
@@ -19,6 +21,8 @@ import {
   type OperationInput,
   type OperationOutput,
   type ResourceDefinition,
+  type RouteEntry,
+  type ServiceDefinition,
 } from "@uicogs/core";
 
 const PureUser = schema({
@@ -26,6 +30,7 @@ const PureUser = schema({
   name: fields.Str({ required: true }),
 });
 const PureInput = schema({ notify: fields.Bool({ required: true }) });
+const PureInputForm = PureInput.toForm();
 const PureUsers = resource({
   name: "pure-users",
   url: "users/",
@@ -44,6 +49,42 @@ expectType<"publish">(publishReference.name);
 expectAssignable<OperationInput<typeof publishReference>>({ notify: true });
 expectType<Infer<typeof PureUser>>({} as OperationOutput<typeof publishReference>);
 expectError(PureUsers.operation("missing"));
+expectType<FormController<typeof PureInputForm>>(
+  pureApi.resource(PureUsers).actionForm("publish", PureInputForm),
+);
+
+const PasswordLogin = schema({
+  username: fields.Str({ required: true }),
+  password: fields.Password({ required: true }),
+});
+const Session = schema({ token: fields.Str({ required: true }) });
+const PasswordLoginForm = PasswordLogin.toForm();
+const Authentication = service({
+  name: "authentication",
+  url: "auth/",
+  actions: {
+    passwordLogin: operation.action({ input: PasswordLogin, output: Session, auth: "none" }),
+  },
+});
+const serviceApi = createUiCogs({ services: [Authentication] });
+const loginReference = Authentication.operation("passwordLogin");
+void loginReference;
+expectAssignable<OperationInput<typeof loginReference>>({ username: "ada", password: "secret" });
+expectType<Infer<typeof Session>>({} as OperationOutput<typeof loginReference>);
+expectError(Authentication.operation("missing"));
+expectType<Promise<Infer<typeof Session>>>(
+  serviceApi
+    .service(Authentication)
+    .action("passwordLogin", { username: "ada", password: "secret" }),
+);
+expectError(serviceApi.service(Authentication).action("passwordLogin", { username: "ada" }));
+expectType<FormController<typeof PasswordLoginForm>>(
+  serviceApi.service(Authentication).actionForm("passwordLogin", PasswordLoginForm),
+);
+expectError(serviceApi.service(Authentication).actionForm("passwordLogin", PureInput.toForm()));
+expectError(pureApi.resource(PureUsers).actionForm("publish", PasswordLoginForm));
+expectError(serviceApi.service(Authentication).cache);
+expectAssignable<ServiceDefinition<typeof Authentication.actions, unknown>>(Authentication);
 
 const ContextSchema = schema.withContext<{ readonly locale: string }>()({
   value: fields.Str({ required: true }),
@@ -242,3 +283,17 @@ expectAssignable<MultipartAdapter>({
   path: (path) => path.join("."),
   parts: (part) => [{ name: part.name, value: part.value }],
 });
+
+const routed = createUiCogs({
+  routes: [{ path: "/users", component: "UsersPage", auth: { all: ["users.read"] } }],
+  navigation: { sidebar: [{ route: "/users", label: "Users", icon: "users" }] },
+  breadcrumbsFrom: "sidebar",
+});
+expectType<RouteEntry<string, Readonly<Record<never, never>>> | undefined>(
+  routed.routes.entry("/users"),
+);
+expectError(
+  createUiCogs({
+    routes: [{ path: "/invalid", component: "Invalid", auth: { all: [], any: [] } }],
+  }),
+);
