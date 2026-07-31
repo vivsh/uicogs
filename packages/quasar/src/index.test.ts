@@ -137,6 +137,52 @@ describe("Quasar forms and fields", () => {
     expect(collection.load).toHaveBeenCalledOnce();
   });
 
+  it("notifies when submission validation fails", async () => {
+    const schema = defineSchema({ title: fields.Str({ required: true }) });
+    const form = createFormController(schema.toForm(), { title: "" }, async () => ({}));
+    const wrapper = mount(UcForm, {
+      props: { form, failureMessage: "Enter a title before submitting." },
+      global: { stubs: quasarStubs },
+    });
+
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.emitted("failure")?.[0]?.[0]).toMatchObject({ success: false });
+    expect(notifyCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "negative", message: "Enter a title before submitting." }),
+    );
+  });
+
+  it("uses a status-specific message when a submission failure has no message", async () => {
+    const schema = defineSchema({ title: fields.Str({ required: true }) });
+    const failure: NormalizedFailure = {
+      kind: "permission",
+      status: 403,
+      message: "",
+      issues: [],
+      retryable: false,
+    };
+    const form = createFormController(schema.toForm(), { title: "Task" }, async () => {
+      throw new RequestError(failure);
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.emitted("failure")?.[0]?.[0]).toMatchObject({ success: false });
+    expect(notifyCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "negative",
+        message: "You do not have permission to perform this action.",
+      }),
+    );
+  });
+
   it("handles remote file display, removal, and local file selection", async () => {
     const schema = defineSchema({
       attachment: fields.File({ editor: editor.File() }),

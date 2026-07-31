@@ -190,7 +190,13 @@ quasarRenderers
 
 export const UcForm = defineComponent({
   name: "UcForm",
-  props: { form: { type: Object as PropType<FormLike>, required: true } },
+  props: {
+    form: { type: Object as PropType<FormLike>, required: true },
+    failureMessage: {
+      type: String,
+      default: "Form validation failed. Please check the error messages.",
+    },
+  },
   emits: ["success", "failure"],
   setup(props, { slots, emit }) {
     const form = vueReactive(props.form);
@@ -207,7 +213,16 @@ export const UcForm = defineComponent({
           onSubmit: async () => {
             const result = await form.submit();
             if (isSuccess(result)) emit("success", result.value);
-            else emit("failure", result);
+            else {
+              if (isFailureResult(result)) {
+                const message =
+                  result.failure.kind === "validation"
+                    ? props.failureMessage
+                    : failureMessage(result.failure);
+                if (message) UcAlertFailure(message);
+              }
+              emit("failure", result);
+            }
           },
         },
         () => [
@@ -1029,10 +1044,32 @@ function reportFailure(
 }
 
 function failureMessage(failure: unknown): string | undefined {
-  if (failure instanceof Error) return failure.message;
+  if (typeof failure === "object" && failure !== null && "failure" in failure)
+    return failureMessage(failure.failure);
+  if (failure instanceof Error) return nonEmptyMessage(failure.message);
   if (typeof failure !== "object" || failure === null) return undefined;
-  if ("message" in failure && typeof failure.message === "string") return failure.message;
-  if ("failure" in failure) return failureMessage(failure.failure);
+  if ("message" in failure && typeof failure.message === "string") {
+    const message = nonEmptyMessage(failure.message);
+    if (message) return message;
+  }
+  if ("status" in failure && typeof failure.status === "number")
+    return statusFailureMessage(failure.status);
+  return undefined;
+}
+
+function nonEmptyMessage(message: string): string | undefined {
+  const trimmed = message.trim();
+  return trimmed || undefined;
+}
+
+function statusFailureMessage(status: number): string | undefined {
+  if (status === 401) return "Your session has expired. Please sign in again.";
+  if (status === 403) return "You do not have permission to perform this action.";
+  if (status === 404) return "The requested record could not be found.";
+  if (status === 409) return "This record has changed. Refresh and try again.";
+  if (status === 422) return "The submitted data could not be processed. Please check the errors.";
+  if (status === 429) return "Too many requests. Please try again shortly.";
+  if (status >= 500) return "The server encountered an error. Please try again.";
   return undefined;
 }
 
