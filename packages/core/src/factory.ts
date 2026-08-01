@@ -22,7 +22,7 @@ import { pagination } from "./transport.js";
 import {
   createRouteRegistry,
   type NavigationPlacements,
-  type RouteEntry,
+  type RouteNode,
   type RouteRegistry,
 } from "@uicogs/routes";
 
@@ -77,7 +77,7 @@ export class Cogs<
       UiCogsContext<TApplicationContext, TAuth>
     >;
     this.routes = createRouteRegistry<TComponent, TIcon, TMeta>({
-      routes: options.routes as readonly RouteEntry<TComponent, TMeta>[] | undefined,
+      routes: options.routes as readonly RouteNode<TComponent, TMeta>[] | undefined,
       navigation: options.navigation as NavigationPlacements<TIcon> | undefined,
       breadcrumbsFrom: options.breadcrumbsFrom,
     });
@@ -107,7 +107,7 @@ export type CogsOptions<
       >
       ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
           readonly context?: ApplicationContext<TApplicationContext>;
-          readonly routes?: readonly RouteEntry<TComponent, TMeta>[];
+          readonly routes?: readonly RouteNode<TComponent, TMeta>[];
           readonly navigation?: NavigationPlacements<TIcon>;
           readonly breadcrumbsFrom?: string;
           readonly persistence?: TOptions extends { readonly cache: CacheStore }

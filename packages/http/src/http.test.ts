@@ -12,7 +12,9 @@ import {
   parseEventStream,
   prepareBody,
   problemDetailsErrors,
+  responseAdapters,
   sse,
+  vyuhErrors,
   withQuery,
 } from "./index.js";
 
@@ -83,7 +85,7 @@ describe("HTTP adapters", () => {
         };
       },
     };
-    const source = sse({ url: "events/" });
+    const source = sse({ url: "events" });
     const result = await source.open({
       context: undefined,
       scope: "anonymous",
@@ -94,7 +96,7 @@ describe("HTTP adapters", () => {
     });
     const frames = [];
     for await (const frame of result.frames) frames.push(frame);
-    expect(requestUrl).toBe("/api/events/");
+    expect(requestUrl).toBe("/api/events");
     expect(requestHeaders?.["Last-Event-ID"]).toBe("6");
     expect(frames).toHaveLength(1);
   });
@@ -193,6 +195,17 @@ describe("HTTP adapters", () => {
     ).toEqual([[], []]);
     expect(drfErrors().adapt({ status: 400, data: "invalid" })).toBeUndefined();
     expect(drfErrors().adapt({ status: 400, data: {} })).toBeUndefined();
+    expect(
+      drfErrors()
+        .adapt({
+          status: 400,
+          data: { profile: { email: ["Invalid"] }, items: [{ title: ["Required"] }] },
+        })
+        ?.issues.map((issue) => issue.path),
+    ).toEqual([
+      ["profile", "email"],
+      ["items", 0, "title"],
+    ]);
   });
 
   it("normalizes problem details", () => {
@@ -226,7 +239,7 @@ describe("HTTP adapters", () => {
         ],
       },
     });
-    expect(jsonApi?.issues.map((issue) => issue.path)).toEqual([["attributes", "name"], [], []]);
+    expect(jsonApi?.issues.map((issue) => issue.path)).toEqual([["name"], [], []]);
     const graphql = graphqlErrors().adapt({
       status: 200,
       data: {
@@ -240,6 +253,187 @@ describe("HTTP adapters", () => {
     expect(graphql?.issues.map((issue) => issue.path)).toEqual([["createTask", "name"], [], []]);
     expect(jsonApiErrors().adapt({ status: 400, data: {} })).toBeUndefined();
     expect(graphqlErrors().adapt({ status: 400, data: {} })).toBeUndefined();
+  });
+
+  it("adapts Vyuh pages, direct lists, and nested ErrorReport issues", () => {
+    const profile = responseAdapters.vyuh();
+    expect(profile.pagination?.request({ index: 2, size: 15 })).toEqual({
+      page: 2,
+      per_page: 15,
+    });
+    expect(
+      profile.pagination?.response({
+        status: 200,
+        data: {
+          items: [{ id: 1 }],
+          total: 31,
+          page: 2,
+          per_page: 15,
+          total_pages: 3,
+        },
+      }),
+    ).toMatchObject({
+      items: [{ id: 1 }],
+      pageInfo: { index: 2, size: 15, count: 31, totalPages: 3, hasNext: true },
+    });
+    expect(
+      profile.pagination?.response({ status: 200, data: [{ id: 1 }] }, { index: 1, size: 25 }),
+    ).toMatchObject({ pageInfo: { count: 1, hasNext: false } });
+
+    const failure = vyuhErrors().adapt({
+      status: 422,
+      data: {
+        source: "validation",
+        code: "validation_error",
+        detail: "Validation failed.",
+        errors: {
+          title: [{ code: "required", message: "Required." }],
+          profile: { email: [{ code: "invalid", message: "Invalid email." }] },
+          non_field_errors: [{ code: "conflict", message: "Fields disagree." }],
+        },
+      },
+    });
+    expect(failure).toMatchObject({ kind: "validation", message: "Validation failed." });
+    expect(failure?.issues).toMatchObject([
+      { path: ["title"], code: "required", message: "Required." },
+      { path: ["profile", "email"], code: "invalid", message: "Invalid email." },
+      { path: [], code: "conflict", message: "Fields disagree." },
+    ]);
+  });
+
+  it("adapts Laravel and Spring Data pagination contracts", () => {
+    const laravel = responseAdapters.laravel();
+    expect(laravel.pagination?.request({ index: 3, size: 20 })).toEqual({
+      page: 3,
+      per_page: 20,
+    });
+    expect(
+      laravel.pagination?.response({
+        status: 200,
+        data: {
+          data: [{ id: 3 }],
+          current_page: 3,
+          per_page: 20,
+          total: 81,
+          last_page: 5,
+          next_page_url: "/items?page=4",
+          prev_page_url: "/items?page=2",
+        },
+      }),
+    ).toMatchObject({
+      items: [{ id: 3 }],
+      pageInfo: { index: 3, count: 81, totalPages: 5, hasNext: true, hasPrevious: true },
+    });
+    expect(
+      laravel.errorAdapter?.adapt({
+        status: 422,
+        data: { message: "Invalid", errors: { "items.0.email": ["Already used"] } },
+      }),
+    ).toMatchObject({ issues: [{ path: ["items", 0, "email"], message: "Already used" }] });
+
+    const spring = responseAdapters.springData();
+    expect(spring.pagination?.request({ index: 2, size: 10 })).toEqual({ page: 1, size: 10 });
+    expect(
+      spring.pagination?.response({
+        status: 200,
+        data: {
+          content: [{ id: 2 }],
+          totalElements: 21,
+          totalPages: 3,
+          number: 1,
+          size: 10,
+        },
+      }),
+    ).toMatchObject({
+      items: [{ id: 2 }],
+      pageInfo: { index: 2, count: 21, totalPages: 3, hasNext: true },
+    });
+  });
+
+  it("decodes JSON:API resources and follows configured pagination metadata", () => {
+    const profile = responseAdapters.jsonApi({ countKey: "total" });
+    const response = {
+      status: 200,
+      data: {
+        data: [{ type: "tasks", id: "1", attributes: { title: "One" } }],
+        links: { next: "/tasks?page[number]=2", prev: null },
+        meta: { total: 3 },
+        included: [{ type: "users", id: "7" }],
+      },
+    } as const;
+    const decoded = profile.decode?.(response, { kind: "collection", resource: "tasks" });
+    expect(decoded).toMatchObject({
+      data: [{ id: "1", type: "tasks", title: "One" }],
+      included: [{ type: "users", id: "7" }],
+    });
+    expect(
+      profile.pagination?.response({ status: 200, data: decoded }, { index: 1, size: 2 }),
+    ).toMatchObject({
+      items: [{ id: "1", type: "tasks", title: "One" }],
+      pageInfo: { count: 3, totalPages: 2, hasNext: true, hasPrevious: false },
+    });
+    expect(
+      profile.pagination?.request({
+        index: 2,
+        size: 2,
+        token: "/tasks?page[number]=2&page[size]=2",
+      }),
+    ).toEqual({ "page[number]": "2", "page[size]": "2" });
+    expect(
+      profile.decode?.(
+        { status: 200, data: { data: { type: "tasks", id: "1", attributes: { title: "One" } } } },
+        { kind: "entity" },
+      ),
+    ).toEqual({ id: "1", type: "tasks", title: "One" });
+  });
+
+  it("requires and decodes an explicit GraphQL connection path", () => {
+    const profile = responseAdapters.graphqlConnection({ connection: "data.users" });
+    const response = {
+      status: 200,
+      data: {
+        data: {
+          users: {
+            edges: [{ node: { id: 1, name: "Ada" } }],
+            totalCount: 4,
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              endCursor: "next-1",
+              startCursor: "start-1",
+            },
+          },
+        },
+      },
+    } as const;
+    const decoded = profile.decode?.(response, { kind: "collection" });
+    expect(profile.pagination?.response({ status: 200, data: decoded })).toMatchObject({
+      items: [{ id: 1, name: "Ada" }],
+      pageInfo: { count: 4, hasNext: true, nextToken: "next-1" },
+    });
+    expect(profile.pagination?.request({ index: 2, size: 25, token: "next-1" })).toEqual({
+      after: "next-1",
+      first: 25,
+    });
+    expect(() =>
+      profile.decode?.(
+        { status: 200, data: { errors: [{ message: "Denied", path: ["users"] }] } },
+        { kind: "collection" },
+      ),
+    ).toThrow("Denied");
+  });
+
+  it("packages DRF pagination and error handling as one response profile", () => {
+    const profile = responseAdapters.drf();
+    expect(
+      profile.pagination?.response({
+        status: 200,
+        data: { count: 1, results: [{ id: 1 }], next: null, previous: null },
+      }),
+    ).toMatchObject({ items: [{ id: 1 }], pageInfo: { count: 1 } });
+    expect(
+      profile.errorAdapter?.adapt({ status: 400, data: { title: ["Required"] } }),
+    ).toMatchObject({ kind: "validation", issues: [{ path: ["title"] }] });
   });
 
   it.each([

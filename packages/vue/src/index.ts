@@ -14,9 +14,10 @@ import {
 import {
   type Breadcrumb,
   type ResolvedNavigationNode,
+  type ResolvedRouteEntry,
   type RouteAccess,
-  type RouteEntry,
   type RouteLocation,
+  type RouteNode,
   type RouteRegistry,
 } from "@uicogs/routes";
 import {
@@ -71,7 +72,7 @@ export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
 
 export interface WithVueOptions {
   readonly onDenied?: (input: {
-    readonly route: RouteEntry<unknown, object>;
+    readonly route: ResolvedRouteEntry<unknown, object>;
     readonly location: RouteLocation;
   }) => string | false | void;
 }
@@ -151,14 +152,15 @@ function bindVueRuntime<T extends VueRuntimeSource>(
     return accessFor(cogs.auth);
   };
   const location = (): RouteLocation =>
-    router ? locationFor(router.currentRoute.value) : emptyLocation;
+    router ? locationFor(router.currentRoute.value, cogs.routes) : emptyLocation;
   if (router) {
     router.beforeEach((to) => {
-      const entry = cogs.routes.match(to.path);
+      const routeLocation = locationFor(to, cogs.routes);
+      const entry = cogs.routes.resolve(routeLocation);
       if (!entry || cogs.routes.hasPermission(entry.path, access())) return true;
       const denied = onDenied?.({
-        route: entry as RouteEntry<unknown, object>,
-        location: locationFor(to),
+        route: entry as ResolvedRouteEntry<unknown, object>,
+        location: routeLocation,
       });
       return typeof denied === "string" ? { path: denied } : false;
     });
@@ -218,34 +220,63 @@ function accessFor(auth: RuntimeAuthController | undefined): RouteAccess {
   };
 }
 
-function locationFor(route: RouteLocationNormalizedLoaded): RouteLocation {
+function locationFor(
+  route: RouteLocationNormalizedLoaded,
+  registry: RouteRegistry<unknown, unknown, object>,
+): RouteLocation {
   const params: Record<string, string | readonly string[] | undefined> = {};
   for (const [name, value] of Object.entries(route.params)) {
     if (typeof value === "string") params[name] = value;
     else if (Array.isArray(value) && value.every((item) => typeof item === "string"))
       params[name] = value;
   }
+  const pattern = matchedPattern(route, registry);
   return {
     path: route.path,
+    ...(pattern === undefined ? {} : { pattern }),
     params: Object.freeze(params),
     query: route.query,
   };
 }
 
-/** Compiles UiCogs route entries into standard Vue Router records. */
+function matchedPattern(
+  route: RouteLocationNormalizedLoaded,
+  registry: RouteRegistry<unknown, unknown, object>,
+): string | undefined {
+  for (const record of [...route.matched].reverse()) {
+    const entry = registry.entry(record.path);
+    if (entry) return entry.path;
+  }
+  return undefined;
+}
+
+/** Compiles the UiCogs route tree into standard nested Vue Router records. */
 export function toRoutes(
   registry: RouteRegistry<unknown, unknown, object>,
 ): readonly RouteRecordRaw[] {
-  return Object.freeze(
-    registry.entries.map(
-      (entry) =>
-        Object.freeze({
-          path: entry.path,
-          component: entry.component as RouteRecordRaw["component"],
-          ...(entry.meta === undefined ? {} : { meta: entry.meta }),
-        }) as RouteRecordRaw,
-    ),
-  );
+  return Object.freeze(registry.tree.map(toVueRoute));
+}
+
+function toVueRoute(node: RouteNode<unknown, object>): RouteRecordRaw {
+  if ("children" in node) {
+    return Object.freeze({
+      path: node.path,
+      ...(node.component === undefined
+        ? {}
+        : { component: node.component as RouteRecordRaw["component"] }),
+      ...(node.meta === undefined ? {} : { meta: node.meta }),
+      children: Object.freeze(node.children.map(toVueRoute)),
+    }) as RouteRecordRaw;
+  }
+  return Object.freeze({
+    path: node.path,
+    ...(node.name === undefined ? {} : { name: node.name }),
+    ...(node.component === undefined
+      ? {}
+      : { component: node.component as RouteRecordRaw["component"] }),
+    ...(node.redirect === undefined ? {} : { redirect: node.redirect }),
+    ...(node.meta === undefined ? {} : { meta: node.meta }),
+  }) as RouteRecordRaw;
 }
 
 export function useUcController<T extends ExternalStore<object>>(controller: T): T {

@@ -1,10 +1,10 @@
 # @uicogs/core API
 
-Declaration SHA-256: `c0351c10940288adfda2103ce7c147cd4022fea7d717eb9039dafeb592008390`
+Declaration SHA-256: `a3f23cdcd65e65c7d4a84ab0e763301e04660f2617c685473122d32f183e9f94`
 
 ```ts
 // index.d.ts
-import { RouteRegistry, RouteEntry, NavigationPlacements } from '@uicogs/routes';
+import { RouteRegistry, RouteNode, NavigationPlacements } from '@uicogs/routes';
 export * from '@uicogs/routes';
 
 interface ExternalStore<TSnapshot> {
@@ -309,6 +309,21 @@ declare class TransportExecutionError extends Error {
 interface ErrorAdapter {
     adapt(response: TransportResponse<unknown>): NormalizedFailure | undefined;
 }
+/** Identifies how a successful response will be consumed by the runtime. */
+type ResponseKind = "entity" | "collection" | "action";
+/** Describes the resource or operation receiving a successful response. */
+interface ResponseDecodeContext {
+    readonly kind: ResponseKind;
+    readonly resource?: string;
+    readonly operation?: string;
+}
+/** Decodes successful responses and supplies related pagination and failure behavior. */
+interface ResponseAdapter {
+    readonly name: string;
+    decode?(response: TransportResponse<unknown>, context: ResponseDecodeContext): unknown;
+    readonly pagination?: PaginationAdapter;
+    readonly errorAdapter?: ErrorAdapter;
+}
 interface PageInfo {
     readonly index?: number;
     readonly size?: number;
@@ -354,6 +369,10 @@ declare const pagination: {
     }): PaginationAdapter;
     client(): PaginationAdapter;
     custom(adapter: PaginationAdapter): PaginationAdapter;
+};
+/** Framework-neutral response adapter builders. */
+declare const responseAdapters: {
+    custom(adapter: ResponseAdapter): ResponseAdapter;
 };
 
 interface RuntimeFormField {
@@ -1365,6 +1384,7 @@ interface RuntimeQuery<TContext> {
     readonly view?: string;
     readonly path?: string;
     readonly pagination?: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly ttl?: number;
     readonly errorAdapters?: readonly ErrorAdapter[];
     readonly sortParam?: string;
@@ -1383,6 +1403,7 @@ interface RuntimeAction<TContext> {
     readonly errorAdapters?: readonly ErrorAdapter[];
     readonly bulk?: BulkActionOptions;
     readonly pagination?: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly encoding?: BodyEncoding;
     readonly multipart?: MultipartAdapter;
     readonly sortParam?: string;
@@ -1419,6 +1440,8 @@ interface RuntimeDefinition<TContext> {
     readonly queries: Readonly<Record<string, RuntimeQuery<TContext>>>;
     readonly actions: Readonly<Record<string, RuntimeAction<TContext>>>;
     readonly pagination: PaginationAdapter;
+    readonly configuredPagination?: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly ttl: number;
     readonly errorAdapters: readonly ErrorAdapter[];
 }
@@ -1437,6 +1460,7 @@ interface QueryDefinition<TInputSchema extends SchemaLike<TContext>, TView exten
     readonly view?: TView;
     readonly path?: string;
     readonly pagination?: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly ttl?: number;
     readonly errorAdapters?: readonly ErrorAdapter[];
     readonly sortParam?: string;
@@ -1463,6 +1487,7 @@ interface ActionDefinition<TInputSchema extends SchemaLike<TContext> | undefined
     readonly errorAdapters?: readonly ErrorAdapter[];
     readonly bulk?: BulkActionOptions;
     readonly pagination?: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly encoding?: BodyEncoding;
     readonly multipart?: MultipartAdapter;
     readonly sortParam?: string;
@@ -1477,6 +1502,32 @@ interface BulkActionOptions {
     readonly decode?: (response: unknown, keys: readonly EntityKey[]) => BulkResult<EntityKey, unknown>;
 }
 declare const operation: {
+    all: () => Readonly<{
+        list: Readonly<Omit<Readonly<Record<never, never>>, "kind" | "method"> & {
+            kind: "list";
+            method: "GET";
+        }>;
+        retrieve: Readonly<Omit<Readonly<Record<never, never>>, "kind" | "method"> & {
+            kind: "retrieve";
+            method: "GET";
+        }>;
+        create: Readonly<Omit<Readonly<Record<never, never>>, "kind" | "method"> & {
+            kind: "create";
+            method: "POST";
+        }>;
+        replace: Readonly<Omit<Readonly<Record<never, never>>, "kind" | "method"> & {
+            kind: "replace";
+            method: "PUT";
+        }>;
+        patch: Readonly<Omit<Readonly<Record<never, never>>, "kind" | "method"> & {
+            kind: "patch";
+            method: "PATCH";
+        }>;
+        remove: Readonly<Omit<Readonly<Record<never, never>>, "kind" | "method"> & {
+            kind: "remove";
+            method: "DELETE";
+        }>;
+    }>;
     list: <const T extends Readonly<Record<string, unknown>> = Readonly<Record<never, never>>>(options?: T) => Readonly<Omit<T, "kind" | "method"> & {
         kind: "list";
         method: T extends {
@@ -1541,6 +1592,7 @@ interface ResourceDefinitionOptions<TSchema extends SchemaLike<TContext>, TKey e
     readonly actions?: TActions;
     readonly operations?: TActions;
     readonly pagination?: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly ttl?: number;
     readonly errorAdapters?: readonly ErrorAdapter[];
 }
@@ -1558,6 +1610,7 @@ declare class ResourceDefinition<TSchema extends SchemaLike<TContext>, TKey exte
     readonly actions: TActions;
     readonly operations: TActions;
     readonly pagination: PaginationAdapter;
+    readonly responseAdapter?: ResponseAdapter;
     readonly ttl: number;
     readonly errorAdapters: readonly ErrorAdapter[];
     constructor(options: ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>);
@@ -1570,6 +1623,7 @@ interface ServiceDefinitionOptions<TActions extends ActionMap<TContext>, TContex
     readonly actions?: TActions;
     readonly operations?: TActions;
     readonly errorAdapters?: readonly ErrorAdapter[];
+    readonly responseAdapter?: ResponseAdapter;
 }
 declare class ServiceDefinition<TActions extends ActionMap<TContext> = Readonly<Record<never, never>>, TContext = unknown> {
     readonly serviceName: string;
@@ -1579,6 +1633,7 @@ declare class ServiceDefinition<TActions extends ActionMap<TContext> = Readonly<
     readonly actions: TActions;
     readonly operations: TActions;
     readonly errorAdapters: readonly ErrorAdapter[];
+    readonly responseAdapter?: ResponseAdapter;
     constructor(options: ServiceDefinitionOptions<TActions, TContext>);
     operation<K extends keyof TActions & string>(name: K): OperationReference<this, K>;
 }
@@ -1635,6 +1690,7 @@ interface UiCogsBaseOptions<TContext, TAuth extends AuthStrategyDefinition | und
     readonly cachePolicy?: CachePolicy;
     readonly adapter?: ControllerAdapter;
     readonly errorAdapters?: readonly ErrorAdapter[];
+    readonly responseAdapter?: ResponseAdapter;
     readonly live?: LiveSource<TContext>;
     readonly relationDefaults?: {
         readonly byKeys?: RelationKeyFetchOptions<TContext>;
@@ -1688,6 +1744,7 @@ interface Runtime<TContext> {
     readonly adapter: ControllerAdapter;
     readonly definitions: Map<string, RuntimeDefinition<TContext>>;
     readonly errorAdapters: readonly ErrorAdapter[];
+    readonly responseAdapter?: ResponseAdapter;
     readonly cachePolicy: CachePolicy;
     readonly relationDefaults?: UiCogsOptions<TContext>["relationDefaults"];
     scope(): string;
@@ -1697,7 +1754,10 @@ interface Runtime<TContext> {
     applyCollectionMembership(address: CacheAddress, key: EntityKey, value: Readonly<Record<string, unknown>>): void;
     address(resource: string): CacheAddress;
     awaitCache(scope: string): Promise<void> | undefined;
-    request<T>(identity: string, request: Omit<TransportRequest, "signal">, signal: AbortSignal, adapters?: readonly ErrorAdapter[]): Promise<TransportResponse<T>>;
+    request<T>(identity: string, request: Omit<TransportRequest, "signal">, signal: AbortSignal, adapters?: readonly ErrorAdapter[], response?: ResponseRequestOptions): Promise<TransportResponse<T>>;
+}
+interface ResponseRequestOptions extends ResponseDecodeContext {
+    readonly adapter?: ResponseAdapter;
 }
 interface CollectionLiveRegistration {
     readonly paginated: () => boolean;
@@ -2158,7 +2218,7 @@ declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record
 }
 type CogsOptions<TApplicationContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>> = UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> extends infer TOptions ? TOptions extends UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
     readonly context?: ApplicationContext<TApplicationContext>;
-    readonly routes?: readonly RouteEntry<TComponent, TMeta>[];
+    readonly routes?: readonly RouteNode<TComponent, TMeta>[];
     readonly navigation?: NavigationPlacements<TIcon>;
     readonly breadcrumbsFrom?: string;
     readonly persistence?: TOptions extends {
@@ -2208,5 +2268,5 @@ declare const struct: {
     toSchema: <T extends object>(constructor: Constructor<T>) => ClassSchema<T>;
 };
 
-export { ActionController, type ActionDefinition, type ActionRequest, type ActionSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, LiveController, type LiveDiagnostic, type LiveEvent, type LiveFrame, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, Resource, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, UiCogs, type UiCogsContext, type UiCogsOptions, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isLoggedIn, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
+export { ActionController, type ActionDefinition, type ActionRequest, type ActionSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, LiveController, type LiveDiagnostic, type LiveEvent, type LiveFrame, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, Resource, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type ResponseAdapter, type ResponseDecodeContext, type ResponseKind, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, UiCogs, type UiCogsContext, type UiCogsOptions, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isLoggedIn, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, responseAdapters, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
 ```

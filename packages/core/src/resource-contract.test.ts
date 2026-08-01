@@ -15,6 +15,14 @@ describe("resource definitions and operation builders", () => {
     expect(operation.replace()).toEqual({ kind: "replace", method: "PUT" });
     expect(operation.patch()).toEqual({ kind: "patch", method: "PATCH" });
     expect(operation.remove()).toEqual({ kind: "remove", method: "DELETE" });
+    expect(operation.all()).toEqual({
+      list: { kind: "list", method: "GET" },
+      retrieve: { kind: "retrieve", method: "GET" },
+      create: { kind: "create", method: "POST" },
+      replace: { kind: "replace", method: "PUT" },
+      patch: { kind: "patch", method: "PATCH" },
+      remove: { kind: "remove", method: "DELETE" },
+    });
     expect(operation.action({ path: "publish/" })).toEqual({
       kind: "action",
       method: "POST",
@@ -26,6 +34,7 @@ describe("resource definitions and operation builders", () => {
       bulk: {},
     });
     expect(Object.isFrozen(operation.list())).toBe(true);
+    expect(Object.isFrozen(operation.all())).toBe(true);
 
     const { cogs, schema } = fixture();
     const definition = registerResource(cogs)({
@@ -42,6 +51,27 @@ describe("resource definitions and operation builders", () => {
     expect(definition).toMatchObject({ resourceName: "tasks", name: "tasks", ttl: 500 });
     expect(Object.isFrozen(definition)).toBe(true);
     expect(Object.isFrozen(definition.actions)).toBe(true);
+  });
+
+  it("declares every standard resource operation through operation.all", () => {
+    const { cogs, schema } = fixture();
+    const definition = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema,
+      key: "id",
+      operations: operation.all(),
+    });
+
+    expect(Object.keys(definition.operations)).toEqual([
+      "list",
+      "retrieve",
+      "create",
+      "replace",
+      "patch",
+      "remove",
+    ]);
+    expect(definition.operation("list").name).toBe("list");
   });
 
   it("rejects missing, duplicate, and invalid-view resource definitions", () => {

@@ -185,13 +185,23 @@ Malformed JSON on an error response remains raw text so error adapters can inspe
 
 Binary download modes are not supported in 1.0.
 
+After a successful transport response, the active response profile may decode its data.
+Entity, collection, and action contexts are distinct. Collections then pass the decoded
+response to the resolved pagination adapter. No profile is inferred from the body.
+
 ## Non-2xx Responses
 
 The transport returns non-2xx `TransportResponse` values to the runtime.
 
-Failure adaptation then uses operation, resource, runtime, and fallback adapters in that order.
+Failure adaptation uses operation/query, resource/service, runtime, response-profile,
+and fallback adapters in that order.
 
 This preserves server field errors and operation-specific failure formats.
+
+GraphQL profiles also convert a successful HTTP response containing GraphQL `errors`
+into a request failure.
+
+See [Response adapters](response-adapters.md).
 
 ## Transport Errors
 

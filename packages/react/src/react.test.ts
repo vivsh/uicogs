@@ -18,6 +18,7 @@ import {
   useForm,
   useObject,
   useResource,
+  toReactRoutes,
 } from "./index.js";
 
 afterEach(cleanup);
@@ -40,6 +41,51 @@ describe("React controller integration", () => {
 
     render(createElement(cogs.Provider, null, createElement(View)));
     expect(screen.getByText("Sign in")).toBeDefined();
+    core.dispose();
+  });
+
+  it("preserves nested records and supports componentless route groups", () => {
+    const Layout = () => null;
+    const Home = () => null;
+    const core = createUiCogs({
+      routes: [
+        {
+          path: "/app",
+          component: Layout,
+          children: [{ path: "", component: Home, name: "home" }],
+        },
+        {
+          path: "/settings",
+          children: [{ path: "profile", component: Home }],
+        },
+      ],
+    });
+
+    expect(toReactRoutes(core.routes)).toMatchObject([
+      { path: "/app", Component: Layout, children: [{ path: "", Component: Home }] },
+      { path: "/settings", children: [{ path: "profile", Component: Home }] },
+    ]);
+    core.dispose();
+  });
+
+  it("requires an explicit React redirect adapter and receives the final target", () => {
+    const Page = () => null;
+    const core = createUiCogs({
+      routes: [
+        { path: "/old", redirect: "/middle" },
+        { path: "/middle", redirect: { name: "new" } },
+        { path: "/new", name: "new", component: Page },
+      ],
+    });
+
+    expect(() => toReactRoutes(core.routes)).toThrow("redirect adapter");
+    expect(
+      toReactRoutes(core.routes, { redirect: (target) => `redirect:${target}` }),
+    ).toMatchObject([
+      { path: "/old", Component: "redirect:/new" },
+      { path: "/middle", Component: "redirect:/new" },
+      { path: "/new", Component: Page },
+    ]);
     core.dispose();
   });
 

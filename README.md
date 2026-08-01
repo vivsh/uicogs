@@ -209,6 +209,7 @@ Cache policies include `cache-first`, `network-only`, and `stale-while-revalidat
 
 - To-one, key-backed to-many, query-driven, and explicit join-resource relations.
 - Page, offset, cursor, link-header, client, and custom pagination adapters.
+- Explicit Vyuh, DRF, Laravel, Spring Data, JSON:API, GraphQL, and custom response profiles.
 - JWT and cookie authentication strategies with auth-owned cache scope.
 - Local storage, session storage, and IndexedDB persistence backends.
 - Optional Fetch-stream server-sent events that update the normalized cache.
@@ -227,7 +228,7 @@ The core owns behavior; framework packages observe controllers rather than dupli
 | `@uicogs/react`   | `withReact()` and React hooks built on `useSyncExternalStore`             |
 | `@uicogs/quasar`  | Quasar fields, forms, tables, actions, and resource views                 |
 | `@uicogs/auth`    | JWT and cookie auth strategies                                            |
-| `@uicogs/http`    | SSE, pagination adapters, multipart conventions, server-error adapters    |
+| `@uicogs/http`    | response profiles, SSE, pagination, multipart, and server errors          |
 | `@uicogs/storage` | local, session, and IndexedDB persistence                                 |
 | `@uicogs/openapi` | OpenAPI reader, generator, and CLI                                        |
 | `@uicogs/legacy`  | migration adapters for older mutable data-source code                     |
@@ -273,6 +274,7 @@ pnpm add @uicogs/vue vue             # or @uicogs/react react
 pnpm add vue-router                  # when the Vue app declares UiCogs routes
 pnpm add @uicogs/echarts echarts      # optional Vue ECharts integration
 pnpm add @uicogs/auth @uicogs/storage  # optional
+pnpm add @uicogs/http                   # response profiles and HTTP adapters
 ```
 
 Until publication, use workspace links or packed artifacts.
@@ -293,7 +295,8 @@ Until publication, use workspace links or packed artifacts.
 - [Application bootstrap](docs/bootstrap.md) — definitions, runtime creation, optional services, framework binding, and shutdown.
 - [Schemas](docs/schemas.md) and [Validation](docs/validation.md) — fields, composition, parsing, and async checks.
 - [Resources](docs/resources.md), [Forms](docs/forms.md), and [Caching](docs/caching.md) — the primary application workflow.
-- [Authentication](docs/authentication.md), [Context](docs/context.md), [Storage](docs/storage.md), and [Transport](docs/transport.md) — runtime services and request behavior.
+- [Authentication](docs/authentication.md), [Context](docs/context.md), [Storage](docs/storage.md), [Transport](docs/transport.md), and [Response adapters](docs/response-adapters.md) — runtime services and request behavior.
+- [Routing](docs/routing.md) — flat and nested routes, access inheritance, matching, redirects, and router conversion.
 - [Frameworks](docs/frameworks.md) — Vue, React, Quasar, and Vue Router.
 - [Charts](docs/charts.md) — schema-bound collection and entity chart concepts.
 - [ECharts](docs/echarts.md) — Vue rendering, engine setup, and native ECharts options.

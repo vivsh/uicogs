@@ -1,6 +1,6 @@
 # @uicogs/react API
 
-Declaration SHA-256: `bbaea7375c69d152ca2671c40927d532929a59d43a6643a9cc486aa7741b2512`
+Declaration SHA-256: `62ca5da1d99920be4082f4e0209482fab04a4ebf427606c7752dc289fb6f074a`
 
 ```ts
 // index.d.ts
@@ -18,8 +18,13 @@ declare const useAction: typeof useController;
 declare const useAuth: typeof useController;
 interface ReactRouteRecord {
     readonly path: string;
-    readonly Component: unknown;
+    readonly name?: string;
+    readonly Component?: unknown;
     readonly meta?: object;
+    readonly children?: readonly ReactRouteRecord[];
+}
+interface ReactRouteConversionOptions {
+    readonly redirect?: (target: string) => unknown;
 }
 interface ReactRouteRuntime {
     readonly registry: RouteRegistry<unknown, unknown, object>;
@@ -36,6 +41,7 @@ interface ReactRuntimeSource extends Record<never, never> {
 interface ReactBindingOptions {
     readonly router: unknown;
     readonly useLocation: () => RouteLocation;
+    readonly redirect?: (target: string) => unknown;
 }
 type ReactBoundUiCogs<T extends ReactRuntimeSource> = Omit<T, "routes"> & {
     readonly core: T;
@@ -49,8 +55,8 @@ type ReactBoundUiCogs<T extends ReactRuntimeSource> = Omit<T, "routes"> & {
 declare function withReact<T extends ReactRuntimeSource>(cogs: T, options: ReactBindingOptions): ReactBoundUiCogs<T>;
 /** Returns the React-bound runtime supplied by the matching withReact() binding. */
 declare function useUiCogs<T extends ReactRuntimeSource = ReactRuntimeSource>(): ReactBoundUiCogs<T>;
-/** Compiles UiCogs entries into React Router-compatible Component route records. */
-declare function toReactRoutes(registry: RouteRegistry<unknown, unknown, object>): readonly ReactRouteRecord[];
+/** Compiles the UiCogs route tree into nested React Router-compatible records. */
+declare function toReactRoutes(registry: RouteRegistry<unknown, unknown, object>, options?: ReactRouteConversionOptions): readonly ReactRouteRecord[];
 
-export { type ReactBindingOptions, type ReactBoundUiCogs, type ReactRouteRecord, type ReactRouteRuntime, toReactRoutes, useAction, useAuth, useCollection, useController, useForm, useObject, useResource, useUiCogs, withReact };
+export { type ReactBindingOptions, type ReactBoundUiCogs, type ReactRouteConversionOptions, type ReactRouteRecord, type ReactRouteRuntime, toReactRoutes, useAction, useAuth, useCollection, useController, useForm, useObject, useResource, useUiCogs, withReact };
 ```

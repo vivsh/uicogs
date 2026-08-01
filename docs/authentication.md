@@ -148,6 +148,10 @@ Route declarations consume the effective `api.auth.permissions` set. A guest-onl
 route omits `auth`; authenticated routes use either `auth: { all: [...] }` or
 `auth: { any: [...] }`. `{ all: [] }` means any authenticated user.
 
+For nested routes, every explicit ancestor and leaf rule must pass. An omitted ancestor
+is neutral, while a chain with no rule remains guest-only. Redirects use the final
+target's access rules.
+
 Role-based applications should map roles to stable capabilities in the strategy:
 
 ```ts

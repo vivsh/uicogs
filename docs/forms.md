@@ -262,18 +262,32 @@ interface NormalizedFailure {
 }
 ```
 
-Error-adapter precedence is operation, resource, runtime, then fallback.
+Error-adapter precedence is operation/query, resource/service, runtime, response profile,
+then fallback.
 
 The first adapter returning a failure wins.
 
 `@uicogs/http` provides:
 
 ```text
+responseAdapters.vyuh
+responseAdapters.drf
+responseAdapters.laravel
+responseAdapters.springData
+responseAdapters.jsonApi
+responseAdapters.graphqlConnection
+
 drfErrors
 problemDetailsErrors
 jsonApiErrors
 graphqlErrors
+vyuhErrors
+laravelErrors
 ```
+
+Use a response profile when one backend contract should own success envelopes,
+pagination, and errors together. Standalone error adapters remain useful as granular
+overrides. See [Response adapters](response-adapters.md).
 
 Adapters emit wire paths. Schema wire aliases map those paths back to form field names.
 

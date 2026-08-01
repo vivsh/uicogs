@@ -6,7 +6,7 @@ Definitions are immutable; `createUiCogs()` creates the one application runtime.
 ## Install
 
 ```sh
-pnpm add @uicogs/core @uicogs/vue @uicogs/quasar vue vue-router quasar
+pnpm add @uicogs/core @uicogs/http @uicogs/vue @uicogs/quasar vue vue-router quasar
 ```
 
 Install `vue-router` when the application declares UiCogs routes.
@@ -55,18 +55,21 @@ columns. Neither holds cache, network, or component state.
 
 ## Declare Routes And Runtime
 
-Routes are pure core definitions. A route has an absolute path and Vue component;
-navigation links refer to those paths.
+Routes are pure core definitions. This flat route is also the smallest valid route
+tree. Layouts may instead declare `children` with empty, relative, or absolute paths;
+navigation always refers to normalized leaf paths.
 
 ```ts
 // src/api.ts
 import { createUiCogs } from "@uicogs/core";
+import { responseAdapters } from "@uicogs/http";
 import TasksPage from "./pages/TasksPage.vue";
 import { Tasks } from "./definitions/tasks.js";
 
 export const api = createUiCogs({
   baseUrl: "/api/",
   resources: [Tasks],
+  responseAdapter: responseAdapters.vyuh(),
   context: { locale: "en", timeZone: "UTC" },
   routes: [{ path: "/tasks", component: TasksPage }],
   navigation: {
@@ -128,7 +131,8 @@ const sidebar = api.routes.navigationTree("sidebar");
 
 `navigationTree()` and `breadcrumbs()` are reactive. Protected routes declare
 `auth: { all: ["tasks.view"] }` or `auth: { any: [...] }`; configure an auth strategy
-before using them.
+before using them. See [Routing](routing.md) for layouts, inherited access, matching,
+and redirects.
 
 ## Render A Resource, Form, And Table
 
@@ -188,10 +192,11 @@ title: fields.Str({
 }),
 ```
 
-For server validation, configure an adapter for the API response. DRF dictionaries,
-Problem Details, JSON:API, and GraphQL adapters live in `@uicogs/http`. Vyuh's current
-422 body needs a custom adapter that unwraps `errors` and reads each leaf's `message`;
-it is not compatible with `drfErrors()` directly.
+The configured Vyuh response profile supplies `page`/`per_page` pagination and maps
+Vyuh `ErrorReport` field messages into the same form issues. Use `drf()`, `laravel()`,
+`springData()`, `jsonApi()`, or `graphqlConnection()` for their documented contracts.
+UiCogs does not infer a profile from a response body.
 
 See [Resources](resources.md), [Forms](forms.md), [Validation](validation.md),
-[Frameworks](frameworks.md), and [Application bootstrap](bootstrap.md).
+[Response adapters](response-adapters.md), [Frameworks](frameworks.md), and
+[Application bootstrap](bootstrap.md).

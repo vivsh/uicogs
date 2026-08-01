@@ -38,6 +38,7 @@ The resource owns:
 - named queries;
 - operations;
 - pagination;
+- an optional response profile;
 - TTL;
 - resource-level error adapters.
 
@@ -249,6 +250,7 @@ An operation can define:
 - body encoding;
 - multipart adapter;
 - pagination;
+- response adapter;
 - sorter parameter;
 - invalidation policy;
 - error adapters;
@@ -588,3 +590,29 @@ interface PaginationAdapter {
 ```
 
 The controller owns current navigation and accumulation. The shared cache stores only collection keys and returned page metadata.
+
+A response profile may supply the resource's pagination adapter. An explicit query or
+list-operation adapter wins, followed by an explicit resource adapter, the active
+response profile, and the core page default.
+
+```ts
+import { responseAdapters } from "@uicogs/http";
+
+const Tasks = resource({
+  name: "tasks",
+  url: "tasks/",
+  schema: Task,
+  key: "id",
+  responseAdapter: responseAdapters.vyuh(),
+  queries: {
+    legacy: {
+      input: LegacySearch,
+      responseAdapter: responseAdapters.drf(),
+    },
+  },
+});
+```
+
+The same profile decodes object and action responses and normalizes server failures.
+Profiles may also be configured on `createUiCogs()`, services, and operations. See
+[Response adapters](response-adapters.md).

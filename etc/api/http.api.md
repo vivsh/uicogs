@@ -1,10 +1,10 @@
 # @uicogs/http API
 
-Declaration SHA-256: `ade1e76f7eae00a8e355bde9f81e5a362774dcd84801c3401f8578e1e3ae6165`
+Declaration SHA-256: `be86da09920503a2d8d5571f58fa5bfe517efc2ab77cf379e1a28e2b536836c2`
 
 ```ts
 // index.d.ts
-import { LiveRetryOptions, LiveVersion, LiveMutation, ErrorAdapter, PaginationAdapter, LiveFrame, LiveSource } from '@uicogs/core';
+import { LiveRetryOptions, LiveVersion, LiveMutation, ErrorAdapter, PaginationAdapter, LiveFrame, ResponseAdapter, LiveSource } from '@uicogs/core';
 export { MultipartEncodingError, PreparedBody, multipart, multipartAdapter, prepareBody, withQuery } from '@uicogs/core';
 
 interface SseOptions<TContext> {
@@ -60,10 +60,42 @@ declare const pagination: {
     client(): PaginationAdapter;
     custom(adapter: PaginationAdapter): PaginationAdapter;
 };
+/** Options for JSON:API pagination metadata and request parameters. */
+interface JsonApiResponseOptions {
+    readonly countKey?: string;
+    readonly pageParam?: string;
+    readonly sizeParam?: string;
+}
+/** Options for locating and paging a GraphQL connection response. */
+interface GraphqlConnectionResponseOptions {
+    readonly connection: string | readonly (string | number)[];
+    readonly cursorParam?: string;
+    readonly sizeParam?: string;
+}
+/** Common response profiles for documented HTTP API contracts. */
+declare const responseAdapters: {
+    custom: (adapter: ResponseAdapter) => ResponseAdapter;
+    /** Handles Vyuh direct responses, Page envelopes, and ErrorReport failures. */
+    vyuh(): ResponseAdapter;
+    /** Handles Django REST Framework page envelopes and error dictionaries. */
+    drf(): ResponseAdapter;
+    /** Handles Laravel paginator envelopes and validation failures. */
+    laravel(): ResponseAdapter;
+    /** Handles Spring Data Page envelopes and Problem Details failures. */
+    springData(): ResponseAdapter;
+    /** Handles JSON:API primary data, pagination links, and errors. */
+    jsonApi(options?: JsonApiResponseOptions): ResponseAdapter;
+    /** Handles an explicitly located GraphQL connection and GraphQL errors. */
+    graphqlConnection(options: GraphqlConnectionResponseOptions): ResponseAdapter;
+};
 declare function drfErrors(): ErrorAdapter;
+/** Normalizes Vyuh ErrorReport responses, including nested field issues. */
+declare function vyuhErrors(): ErrorAdapter;
+/** Normalizes Laravel message and field-error responses. */
+declare function laravelErrors(): ErrorAdapter;
 declare function problemDetailsErrors(): ErrorAdapter;
 declare function jsonApiErrors(): ErrorAdapter;
 declare function graphqlErrors(): ErrorAdapter;
 
-export { type SseOptions, drfErrors, graphqlErrors, jsonApiErrors, pagination, parseEventStream, problemDetailsErrors, sse };
+export { type GraphqlConnectionResponseOptions, type JsonApiResponseOptions, type SseOptions, drfErrors, graphqlErrors, jsonApiErrors, laravelErrors, pagination, parseEventStream, problemDetailsErrors, responseAdapters, sse, vyuhErrors };
 ```

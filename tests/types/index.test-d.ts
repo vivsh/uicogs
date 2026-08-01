@@ -5,6 +5,7 @@ import {
   local,
   memoryCache,
   operation,
+  responseAdapters,
   resource,
   service,
   schema,
@@ -21,9 +22,26 @@ import {
   type OperationInput,
   type OperationOutput,
   type ResourceDefinition,
+  type ResponseAdapter,
   type RouteEntry,
+  type RouteNode,
+  type ResolvedRouteEntry,
   type ServiceDefinition,
 } from "@uicogs/core";
+import { responseAdapters as httpResponseAdapters } from "@uicogs/http";
+
+const customResponse = responseAdapters.custom({
+  name: "custom",
+  decode: (response, context) => (context.kind === "entity" ? response.data : response.data),
+});
+expectType<ResponseAdapter>(customResponse);
+expectType<ResponseAdapter>(httpResponseAdapters.vyuh());
+expectType<ResponseAdapter>(httpResponseAdapters.drf());
+expectType<ResponseAdapter>(httpResponseAdapters.laravel());
+expectType<ResponseAdapter>(httpResponseAdapters.springData());
+expectType<ResponseAdapter>(httpResponseAdapters.jsonApi({ countKey: "total" }));
+expectType<ResponseAdapter>(httpResponseAdapters.graphqlConnection({ connection: "data.users" }));
+expectError(httpResponseAdapters.graphqlConnection({}));
 
 const PureUser = schema({
   id: fields.ID(),
@@ -36,10 +54,17 @@ const PureUsers = resource({
   url: "users/",
   schema: PureUser,
   key: "id",
+  responseAdapter: customResponse,
+  queries: { notified: { input: PureInput, responseAdapter: customResponse } },
   operations: {
-    publish: operation.action({ input: PureInput, output: PureUser }),
+    publish: operation.action({
+      input: PureInput,
+      output: PureUser,
+      responseAdapter: customResponse,
+    }),
   },
 });
+createUiCogs({ resources: [PureUsers], responseAdapter: customResponse });
 const pureApi = createUiCogs({ resources: [PureUsers] });
 expectType<number>(pureApi.resource(PureUsers).get(1).key);
 expectType<number>(pureApi.resource("pure-users").get(1).key);
@@ -53,6 +78,17 @@ expectType<FormController<typeof PureInputForm>>(
   pureApi.resource(PureUsers).actionForm("publish", PureInputForm),
 );
 
+const StandardUsers = resource({
+  name: "standard-users",
+  url: "standard-users/",
+  schema: PureUser,
+  key: "id",
+  operations: operation.all(),
+});
+expectType<"list">(StandardUsers.operation("list").name);
+expectType<"retrieve">(StandardUsers.operation("retrieve").name);
+expectError(StandardUsers.operation("publish"));
+
 const PasswordLogin = schema({
   username: fields.Str({ required: true }),
   password: fields.Password({ required: true }),
@@ -62,8 +98,14 @@ const PasswordLoginForm = PasswordLogin.toForm();
 const Authentication = service({
   name: "authentication",
   url: "auth/",
+  responseAdapter: customResponse,
   actions: {
-    passwordLogin: operation.action({ input: PasswordLogin, output: Session, auth: "none" }),
+    passwordLogin: operation.action({
+      input: PasswordLogin,
+      output: Session,
+      auth: "none",
+      responseAdapter: customResponse,
+    }),
   },
 });
 const serviceApi = createUiCogs({ services: [Authentication] });
@@ -289,9 +331,25 @@ const routed = createUiCogs({
   navigation: { sidebar: [{ route: "/users", label: "Users", icon: "users" }] },
   breadcrumbsFrom: "sidebar",
 });
-expectType<RouteEntry<string, Readonly<Record<never, never>>> | undefined>(
+expectType<ResolvedRouteEntry<string, Readonly<Record<never, never>>> | undefined>(
   routed.routes.entry("/users"),
 );
+expectAssignable<RouteEntry<string>>({ path: "/users", component: "UsersPage" });
+expectAssignable<RouteNode<string>>({
+  path: "/accounts",
+  component: "AccountLayout",
+  children: [
+    { path: "", component: "AccountHome" },
+    { path: ":id", component: "AccountDetail" },
+    { path: "/login", redirect: { name: "sign-in" } },
+  ],
+});
+expectError<RouteEntry<string>>({
+  path: "/invalid",
+  component: "Invalid",
+  redirect: "/users",
+});
+expectError<RouteNode<string>>({ path: "/invalid", children: [], redirect: "/users" });
 expectError(
   createUiCogs({
     routes: [{ path: "/invalid", component: "Invalid", auth: { all: [], any: [] } }],

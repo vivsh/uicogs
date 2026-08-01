@@ -4,7 +4,9 @@ import {
   type ResolvedNavigationNode,
   type RouteAccess,
   type RouteLocation,
+  type RouteNode,
   type RouteRegistry,
+  resolveRoutePath,
 } from "@uicogs/routes";
 import {
   createContext,
@@ -39,8 +41,14 @@ export const useAuth = useController;
 
 export interface ReactRouteRecord {
   readonly path: string;
-  readonly Component: unknown;
+  readonly name?: string;
+  readonly Component?: unknown;
   readonly meta?: object;
+  readonly children?: readonly ReactRouteRecord[];
+}
+
+export interface ReactRouteConversionOptions {
+  readonly redirect?: (target: string) => unknown;
 }
 
 export interface ReactRouteRuntime {
@@ -60,6 +68,7 @@ interface ReactRuntimeSource extends Record<never, never> {
 export interface ReactBindingOptions {
   readonly router: unknown;
   readonly useLocation: () => RouteLocation;
+  readonly redirect?: (target: string) => unknown;
 }
 
 export type ReactBoundUiCogs<T extends ReactRuntimeSource> = Omit<T, "routes"> & {
@@ -79,7 +88,7 @@ export function withReact<T extends ReactRuntimeSource>(
   const access = (): RouteAccess => accessFor(cogs.auth);
   const routeRuntime: ReactRouteRuntime = Object.freeze({
     registry: cogs.routes,
-    records: toReactRoutes(cogs.routes),
+    records: toReactRoutes(cogs.routes, { redirect: options.redirect }),
     useNavigationTree: (placement: string) => {
       const snapshot = useAuthSnapshot(cogs.auth);
       return cogs.routes.navigationTree(
@@ -97,7 +106,7 @@ export function withReact<T extends ReactRuntimeSource>(
       return cogs.routes.hasPermission(path, accessForSnapshot(snapshot));
     },
     canNavigate: (location: RouteLocation) => {
-      const entry = cogs.routes.match(location.path);
+      const entry = cogs.routes.resolve(location);
       return !entry || cogs.routes.hasPermission(entry.path, access());
     },
   });
@@ -122,19 +131,51 @@ export function useUiCogs<
   return runtime as ReactBoundUiCogs<T>;
 }
 
-/** Compiles UiCogs entries into React Router-compatible Component route records. */
+/** Compiles the UiCogs route tree into nested React Router-compatible records. */
 export function toReactRoutes(
   registry: RouteRegistry<unknown, unknown, object>,
+  options: ReactRouteConversionOptions = {},
 ): readonly ReactRouteRecord[] {
   return Object.freeze(
-    registry.entries.map((entry) =>
-      Object.freeze({
-        path: entry.path,
-        Component: entry.component,
-        ...(entry.meta === undefined ? {} : { meta: entry.meta }),
-      }),
-    ),
+    registry.tree.map((node) => toReactRoute(node, registry, options, undefined)),
   );
+}
+
+function toReactRoute(
+  node: RouteNode<unknown, object>,
+  registry: RouteRegistry<unknown, unknown, object>,
+  options: ReactRouteConversionOptions,
+  parentPath: string | undefined,
+): ReactRouteRecord {
+  const resolvedPath = resolveRoutePath(parentPath, node.path);
+  if ("children" in node) {
+    return Object.freeze({
+      path: node.path,
+      ...(node.component === undefined ? {} : { Component: node.component }),
+      ...(node.meta === undefined ? {} : { meta: node.meta }),
+      children: Object.freeze(
+        node.children.map((child) => toReactRoute(child, registry, options, resolvedPath)),
+      ),
+    });
+  }
+  if (node.redirect !== undefined) {
+    const target = registry.entry(resolvedPath)?.redirect;
+    if (!options.redirect)
+      throw new Error("React route redirects require a toReactRoutes() redirect adapter");
+    if (!target) throw new Error(`Route redirect was not resolved: ${node.path}`);
+    return Object.freeze({
+      path: node.path,
+      ...(node.name === undefined ? {} : { name: node.name }),
+      Component: options.redirect(target),
+      ...(node.meta === undefined ? {} : { meta: node.meta }),
+    });
+  }
+  return Object.freeze({
+    path: node.path,
+    ...(node.name === undefined ? {} : { name: node.name }),
+    Component: node.component,
+    ...(node.meta === undefined ? {} : { meta: node.meta }),
+  });
 }
 
 function useAuthSnapshot(auth: RuntimeAuthController | undefined): object | undefined {

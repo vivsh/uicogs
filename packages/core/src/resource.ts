@@ -43,6 +43,8 @@ import {
   type PageInfo,
   type PageState,
   type PaginationAdapter,
+  type ResponseAdapter,
+  type ResponseDecodeContext,
   type Transport,
   type TransportMiddleware,
   type TransportRequest,
@@ -75,6 +77,7 @@ type ViewLike<TContext> = ViewSchema<Shape, string, Shape, TContext>;
 const preparedMutation = Symbol("preparedMutation");
 const rawCollectionEntries = Symbol("rawCollectionEntries");
 const localMasterIdentity = "__local_master__";
+const configuredPagination = new WeakMap<object, PaginationAdapter>();
 
 interface RuntimeSchema<TContext> {
   readonly _context?: TContext;
@@ -95,6 +98,7 @@ interface RuntimeQuery<TContext> {
   readonly view?: string;
   readonly path?: string;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly sortParam?: string;
@@ -118,6 +122,7 @@ interface RuntimeAction<TContext> {
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly bulk?: BulkActionOptions;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly encoding?: BodyEncoding;
   readonly multipart?: MultipartAdapter;
   readonly sortParam?: string;
@@ -171,6 +176,8 @@ interface RuntimeDefinition<TContext> {
   readonly queries: Readonly<Record<string, RuntimeQuery<TContext>>>;
   readonly actions: Readonly<Record<string, RuntimeAction<TContext>>>;
   readonly pagination: PaginationAdapter;
+  readonly configuredPagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl: number;
   readonly errorAdapters: readonly ErrorAdapter[];
 }
@@ -196,6 +203,7 @@ export interface QueryDefinition<
   readonly view?: TView;
   readonly path?: string;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly sortParam?: string;
@@ -239,6 +247,7 @@ export interface ActionDefinition<
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly bulk?: BulkActionOptions;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly encoding?: BodyEncoding;
   readonly multipart?: MultipartAdapter;
   readonly sortParam?: string;
@@ -282,6 +291,15 @@ function defineOperation<
 }
 
 export const operation = {
+  all: () =>
+    Object.freeze({
+      list: operation.list(),
+      retrieve: operation.retrieve(),
+      create: operation.create(),
+      replace: operation.replace(),
+      patch: operation.patch(),
+      remove: operation.remove(),
+    }),
   list: <const T extends Readonly<Record<string, unknown>> = Readonly<Record<never, never>>>(
     options: T = {} as T,
   ) => defineOperation("list", "GET", options),
@@ -342,6 +360,7 @@ export interface ResourceDefinitionOptions<
   readonly actions?: TActions;
   readonly operations?: TActions;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
 }
@@ -374,6 +393,7 @@ export class ResourceDefinition<
   readonly actions: TActions;
   readonly operations: TActions;
   readonly pagination: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl: number;
   readonly errorAdapters: readonly ErrorAdapter[];
 
@@ -397,6 +417,8 @@ export class ResourceDefinition<
     }) as TActions;
     this.actions = this.operations;
     this.pagination = options.pagination ?? pagination.page();
+    if (options.pagination) configuredPagination.set(this, options.pagination);
+    if (options.responseAdapter) this.responseAdapter = options.responseAdapter;
     this.ttl = options.ttl ?? 60_000;
     this.errorAdapters = Object.freeze([...(options.errorAdapters ?? [])]);
     validateViews(toRuntimeDefinition(this));
@@ -417,6 +439,7 @@ export interface ServiceDefinitionOptions<TActions extends ActionMap<TContext>, 
   readonly actions?: TActions;
   readonly operations?: TActions;
   readonly errorAdapters?: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
 }
 
 export class ServiceDefinition<
@@ -430,6 +453,7 @@ export class ServiceDefinition<
   readonly actions: TActions;
   readonly operations: TActions;
   readonly errorAdapters: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
 
   constructor(options: ServiceDefinitionOptions<TActions, TContext>) {
     this.serviceName = options.name;
@@ -444,6 +468,7 @@ export class ServiceDefinition<
     }) as TActions;
     this.actions = this.operations;
     this.errorAdapters = Object.freeze([...(options.errorAdapters ?? [])]);
+    if (options.responseAdapter) this.responseAdapter = options.responseAdapter;
     Object.freeze(this);
   }
 
@@ -588,6 +613,7 @@ interface UiCogsBaseOptions<
   readonly cachePolicy?: CachePolicy;
   readonly adapter?: ControllerAdapter;
   readonly errorAdapters?: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
   readonly live?: LiveSource<TContext>;
   readonly relationDefaults?: {
     readonly byKeys?: RelationKeyFetchOptions<TContext>;
@@ -721,6 +747,7 @@ interface Runtime<TContext> {
   readonly adapter: ControllerAdapter;
   readonly definitions: Map<string, RuntimeDefinition<TContext>>;
   readonly errorAdapters: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
   readonly cachePolicy: CachePolicy;
   readonly relationDefaults?: UiCogsOptions<TContext>["relationDefaults"];
   scope(): string;
@@ -743,7 +770,12 @@ interface Runtime<TContext> {
     request: Omit<TransportRequest, "signal">,
     signal: AbortSignal,
     adapters?: readonly ErrorAdapter[],
+    response?: ResponseRequestOptions,
   ): Promise<TransportResponse<T>>;
+}
+
+interface ResponseRequestOptions extends ResponseDecodeContext {
+  readonly adapter?: ResponseAdapter;
 }
 
 interface ManagedCache extends CacheStore {
@@ -860,6 +892,7 @@ export class UiCogs<
       adapter: (controller) => this.controllerAdapter(controller),
       definitions: this.definitions,
       errorAdapters: options.errorAdapters ?? [],
+      responseAdapter: options.responseAdapter,
       cachePolicy: options.cachePolicy ?? "cache-first",
       relationDefaults: options.relationDefaults,
       scope: () => this.auth?.cacheScope() ?? options.cacheScope?.() ?? "anonymous",
@@ -891,6 +924,7 @@ export class UiCogs<
         request: Omit<TransportRequest, "signal">,
         signal: AbortSignal,
         adapters: readonly ErrorAdapter[] = [],
+        responseOptions?: ResponseRequestOptions,
       ) =>
         this.requests.coordinate(
           identity,
@@ -900,11 +934,20 @@ export class UiCogs<
               authentication: request.authentication ?? (this.auth ? "required" : "none"),
               signal: sharedSignal,
             });
+            const responseAdapter = responseOptions?.adapter ?? options.responseAdapter;
             if (response.status >= 400)
               throw new RequestError(
-                adaptFailure(response, [...adapters, ...(options.errorAdapters ?? [])]),
+                adaptFailure(response, [
+                  ...adapters,
+                  ...(options.errorAdapters ?? []),
+                  ...(responseAdapter?.errorAdapter ? [responseAdapter.errorAdapter] : []),
+                ]),
               );
-            return response as TransportResponse<T>;
+            const data =
+              responseAdapter?.decode && responseOptions
+                ? responseAdapter.decode(response, responseOptions)
+                : response.data;
+            return { ...response, data } as TransportResponse<T>;
           },
           signal,
         ),
@@ -1306,6 +1349,9 @@ export class Resource<
             ...(listOperation.view ? { view: listOperation.view } : {}),
             ...(typeof listOperation.path === "string" ? { path: listOperation.path } : {}),
             ...(listOperation.pagination ? { pagination: listOperation.pagination } : {}),
+            ...(listOperation.responseAdapter
+              ? { responseAdapter: listOperation.responseAdapter }
+              : {}),
             ...(listOperation.errorAdapters ? { errorAdapters: listOperation.errorAdapters } : {}),
             ...(listOperation.sortParam ? { sortParam: listOperation.sortParam } : {}),
           }
@@ -1496,6 +1542,7 @@ export class Resource<
       },
       controller.signal,
       this.definition.errorAdapters,
+      responseRequest("action", this.definition, operation, "remove"),
     );
     const address = this.runtime.address(this.definition.name);
     this.runtime.cache.setEntity(
@@ -1605,6 +1652,7 @@ export class Resource<
       },
       combineSignals(controller.signal, options.signal),
       [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+      responseRequest("action", this.definition, action, name),
     );
     const output = this.processActionOutput(action, response.data);
     this.invalidateAfterAction(action);
@@ -1648,6 +1696,7 @@ export class Resource<
         },
         controller.signal,
         [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+        responseRequest("action", this.definition, action, name),
       );
       const decoded = action.bulk.decode?.(response.data, keys) ?? {
         succeeded: keys,
@@ -1735,6 +1784,7 @@ export class Resource<
       },
       combineSignals(controller.signal, options.signal),
       [...(operation?.errorAdapters ?? []), ...this.definition.errorAdapters],
+      responseRequest("entity", this.definition, operation, operationName),
     );
     const address = this.runtime.address(this.definition.name);
     if (response.data === undefined) {
@@ -1931,6 +1981,7 @@ export class Service<TActions extends ActionMap<TContext>, TContext> {
       },
       combineSignals(controller.signal, options.signal),
       [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+      responseRequest("action", this.definition, action, name),
     );
     return parseServiceActionOutput(action, response.data) as ServiceActionOutput<TActions[K]>;
   }
@@ -2054,6 +2105,7 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
         },
         combineSignals(this.controller.signal, options.signal),
         [...(retrieve?.errorAdapters ?? []), ...this.definition.errorAdapters],
+        responseRequest("entity", this.definition, retrieve, "retrieve"),
       );
       normalizeEntity(this.runtime, this.definition, response.data, this.key, startedAt);
       await this.loadEagerRelations();
@@ -2353,6 +2405,7 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
       },
       new AbortController().signal,
       this.definition.errorAdapters,
+      responseRequest("entity", this.definition),
     );
     if (response.data !== undefined && typeof response.data === "object" && response.data !== null)
       try {
@@ -2519,12 +2572,13 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
       },
       combineSignals(new AbortController().signal, options.signal),
       [...(fetch.errorAdapters ?? []), ...target.errorAdapters],
+      responseRequest("collection", target),
     );
     const items = fetch.decode
       ? fetch.decode(response)
       : Array.isArray(response.data)
         ? response.data
-        : target.pagination.response(response).items;
+        : paginationFor(this.runtime, target).response(response).items;
     const startedAt = this.runtime.timestamp();
     for (const item of items) normalizeEntity(this.runtime, target, item, undefined, startedAt);
   }
@@ -3191,7 +3245,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
     const startedAt = this.runtime.timestamp();
     try {
       const query = this.encodedQuery();
-      const adapter = this.queryDefinition?.pagination ?? this.definition.pagination;
+      const adapter = paginationFor(this.runtime, this.definition, this.queryDefinition);
       const response = await this.runtime.request<unknown>(
         `${this.runtime.scope()}|${this.definition.name}|query|${this.identity()}`,
         {
@@ -3205,6 +3259,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
         },
         combineSignals(this.controller.signal, options.signal),
         [...(this.queryDefinition?.errorAdapters ?? []), ...this.definition.errorAdapters],
+        responseRequest("collection", this.definition, this.queryDefinition),
       );
       const result = adapter.response(response, this.pageState);
       const keys = result.items
@@ -4004,6 +4059,36 @@ function operationPath<TContext>(
   return typeof operation.path === "function" ? operation.path(input) : operation.path;
 }
 
+function responseRequest(
+  kind: ResponseDecodeContext["kind"],
+  definition: { readonly name: string; readonly responseAdapter?: ResponseAdapter },
+  operation?: { readonly responseAdapter?: ResponseAdapter },
+  operationName?: string,
+): ResponseRequestOptions {
+  const adapter = operation?.responseAdapter ?? definition.responseAdapter;
+  return {
+    kind,
+    resource: definition.name,
+    ...(operationName ? { operation: operationName } : {}),
+    ...(adapter ? { adapter } : {}),
+  };
+}
+
+function paginationFor<TContext>(
+  runtime: Runtime<TContext>,
+  definition: RuntimeDefinition<TContext>,
+  operation?: RuntimeQuery<TContext>,
+): PaginationAdapter {
+  return (
+    operation?.pagination ??
+    definition.configuredPagination ??
+    configuredPagination.get(definition) ??
+    (operation?.responseAdapter ?? definition.responseAdapter ?? runtime.responseAdapter)
+      ?.pagination ??
+    definition.pagination
+  );
+}
+
 function encodeRelationKeys<TContext>(
   options: RelationKeyFetchOptions<TContext>,
   keys: readonly EntityKey[],
@@ -4177,8 +4262,11 @@ function bindRuntimeDefinition<TContext>(
       }),
     ]),
   );
+  const paginationOverride =
+    definition.configuredPagination ?? configuredPagination.get(definition);
   return Object.freeze({
     ...definition,
+    ...(paginationOverride ? { configuredPagination: paginationOverride } : {}),
     schema: bind(definition.schema),
     views: Object.freeze(views),
     queries: Object.freeze(queries),

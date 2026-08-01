@@ -76,6 +76,29 @@ describe("services", () => {
     expect(() => cogs.resource("commands" as never)).toThrow("not registered");
   });
 
+  it("does not add a trailing slash when an action targets its service URL", async () => {
+    const requests: TransportRequest[] = [];
+    const Session = service({
+      name: "session",
+      url: "session",
+      actions: { current: operation.action({ path: "" }) },
+    });
+    const cogs = createUiCogs({
+      baseUrl: "https://api.example.test/v1",
+      services: [Session],
+      transport: {
+        request: async (request) => {
+          requests.push(request);
+          return { status: 200, data: undefined };
+        },
+      },
+    });
+
+    await cogs.service(Session).action("current", undefined);
+
+    expect(requests[0]?.url).toBe("https://api.example.test/v1/session");
+  });
+
   it("binds a resource action form without changing its create form shortcut", async () => {
     const User = schema({ id: fields.ID(), email: fields.Email({ required: true }) });
     const Invite = schema({ email: fields.Email({ required: true }) });

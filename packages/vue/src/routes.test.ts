@@ -68,4 +68,72 @@ describe("withVue route binding", () => {
     expect(router.currentRoute.value.path).toBe("/login");
     core.dispose();
   });
+
+  it("preserves nested router records and raw child paths", () => {
+    const Layout = defineComponent({ setup: () => () => null });
+    const Home = defineComponent({ setup: () => () => null });
+    const User = defineComponent({ setup: () => () => null });
+    const core = createUiCogs({
+      routes: [
+        {
+          path: "/app",
+          component: Layout,
+          meta: { section: "app" },
+          children: [
+            { path: "", component: Home, name: "home" },
+            { path: "users/:id", component: User, meta: { page: "user" } },
+          ],
+        },
+      ],
+    });
+
+    expect(toRoutes(core.routes)).toMatchObject([
+      {
+        path: "/app",
+        component: Layout,
+        meta: { section: "app" },
+        children: [
+          { path: "", component: Home, name: "home" },
+          { path: "users/:id", component: User, meta: { page: "user" } },
+        ],
+      },
+    ]);
+    expect(core.routes.entries.map((entry) => entry.path)).toEqual(["/app", "/app/users/:id"]);
+    core.dispose();
+  });
+
+  it("uses the deepest Vue matched pattern for access and denied callbacks", async () => {
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const Page = defineComponent({ setup: () => () => null });
+    const core = createUiCogs({
+      routes: [
+        { path: "/login", component: Page },
+        {
+          path: "/admin",
+          component: Page,
+          children: [
+            {
+              path: ":id(\\d+)",
+              component: Page,
+              auth: { all: ["admin.read"] },
+            },
+          ],
+        },
+      ],
+    });
+    const denied: Array<{ path: string; pattern?: string }> = [];
+    const router = createRouter({ history: createMemoryHistory(), routes: toRoutes(core.routes) });
+    const binding = await withVue(core, {
+      onDenied: ({ location }) => {
+        denied.push({ path: location.path, pattern: location.pattern });
+        return "/login";
+      },
+    });
+    app.use(router).use(binding.uiCogs);
+
+    await router.push("/admin/42");
+    expect(denied).toEqual([{ path: "/admin/42", pattern: "/admin/:id(\\d+)" }]);
+    expect(router.currentRoute.value.path).toBe("/login");
+    core.dispose();
+  });
 });

@@ -175,11 +175,16 @@ export const useUiCogs = () => useInjectedUiCogs<typeof api.core>();
 
 ## Routing
 
-Pass immutable `routes`, `navigation`, and `breadcrumbsFrom` to `createUiCogs()`.
-Use `toRoutes(api.routes)` with normal Vue Router construction, then install `uiCogs`.
-The plugin adds UiCogs access checks and exposes reactive
-`cogs.routes.navigationTree()`, `cogs.routes.breadcrumbs()`, and
-`cogs.routes.hasPermission()`. The server remains responsible for endpoint authorization.
+Pass immutable flat, nested, or mixed `routes` plus independent `navigation` and
+`breadcrumbsFrom` to `createUiCogs()`. A node with `children` is a structural group;
+an empty child gives its parent URL a page. Access rules inherit through the declaration
+tree.
+
+Vue's `toRoutes(api.routes)` and React's `toReactRoutes(api.routes)` preserve nested
+records. The bindings add access checks and expose reactive `navigationTree()`,
+`breadcrumbs()`, and `hasPermission()`. React redirects require an explicit conversion
+callback. See [Routing](routing.md) for the complete contract. The server remains
+responsible for endpoint authorization.
 
 ## Quasar Package
 

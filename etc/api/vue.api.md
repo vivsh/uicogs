@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `1c755fd9c82de271b1c6a2e42fa5c7d4df3b2ac2080130ce06bc96d8d601f48e`
+Declaration SHA-256: `6342e467a93cf9c71e798faafc1fd123d21d4cc7ba7a1c14a8eece65b3bac70a`
 
 ```ts
 // index.d.ts
@@ -8,14 +8,14 @@ import * as _vue_reactivity from '@vue/reactivity';
 import * as _uicogs_core from '@uicogs/core';
 import { Descriptor, EntityKey, ExternalStore, RuntimeAuthController, ControllerAdapter, FormSchema, FormCompatibleSchema, FormController, Schema, Shape } from '@uicogs/core';
 export * from '@uicogs/core';
-import { RouteRegistry, ResolvedNavigationNode, Breadcrumb, RouteEntry, RouteLocation } from '@uicogs/routes';
+import { RouteRegistry, ResolvedNavigationNode, Breadcrumb, ResolvedRouteEntry, RouteLocation } from '@uicogs/routes';
 import { ComputedRef, Plugin, Ref, ShallowRef } from 'vue';
 import { RouteRecordRaw } from 'vue-router';
 
 declare function vueReactive<T extends ExternalStore<object>>(controller: T): T;
 interface WithVueOptions {
     readonly onDenied?: (input: {
-        readonly route: RouteEntry<unknown, object>;
+        readonly route: ResolvedRouteEntry<unknown, object>;
         readonly location: RouteLocation;
     }) => string | false | void;
 }
@@ -49,7 +49,7 @@ interface VueUiCogsBinding<T extends VueRuntimeSource> {
 declare function withVue<T extends VueRuntimeSource>(cogs: T, options?: WithVueOptions): Promise<VueUiCogsBinding<T>>;
 /** Returns the Vue-bound application runtime installed by withVue(). */
 declare function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T>;
-/** Compiles UiCogs route entries into standard Vue Router records. */
+/** Compiles the UiCogs route tree into standard nested Vue Router records. */
 declare function toRoutes(registry: RouteRegistry<unknown, unknown, object>): readonly RouteRecordRaw[];
 declare function useUcController<T extends ExternalStore<object>>(controller: T): T;
 declare const useUcResource: typeof useUcController;
