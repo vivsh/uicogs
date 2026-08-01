@@ -26,12 +26,16 @@ the UiCogs Vue plugin.
 
 ```ts
 import { createUiCogs } from "@uicogs/core";
-import { buildPlugin, toRoutes } from "@uicogs/vue";
+import { toRoutes, withVue } from "@uicogs/vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-const router = createRouter({ history: createWebHistory(), routes: toRoutes(api.routes) });
-app.use(router).use(buildPlugin(api));
+export const { uiCogs } = await withVue(api);
+const router = createRouter({
+  history: createWebHistory(),
+  routes: toRoutes(api.routes),
+});
+app.use(router).use(uiCogs);
 ```
 
 The Vue adapter returns readonly proxies. A controller property read tracks one shallow reactive revision.
@@ -55,16 +59,28 @@ tasks.filter({ complete: false }).sort("title").page(1, 25);
 
 ## Vue Application Binding
 
-`buildPlugin(api)` is a standard Vue plugin. Install Vue Router first when the runtime
-declares routes; it then provides the bound runtime and makes newly created controllers
-reactive. Use the injected runtime in components.
+`withVue(api)` is the safe Vue binding boundary. It awaits `api.ready`, returns a Vue
+plugin, and provides an application-specific typed component composable. The application
+creates and owns the real Vue Router with native Vue Router options, then installs
+`uiCogs` after that router.
 
 ```ts
-const api = useUiCogs();
-const tasks = api.resource(Tasks);
+// a component
+const cogs = useUiCogs();
+const tasks = cogs.resource(Tasks);
 ```
 
-Calling `useUiCogs()` without `buildPlugin()` throws a clear error.
+For page-safe typing, export one local wrapper that imports the core runtime as a type:
+
+```ts
+import { useUiCogs as useInjectedUiCogs } from "@uicogs/vue";
+import type { api } from "./api";
+
+export const useUiCogs = () => useInjectedUiCogs<typeof api>();
+```
+
+This preserves exact application types without importing the bootstrap module, avoiding
+route-component cycles. Calling it before `uiCogs` installs throws a clear error.
 
 ## Vue Adapter Functions
 
@@ -149,14 +165,21 @@ React Strict Mode may mount effects more than once. Equivalent requests still de
 Render the application beneath `api.Provider`; `useUiCogs()` then exposes the same
 React-bound runtime, including reactive route navigation and breadcrumbs.
 
+For typed application access, export the same small wrapper pattern:
+
+```tsx
+import { useUiCogs as useInjectedUiCogs } from "@uicogs/react";
+
+export const useUiCogs = () => useInjectedUiCogs<typeof api.core>();
+```
+
 ## Routing
 
 Pass immutable `routes`, `navigation`, and `breadcrumbsFrom` to `createUiCogs()`.
-Use `toRoutes(api.routes)` while constructing the application router, then install
-`buildPlugin(api)` after it. The plugin observes the installed router, adds UiCogs
-access checks, and exposes reactive `api.routes.navigationTree()`,
-`api.routes.breadcrumbs()`, and `api.routes.hasPermission()`. The server remains
-responsible for endpoint authorization.
+Use `toRoutes(api.routes)` with normal Vue Router construction, then install `uiCogs`.
+The plugin adds UiCogs access checks and exposes reactive
+`cogs.routes.navigationTree()`, `cogs.routes.breadcrumbs()`, and
+`cogs.routes.hasPermission()`. The server remains responsible for endpoint authorization.
 
 ## Quasar Package
 

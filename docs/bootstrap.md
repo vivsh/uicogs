@@ -149,15 +149,15 @@ registry validation. Do not block application mounting for it.
 - Read `api.context.persistenceStatus`, `api.cache.persistenceStatus`, and
   `api.auth.status` for visible bootstrap diagnostics.
 
-`api.ready` is the one safe application bootstrap boundary. It restores persistent
-context, resolves authentication, and hydrates the resulting cache scope. Await it
-before mounting the UI or allowing initial navigation; components must not make their
-own decisions from transient initialization states.
+`withVue()` is the safe Vue binding boundary. It awaits `api.ready`, which restores
+persistent context, resolves authentication, and hydrates the resulting cache scope,
+before returning the plugin and typed component composable. Components must not make
+their own decisions from transient initialization states.
 
 ```ts
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-
-await api.ready;
+export const { uiCogs } = await withVue(api);
+app.use(router).use(uiCogs);
 app.mount("#app");
 ```
 
@@ -171,28 +171,35 @@ Core is headless. The runtime stays application-owned regardless of framework.
 ### Vue
 
 Create the common runtime from `@uicogs/core`. The application creates and installs
-Vue Router; `buildPlugin()` then adds UiCogs reactivity, injection, and route access.
+Vue Router; `withVue()` adds UiCogs reactivity, injection, and route access setup.
 
 ```ts
-// api.ts
+// uicogs.ts
 import { createUiCogs } from "@uicogs/core";
-
-export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-
-// main.ts
-import { buildPlugin, toRoutes } from "@uicogs/vue";
+import { toRoutes, withVue } from "@uicogs/vue";
 import { createRouter, createWebHistory } from "vue-router";
 
+export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
+export const { uiCogs } = await withVue(api);
+export const router = createRouter({
+  history: createWebHistory(),
+  routes: toRoutes(api.routes),
+});
+
+// main.ts
+import { createApp } from "vue";
+import { router, uiCogs } from "./uicogs.js";
+
 const app = createApp(App);
-const router = createRouter({ history: createWebHistory(), routes: toRoutes(api.routes) });
-await api.ready;
-app.use(router).use(buildPlugin(api));
+app.use(router).use(uiCogs);
 app.mount("#app");
 ```
 
-Components call `useUiCogs()` from `@uicogs/vue` to access the same bound runtime.
-Its `routes.navigationTree()`, `routes.breadcrumbs()`, and `routes.hasPermission()`
-are reactive. `buildPlugin()` never disposes the application-owned core runtime.
+Export a small typed `useUiCogs` wrapper from a page-safe module that imports `api` only
+as a type, then import that wrapper in components. It retains exact application types
+without creating a bootstrap cycle. Its
+`routes.navigationTree()`, `routes.breadcrumbs()`, and `routes.hasPermission()` are
+reactive. `withVue()` never disposes the application-owned core runtime.
 
 ### React
 

@@ -11,7 +11,6 @@ import {
   type LiveSource,
 } from "@uicogs/core";
 import {
-  buildPlugin,
   createRendererRegistry,
   useUiCogs,
   useUcAction,
@@ -25,18 +24,50 @@ import {
   useUcSnapshot,
   useUcTableModel,
   vueReactive,
+  withVue,
 } from "./index.js";
 
-const createUiCogs = ((options: Parameters<typeof createCoreUiCogs>[0]) => {
+async function createUiCogs(options: Parameters<typeof createCoreUiCogs>[0]) {
   const core = createCoreUiCogs(options);
   const app = createApp(defineComponent({ setup: () => () => null }));
-  app.use(buildPlugin(core));
-  return app.runWithContext(() => useUiCogs()) as unknown as typeof core;
-}) as typeof createCoreUiCogs;
+  const binding = await withVue(core);
+  app.use(binding.uiCogs);
+  return app.runWithContext(() => binding.useUiCogs()) as unknown as typeof core;
+}
 
 describe("Vue controller integration", () => {
+  it("waits for the core runtime before creating a Vue binding", async () => {
+    let releaseRead: (() => void) | undefined;
+    const read = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const runtime = createCoreUiCogs({
+      context: { locale: "en" },
+      persistence: {
+        backend: {
+          read: async () => {
+            await read;
+            return undefined;
+          },
+          write: async () => undefined,
+          remove: async () => undefined,
+        },
+      },
+    });
+    let resolved = false;
+    const binding = withVue(runtime).then((value) => {
+      resolved = true;
+      return value;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    releaseRead?.();
+    await expect(binding).resolves.toMatchObject({ uiCogs: expect.any(Object) });
+    runtime.dispose();
+  });
+
   /** Verifies that a route-free runtime installs as a standard Vue plugin. */
-  it("binds one application-owned runtime without owning its disposal", () => {
+  it("binds one application-owned runtime without owning its disposal", async () => {
     const runtime = createCoreUiCogs({ context: undefined });
     const app = createApp(
       defineComponent({
@@ -45,23 +76,23 @@ describe("Vue controller integration", () => {
         },
       }),
     );
-    app.use(buildPlugin(runtime));
+    const binding = await withVue(runtime);
+    app.use(binding.uiCogs);
     let injected: typeof runtime | undefined;
-    let binding: ReturnType<typeof useUiCogs<typeof runtime>> | undefined;
+    let injectedBinding: ReturnType<typeof binding.useUiCogs> | undefined;
     app.runWithContext(() => {
-      binding = useUiCogs<typeof runtime>();
-      injected = binding.core;
+      injectedBinding = binding.useUiCogs();
+      injected = injectedBinding.core;
     });
     expect(injected).toBe(runtime);
-    expect(binding).toBeDefined();
-    expect("router" in binding!).toBe(false);
+    expect(injectedBinding).toBeDefined();
     expect(runtime.requests.isDisposed).toBe(false);
     runtime.dispose();
   });
 
-  it("fails clearly when buildPlugin is missing", () => {
+  it("fails clearly when withVue is missing", () => {
     const app = createApp(defineComponent({ setup: () => () => null }));
-    expect(() => app.runWithContext(() => useUiCogs())).toThrow("buildPlugin() has not been installed");
+    expect(() => app.runWithContext(() => useUiCogs())).toThrow("withVue() has not been called");
   });
 
   it("invalidates direct property reads from external-store notifications", async () => {
@@ -160,7 +191,7 @@ describe("Vue controller integration", () => {
   });
 
   it("creates Vue-adapted UiCogs resources", async () => {
-    const cogs = createUiCogs({
+    const cogs = await createUiCogs({
       context: undefined,
       transport: { request: async () => ({ status: 200, data: [{ id: 1, name: "One" }] }) },
     });
@@ -173,7 +204,7 @@ describe("Vue controller integration", () => {
   });
 
   it("rerenders local resources after synchronous cache facade writes", async () => {
-    const cogs = createUiCogs({ context: undefined });
+    const cogs = await createUiCogs({ context: undefined });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str({ required: true }) });
     const definition = registerResource(cogs)({
       name: "local-vue-items",
@@ -220,7 +251,7 @@ describe("Vue controller integration", () => {
         },
       }),
     };
-    const cogs = createUiCogs({ context: undefined, live });
+    const cogs = await createUiCogs({ context: undefined, live });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
     const Items = registerResource(cogs)({
       name: "live-vue-items",

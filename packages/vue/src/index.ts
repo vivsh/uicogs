@@ -69,7 +69,7 @@ export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
   return proxy;
 }
 
-export interface VuePluginOptions {
+export interface WithVueOptions {
   readonly onDenied?: (input: {
     readonly route: RouteEntry<unknown, object>;
     readonly location: RouteLocation;
@@ -103,64 +103,83 @@ export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<
   readonly auth: T["auth"];
 };
 
-/** Builds a Vue plugin that binds one UiCogs runtime to an application and its installed router. */
-export function buildPlugin<T extends VueRuntimeSource>(
-  cogs: T,
-  options: VuePluginOptions = {},
-): Plugin {
-  return {
-    install(app: App) {
-      cogs.bindControllerAdapter(vueReactive);
-      const router = cogs.routes.entries.length ? routerFor(app) : undefined;
-      const revision = shallowRef(0);
-      const unsubscribe = cogs.auth?.subscribe(() => {
-        revision.value += 1;
-      });
-      app.onUnmount(() => unsubscribe?.());
-      const access = (): RouteAccess => {
-        void revision.value;
-        return accessFor(cogs.auth);
-      };
-      const location = (): RouteLocation =>
-        router ? locationFor(router.currentRoute.value) : emptyLocation;
-      if (router) {
-        router.beforeEach(async (to) => {
-          await cogs.ready;
-          const entry = cogs.routes.match(to.path);
-          if (!entry || cogs.routes.hasPermission(entry.path, access())) return true;
-          const denied = options.onDenied?.({
-            route: entry as RouteEntry<unknown, object>,
-            location: locationFor(to),
-          });
-          return typeof denied === "string" ? { path: denied } : false;
-        });
-      }
-      const routeRuntime: VueRouteRuntime = Object.freeze({
-        registry: cogs.routes,
-        navigationTree: (placement: string) =>
-          computed(() => cogs.routes.navigationTree(placement, access(), location())),
-        breadcrumbs: () => computed(() => cogs.routes.breadcrumbs(access(), location())),
-        hasPermission: (path: string) => computed(() => cogs.routes.hasPermission(path, access())),
-      });
-      const bound = Object.create(cogs) as VueBoundUiCogs<T>;
-      Object.defineProperties(bound, {
-        core: { value: cogs },
-        routes: { value: routeRuntime },
-        context: { value: vueReactive(cogs.context) },
-        live: { value: vueReactive(cogs.live) },
-        ...(cogs.auth ? { auth: { value: vueReactive(cogs.auth) } } : {}),
-      });
-      app.provide(uiCogsKey, bound as VueBoundUiCogs<VueRuntimeSource>);
-    },
-  };
+/** A Vue plugin and its application-specific, fully typed component composable. */
+export interface VueUiCogsBinding<T extends VueRuntimeSource> {
+  readonly uiCogs: Plugin;
+  useUiCogs(): VueBoundUiCogs<T>;
 }
 
-/** Returns the Vue-bound application runtime installed by buildPlugin(). */
+/** Awaits one core runtime and creates its Vue plugin and typed component composable. */
+export async function withVue<T extends VueRuntimeSource>(
+  cogs: T,
+  options: WithVueOptions = {},
+): Promise<VueUiCogsBinding<T>> {
+  await cogs.ready;
+  const uiCogs: Plugin = {
+    install(app: App) {
+      const router = cogs.routes.entries.length ? routerFor(app) : undefined;
+      bindVueRuntime(app, cogs, router, options.onDenied);
+    },
+  };
+  return Object.freeze({
+    uiCogs,
+    useUiCogs: () => useUiCogs<T>(),
+  });
+}
+
+/** Returns the Vue-bound application runtime installed by withVue(). */
 export function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T> {
   const injected = inject(uiCogsKey, undefined);
-  if (!injected)
-    throw new Error("buildPlugin() has not been installed in the current Vue application");
+  if (!injected) throw new Error("withVue() has not been called for the current Vue application");
   return injected as VueBoundUiCogs<T>;
+}
+
+function bindVueRuntime<T extends VueRuntimeSource>(
+  app: App,
+  cogs: T,
+  router: Router | undefined,
+  onDenied: WithVueOptions["onDenied"],
+): VueBoundUiCogs<T> {
+  cogs.bindControllerAdapter(vueReactive);
+  const revision = shallowRef(0);
+  const unsubscribe = cogs.auth?.subscribe(() => {
+    revision.value += 1;
+  });
+  app.onUnmount(() => unsubscribe?.());
+  const access = (): RouteAccess => {
+    void revision.value;
+    return accessFor(cogs.auth);
+  };
+  const location = (): RouteLocation =>
+    router ? locationFor(router.currentRoute.value) : emptyLocation;
+  if (router) {
+    router.beforeEach((to) => {
+      const entry = cogs.routes.match(to.path);
+      if (!entry || cogs.routes.hasPermission(entry.path, access())) return true;
+      const denied = onDenied?.({
+        route: entry as RouteEntry<unknown, object>,
+        location: locationFor(to),
+      });
+      return typeof denied === "string" ? { path: denied } : false;
+    });
+  }
+  const routeRuntime: VueRouteRuntime = Object.freeze({
+    registry: cogs.routes,
+    navigationTree: (placement: string) =>
+      computed(() => cogs.routes.navigationTree(placement, access(), location())),
+    breadcrumbs: () => computed(() => cogs.routes.breadcrumbs(access(), location())),
+    hasPermission: (path: string) => computed(() => cogs.routes.hasPermission(path, access())),
+  });
+  const bound = Object.create(cogs) as VueBoundUiCogs<T>;
+  Object.defineProperties(bound, {
+    core: { value: cogs },
+    routes: { value: routeRuntime },
+    context: { value: vueReactive(cogs.context) },
+    live: { value: vueReactive(cogs.live) },
+    ...(cogs.auth ? { auth: { value: vueReactive(cogs.auth) } } : {}),
+  });
+  app.provide(uiCogsKey, bound as VueBoundUiCogs<VueRuntimeSource>);
+  return bound;
 }
 
 const emptyLocation: RouteLocation = Object.freeze({
@@ -173,7 +192,7 @@ function routerFor(app: App): Router {
   const router = app.config.globalProperties.$router as unknown;
   if (!isRouter(router))
     throw new Error(
-      "Vue Router must be installed before buildPlugin(api): app.use(router).use(buildPlugin(api))",
+      "Vue Router must be installed before app.use(uiCogs): app.use(router).use(uiCogs)",
     );
   return router;
 }

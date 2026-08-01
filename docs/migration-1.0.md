@@ -33,21 +33,21 @@ export const api = createUiCogs({
 
 ## Vue Router Plugin
 
-Vue applications construct and install their own router. Rename `toVueRoutes()` to
-`toRoutes()`, then replace `withVue(...)` with the Vue plugin:
+Replace the older Vue setup helpers with `await withVue(api)`:
 
 ```ts
+export const { uiCogs } = await withVue(api);
 const router = createRouter({
   history: createWebHistory(),
   routes: toRoutes(api.routes),
 });
-
-app.use(router).use(buildPlugin(api));
+app.use(router).use(uiCogs);
 ```
 
-Install `buildPlugin(api)` after Vue Router when `api` declares routes. The plugin
-provides `useUiCogs()`, controller reactivity, access-aware navigation, and breadcrumbs;
-it does not own Vue Router, its records, or `<RouterView>`.
+The application owns the real Vue Router and uses `toRoutes(api.routes)`. `withVue()`
+returns the plugin, controller reactivity, access-aware navigation, and breadcrumbs; it
+does not own Vue Router, its records, or `<RouterView>`. Keep a page-safe typed
+`useUiCogs` wrapper in a module that imports `api` only as a type.
 
 ## Runtime Context
 

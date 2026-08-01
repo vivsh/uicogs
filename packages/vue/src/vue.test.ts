@@ -11,8 +11,6 @@ import {
   type LiveSource,
 } from "@uicogs/core";
 import {
-  buildPlugin,
-  useUiCogs,
   createRendererRegistry,
   useUcAction,
   useUcCollection,
@@ -25,18 +23,24 @@ import {
   useUcSnapshot,
   useUcTableModel,
   vueReactive,
+  withVue,
 } from "./index.js";
 
-const createUiCogs = ((options: Parameters<typeof createCoreUiCogs>[0]) => {
+async function createUiCogs(options: Parameters<typeof createCoreUiCogs>[0]) {
   const core = createCoreUiCogs(options);
   const app = createApp(defineComponent({ setup: () => () => null }));
-  app.use(buildPlugin(core));
-  return app.runWithContext(() => useUiCogs()) as unknown as typeof core;
-}) as typeof createCoreUiCogs;
+  const binding = await withVue(core);
+  app.use(binding.uiCogs);
+  return app.runWithContext(() => binding.useUiCogs()) as unknown as typeof core;
+}
 
 describe("Vue controller integration", () => {
   it("reacts to runtime context updates", async () => {
-    const api = createUiCogs({ context: { locale: "en" } });
+    const core = createCoreUiCogs({ context: { locale: "en" } });
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const binding = await withVue(core);
+    app.use(binding.uiCogs);
+    const api = app.runWithContext(() => binding.useUiCogs());
     const values: string[] = [];
     const stop = watchEffect(() => {
       values.push(api.context.value.locale);
@@ -139,7 +143,7 @@ describe("Vue controller integration", () => {
   });
 
   it("creates Vue-adapted UiCogs resources", async () => {
-    const cogs = createUiCogs({
+    const cogs = await createUiCogs({
       context: undefined,
       transport: { request: async () => ({ status: 200, data: [{ id: 1, name: "One" }] }) },
     });
@@ -152,7 +156,7 @@ describe("Vue controller integration", () => {
   });
 
   it("rerenders local resources after synchronous cache facade writes", async () => {
-    const cogs = createUiCogs({ context: undefined });
+    const cogs = await createUiCogs({ context: undefined });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str({ required: true }) });
     const definition = registerResource(cogs)({
       name: "local-vue-items",
@@ -199,7 +203,7 @@ describe("Vue controller integration", () => {
         },
       }),
     };
-    const cogs = createUiCogs({ context: undefined, live });
+    const cogs = await createUiCogs({ context: undefined, live });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
     const Items = registerResource(cogs)({
       name: "live-vue-items",

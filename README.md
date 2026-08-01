@@ -223,7 +223,7 @@ The core owns behavior; framework packages observe controllers rather than dupli
 | `@uicogs/core`    | definitions, runtime, Fetch transport, cache, resources, forms, relations |
 | `@uicogs/echarts` | schema-bound ECharts definitions, reactive bindings, and Vue components   |
 | `@uicogs/routes`  | immutable route access, navigation groups, and breadcrumbs                |
-| `@uicogs/vue`     | `buildPlugin()`, route conversion, reactive controllers, and injection    |
+| `@uicogs/vue`     | `withVue()`, Vue Router binding, reactive controllers, and injection      |
 | `@uicogs/react`   | `withReact()` and React hooks built on `useSyncExternalStore`             |
 | `@uicogs/quasar`  | Quasar fields, forms, tables, actions, and resource views                 |
 | `@uicogs/auth`    | JWT and cookie auth strategies                                            |
@@ -236,19 +236,32 @@ Vue applications create the same core runtime as every other application, then b
 
 ```ts
 import { createUiCogs } from "@uicogs/core";
-import { buildPlugin, toRoutes, useUiCogs } from "@uicogs/vue";
+import { toRoutes, withVue } from "@uicogs/vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
+const { uiCogs } = await withVue(api);
 const router = createRouter({
   history: createWebHistory(),
   routes: toRoutes(api.routes),
 });
-app.use(router).use(buildPlugin(api));
+app.use(router).use(uiCogs);
 
 // a component
-const api = useUiCogs();
+const cogs = useUiCogs();
 ```
+
+Export a page-safe typed composable from a module that imports the core runtime only as
+a type, avoiding bootstrap and route-component cycles:
+
+```ts
+import { useUiCogs as useInjectedUiCogs } from "@uicogs/vue";
+import type { api } from "./api";
+
+export const useUiCogs = () => useInjectedUiCogs<typeof api>();
+```
+
+`withVue()` awaits safe runtime initialization before the application mounts.
 
 ## Installation
 

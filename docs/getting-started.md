@@ -78,22 +78,27 @@ export const api = createUiCogs({
 
 ## Start Vue And The Router
 
-The application builds and installs Vue Router. `buildPlugin()` then provides the
-reactive runtime and adds UiCogs access-aware navigation.
+`withVue()` awaits safe runtime bootstrap and returns the reactive plugin and typed
+composable. The application creates and installs the real Vue Router, then installs that
+plugin for UiCogs access-aware navigation.
 
 ```ts
 // src/main.ts
 import { createApp } from "vue";
 import { Quasar } from "quasar";
 import { createRouter, createWebHistory } from "vue-router";
-import { buildPlugin, toRoutes } from "@uicogs/vue";
+import { toRoutes, withVue } from "@uicogs/vue";
 import "quasar/dist/quasar.css";
 import App from "./App.vue";
 import { api } from "./api.js";
 
 const app = createApp(App).use(Quasar);
-const router = createRouter({ history: createWebHistory(), routes: toRoutes(api.routes) });
-app.use(router).use(buildPlugin(api));
+const { uiCogs } = await withVue(api);
+const router = createRouter({
+  history: createWebHistory(),
+  routes: toRoutes(api.routes),
+});
+app.use(router).use(uiCogs);
 app.mount("#app");
 ```
 
@@ -108,7 +113,7 @@ Use the bound router or reactive navigation in components:
 
 ```vue
 <script setup lang="ts">
-import { useUiCogs } from "@uicogs/vue";
+import { useUiCogs } from "../uicogs.js";
 
 const api = useUiCogs();
 const sidebar = api.routes.navigationTree("sidebar");
@@ -134,7 +139,7 @@ validation are local; normalized entities and request execution are shared.
 <!-- src/pages/TasksPage.vue -->
 <script setup lang="ts">
 import { UcField, UcForm, UcSubmit, UcTable } from "@uicogs/quasar";
-import { useUiCogs } from "@uicogs/vue";
+import { useUiCogs } from "../api.js";
 import { TaskCreate, TaskTable, Tasks } from "../definitions/tasks.js";
 
 const api = useUiCogs();

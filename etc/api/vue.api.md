@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `8d26fe1ff08ddb1a5fdd318d8696e260fbc96f8a5ecb86471cecf0be3ba85790`
+Declaration SHA-256: `1c755fd9c82de271b1c6a2e42fa5c7d4df3b2ac2080130ce06bc96d8d601f48e`
 
 ```ts
 // index.d.ts
@@ -13,7 +13,7 @@ import { ComputedRef, Plugin, Ref, ShallowRef } from 'vue';
 import { RouteRecordRaw } from 'vue-router';
 
 declare function vueReactive<T extends ExternalStore<object>>(controller: T): T;
-interface VuePluginOptions {
+interface WithVueOptions {
     readonly onDenied?: (input: {
         readonly route: RouteEntry<unknown, object>;
         readonly location: RouteLocation;
@@ -26,6 +26,7 @@ interface VueRouteRuntime<TIcon = unknown> {
     hasPermission(path: string): ComputedRef<boolean>;
 }
 interface VueRuntimeSource extends Record<never, never> {
+    readonly ready: Promise<void>;
     readonly routes: RouteRegistry<unknown, unknown, Record<never, never>>;
     readonly context: ExternalStore<object>;
     readonly live: ExternalStore<object>;
@@ -39,9 +40,14 @@ type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "routes" | "context" |
     readonly live: T["live"];
     readonly auth: T["auth"];
 };
-/** Builds a Vue plugin that binds one UiCogs runtime to an application and its installed router. */
-declare function buildPlugin<T extends VueRuntimeSource>(cogs: T, options?: VuePluginOptions): Plugin;
-/** Returns the Vue-bound application runtime installed by buildPlugin(). */
+/** A Vue plugin and its application-specific, fully typed component composable. */
+interface VueUiCogsBinding<T extends VueRuntimeSource> {
+    readonly uiCogs: Plugin;
+    useUiCogs(): VueBoundUiCogs<T>;
+}
+/** Awaits one core runtime and creates its Vue plugin and typed component composable. */
+declare function withVue<T extends VueRuntimeSource>(cogs: T, options?: WithVueOptions): Promise<VueUiCogsBinding<T>>;
+/** Returns the Vue-bound application runtime installed by withVue(). */
 declare function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T>;
 /** Compiles UiCogs route entries into standard Vue Router records. */
 declare function toRoutes(registry: RouteRegistry<unknown, unknown, object>): readonly RouteRecordRaw[];
@@ -110,5 +116,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type RendererRegistry, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, type VueBoundUiCogs, type VuePluginOptions, type VueRouteRuntime, buildPlugin, createRendererRegistry, toRoutes, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, vueReactive };
+export { type RendererRegistry, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, type VueBoundUiCogs, type VueRouteRuntime, type VueUiCogsBinding, type WithVueOptions, createRendererRegistry, toRoutes, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, vueReactive, withVue };
 ```
