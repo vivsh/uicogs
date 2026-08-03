@@ -489,6 +489,60 @@ describe("Quasar views and tables", () => {
     expect(rowKey({ id: 4 })).toBe(4);
   });
 
+  it("defaults selection off and warns once when enabled without controlled state", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const table = mount(UcTable, {
+      props: { resource },
+      global: { stubs: quasarStubs },
+    });
+    const resourceView = mount(UcResourceView, {
+      props: { resource, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(table.findAllComponents({ name: "ControlStub" })).toHaveLength(0);
+    expect(resourceView.findComponent(UcTable).props("selection")).toBe("none");
+    expect(warn).not.toHaveBeenCalled();
+
+    await table.setProps({ selection: "single" });
+    await table.setProps({ selection: "none" });
+    await table.setProps({ selection: "multiple" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("v-model:selected-keys"));
+  });
+
+  it("accepts explicit selected-key prop and event bindings without a warning", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const update = vi.fn();
+    const table = mount(UcTable, {
+      props: {
+        resource,
+        selection: "multiple",
+        selectedKeys: [1],
+        "onUpdate:selectedKeys": update,
+      },
+      global: { stubs: quasarStubs },
+    });
+    const resourceView = mount(UcResourceView, {
+      props: {
+        resource,
+        autoLoad: false,
+        selection: "single",
+        selectedKeys: [1],
+        "onUpdate:selectedKeys": update,
+      },
+      global: { stubs: quasarStubs },
+    });
+    table
+      .findComponent({ name: "QTableStub" })
+      .vm.$emit("update:selected", [{ id: 1, title: "One" }]);
+    resourceView.findComponent(UcTable).vm.$emit("update:selectedKeys", [1]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith([1]);
+  });
+
   it("rejects table rows without a valid resource key", () => {
     const resource = externalResource({ rows: [{ title: "No key" }] });
     expect(() =>
@@ -1010,6 +1064,7 @@ const tableStub = defineComponent({
     rows: Array,
     columns: Array,
     selected: Array,
+    selection: String,
     pagination: Object,
     rowsPerPageOptions: Array,
   },

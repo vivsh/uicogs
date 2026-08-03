@@ -523,6 +523,7 @@ export const UcTable = defineComponent({
   },
   emits: ["update:selectedKeys", "select", "loaded", "failure"],
   setup(props, { attrs, slots, emit }) {
+    useControlledSelectionWarning(() => props.selection);
     const source = tableSource(props.resource, props.collection);
     const collection = vueReactive(source);
     const definition = collectionDefinition(source, props.view);
@@ -534,7 +535,10 @@ export const UcTable = defineComponent({
     const columns = computed(() => {
       const sourceColumns = props.columns ?? columnsFor(definition);
       return props.serial
-        ? [{ name: "$serial", label: "#", field: "$serial", align: "right" as const }, ...sourceColumns]
+        ? [
+            { name: "$serial", label: "#", field: "$serial", align: "right" as const },
+            ...sourceColumns,
+          ]
         : sourceColumns;
     });
     const run = async (load: () => Promise<unknown>): Promise<void> => {
@@ -668,7 +672,7 @@ export const UcResourceView = defineComponent({
     },
     selection: {
       type: String as PropType<"none" | "single" | "multiple">,
-      default: "single",
+      default: "none",
     },
     columns: Array as PropType<readonly UcResourceColumn[]>,
     autoLoad: { type: Boolean, default: true },
@@ -692,6 +696,7 @@ export const UcResourceView = defineComponent({
     "failure",
   ],
   setup(props, { slots, emit }) {
+    useControlledSelectionWarning(() => props.selection);
     const resource = vueReactive(props.resource);
     const active = shallowRef<ResourceObjectLike>();
     const createController = shallowRef<FormLike>();
@@ -1109,10 +1114,39 @@ function tableSource(
   resource: ResourceLike | undefined,
   collection: TableCollectionLike | undefined,
 ): TableSource {
-  if (resource && collection) throw new Error("UcTable accepts either resource or collection, not both");
+  if (resource && collection)
+    throw new Error("UcTable accepts either resource or collection, not both");
   if (resource) return resource;
   if (collection) return collection;
   throw new Error("UcTable requires a resource or collection");
+}
+
+type SelectionMode = "none" | "single" | "multiple";
+
+function useControlledSelectionWarning(selection: () => SelectionMode): void {
+  const instance = getCurrentInstance();
+  let warned = false;
+  watch(
+    selection,
+    (mode) => {
+      if (warned || mode === "none" || selectionIsBound(instance?.vnode.props)) return;
+      warned = true;
+      if (!isDevelopment()) return;
+      console.warn(
+        "[UiCogs] Enabled table selection is controlled. Bind v-model:selected-keys " +
+          "(or provide selectedKeys with an update:selectedKeys listener).",
+      );
+    },
+    { immediate: true },
+  );
+}
+
+function selectionIsBound(props: Readonly<Record<string, unknown>> | null | undefined): boolean {
+  return Boolean(props && ("selectedKeys" in props || "onUpdate:selectedKeys" in props));
+}
+
+function isDevelopment(): boolean {
+  return typeof process !== "undefined" && process.env.NODE_ENV !== "production";
 }
 
 function collectionDefinition(source: TableSource, view?: ViewLike): ResourceLike["definition"] {

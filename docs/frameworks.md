@@ -320,6 +320,10 @@ It contains no router behavior.
 
 `UcResourceView` receives controllers and form definitions. It does not construct URLs or transport requests.
 
+Selection is opt-in and controlled. `v-model` controls the active detail record; use
+`v-model:selected-keys` only when `selection="single"` or `selection="multiple"` is enabled.
+`UcTable` and `UcResourceView` default to `selection="none"`.
+
 Routing is controlled through model state or the optional router adapter.
 
 Object-specific actions belong in `detail-actions`. This keeps them inside the responsive detail surface.
