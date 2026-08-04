@@ -126,6 +126,72 @@ The UiCogs plugin reads the deepest record in `to.matched` to identify the decla
 leaf, adds access checks, and exposes reactive navigation and breadcrumbs. Install Vue
 Router before the UiCogs plugin when routes exist.
 
+## Shareable List And Detail State
+
+For a resource page, use one named route with an optional key parameter. The path owns
+the active detail record; the query owns submitted filters, page, page size, and sort.
+That makes a copied URL reproduce the same list and open detail.
+
+```ts
+{ name: "tasks", path: "/tasks/:id?", component: TasksPage }
+```
+
+`@uicogs/vue` provides four composable layers. Use the smallest one that fits the page:
+
+```ts
+const route = useRouteState({
+  route: "tasks",
+  query: TaskFilters,
+  params: schema({ id: fields.ID() }),
+});
+
+const filterForm = useRouteForm({ route, schema: TaskFilters });
+const collection = useRouteCollection({ route, collection: tasks, filters: TaskFilters });
+
+const page = useRouteResource({
+  route: "tasks",
+  resource: tasks,
+  filters: TaskFilters,
+  detail: { param: "id" },
+});
+```
+
+`useRouteState()` is useful on custom pages. It exposes typed reactive `query` and
+`params`, recoverable `issues`, and explicit `push()` and `replace()` methods. It owns
+only fields declared by its schemas and preserves every unrelated query parameter.
+Schema `wireName` values are used for both reading and canonical URL output.
+
+`useRouteForm()` is submit-only by default: submitting valid filters pushes one URL;
+typing does not create history entries. Back/forward and pasted locations reset the form
+from the location. `useRouteCollection()` applies the standard `page`, `page_size`, and
+`ordering` convention. Its sort and page methods are awaitable so tables load only after
+the route navigation settles. Supply a pure `RoutePaginationCodec` for a different
+pagination convention.
+
+`useRouteResource()` combines all three and returns the original resource for objects,
+forms, and actions, plus a route-aware `collection`, `filterForm`, `activeKey`, active
+object, `open(key)`, and `close()`. A string resource key is decoded through that schema
+field automatically. A functional key must declare both `detail.parseKey` and
+`detail.formatKey`.
+
+Malformed values owned by these helpers are ignored for page state and removed with
+`router.replace()`. Valid values and foreign query state survive. Deliberate filter,
+sort, page, and detail actions use `router.push()`.
+
+With Quasar, keep the detail model and table selection distinct:
+
+```vue
+<UcResourceView :resource="page.resource" :collection="page.collection" v-model="page.activeKey">
+  <template #filters>
+    <UcFilter :form="page.filterForm" />
+  </template>
+</UcResourceView>
+```
+
+The optional `collection` supplies list rows, loading state, pagination, sorting, and
+post-mutation refreshes. The `resource` remains the owner of detail objects, forms, and
+actions. `UcFilter` has no `collection` here because route changes already own loading.
+
 ## React Router
 
 `toReactRoutes()` recursively returns `path`, optional `Component`, `children`, `name`,

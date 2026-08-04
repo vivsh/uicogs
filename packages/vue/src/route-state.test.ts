@@ -1,0 +1,236 @@
+import { Store, fields, schema } from "@uicogs/core";
+import { createApp, defineComponent, effectScope, nextTick } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { describe, expect, it, vi } from "vitest";
+import {
+  useRouteCollection,
+  useRouteForm,
+  useRouteResource,
+  useRouteState,
+  type RouteCollectionSource,
+} from "./index.js";
+
+const TaskFilters = schema({
+  status: fields.Str({ wireName: "state" }),
+  owner: fields.Int({ wireName: "owner_id" }),
+});
+const TaskParams = schema({ id: fields.ID() });
+const Task = schema({ id: fields.ID(), title: fields.Str({ required: true }) });
+
+function routeHarness() {
+  const app = createApp(defineComponent({ setup: () => () => null }));
+  const router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      {
+        name: "tasks",
+        path: "/tasks/:id?",
+        component: defineComponent({ setup: () => () => null }),
+      },
+    ],
+  });
+  app.use(router);
+  return { app, router };
+}
+
+async function settle(): Promise<void> {
+  await nextTick();
+  await Promise.resolve();
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await nextTick();
+}
+
+class TestCollection implements RouteCollectionSource {
+  readonly resource = { key: "id", schema: Task };
+  readonly store = new Store({ revision: 0 });
+  readonly calls: Array<readonly [string, unknown]> = [];
+  loading = false;
+  pageInfo = undefined;
+
+  getSnapshot() {
+    return this.store.getSnapshot();
+  }
+
+  subscribe(listener: () => void) {
+    return this.store.subscribe(listener);
+  }
+
+  all(): readonly Readonly<Record<string, unknown>>[] {
+    return [];
+  }
+
+  async load(): Promise<unknown> {
+    this.calls.push(["load", undefined]);
+    return undefined;
+  }
+
+  async refresh(): Promise<unknown> {
+    return this.load();
+  }
+
+  filter(values: Readonly<Record<string, unknown>>): this {
+    this.calls.push(["filter", values]);
+    return this;
+  }
+
+  sort(field?: string, descending = false): this {
+    this.calls.push(["sort", { field, descending }]);
+    return this;
+  }
+
+  page(index: number, size?: number): this {
+    this.calls.push(["page", { index, size }]);
+    return this;
+  }
+
+  nextPage(): this {
+    this.calls.push(["nextPage", undefined]);
+    return this;
+  }
+
+  hasMore(): boolean {
+    return true;
+  }
+}
+
+describe("Vue route state", () => {
+  it("hydrates valid values, retains foreign query values, and replaces malformed owned values", async () => {
+    const { app, router } = routeHarness();
+    await router.push({
+      name: "tasks",
+      params: { id: "7" },
+      query: { state: "open", owner_id: "not-a-number", foreign: "kept" },
+    });
+    const scope = effectScope();
+    const state = app.runWithContext(() =>
+      scope.run(() => useRouteState({ route: "tasks", query: TaskFilters, params: TaskParams })),
+    );
+
+    await settle();
+    expect(state?.query.value).toEqual({ status: "open" });
+    expect(state?.params.value).toEqual({ id: 7 });
+    expect(state?.issues.value).toEqual([]);
+    expect(router.currentRoute.value.query).toEqual({ state: "open", foreign: "kept" });
+    scope.stop();
+  });
+
+  it("submits filters through one pushed canonical location", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", query: { state: "open", page: "2", foreign: "kept" } });
+    const scope = effectScope();
+    const result = app.runWithContext(() =>
+      scope.run(() => {
+        const route = useRouteState({ route: "tasks", query: TaskFilters });
+        return { route, form: useRouteForm({ route, schema: TaskFilters }) };
+      }),
+    );
+    const push = vi.spyOn(router, "push");
+    result?.form.set("status", "closed");
+    await result?.form.submit();
+
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(router.currentRoute.value.query).toEqual({
+      state: "closed",
+      page: "2",
+      foreign: "kept",
+    });
+    router.back();
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({ state: "open", page: "2", foreign: "kept" });
+    expect(result?.form.values.status).toBe("open");
+    scope.stop();
+  });
+
+  it("writes page and ordering through the URL before a collection load", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", query: { state: "open", page: "2", page_size: "10" } });
+    const source = new TestCollection();
+    const scope = effectScope();
+    const collection = app.runWithContext(() =>
+      scope.run(() => {
+        const route = useRouteState({ route: "tasks", query: TaskFilters });
+        return useRouteCollection({ route, collection: source, filters: TaskFilters });
+      }),
+    );
+
+    await settle();
+    expect(source.calls).toContainEqual(["filter", { status: "open" }]);
+    expect(source.calls).toContainEqual(["page", { index: 2, size: 10 }]);
+    await collection?.sort("title", true);
+    await settle();
+    expect(router.currentRoute.value.query).toEqual({
+      state: "open",
+      page_size: "10",
+      ordering: "-title",
+    });
+    expect(source.calls.at(-1)).toEqual(["load", undefined]);
+    scope.stop();
+  });
+
+  it("opens and closes a detail parameter without disturbing list query state", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", query: { state: "open", page: "2" } });
+    const source = new TestCollection();
+    const resource = Object.assign(source, {
+      definition: { key: "id", schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+          detail: { param: "id" },
+        }),
+      ),
+    );
+
+    await page?.open(4);
+    expect(router.currentRoute.value.params).toEqual({ id: "4" });
+    expect(router.currentRoute.value.query).toEqual({ state: "open", page: "2" });
+    await page?.close();
+    expect(router.currentRoute.value.params).toEqual({});
+    expect(router.currentRoute.value.query).toEqual({ state: "open", page: "2" });
+    router.back();
+    await settle();
+    expect(router.currentRoute.value.params).toEqual({ id: "4" });
+    expect(page?.activeKey.value).toBe(4);
+    scope.stop();
+  });
+
+  it("requires explicit codecs for a functional resource key", () => {
+    const { app } = routeHarness();
+    const source = new TestCollection();
+    const resource = Object.assign(source, {
+      definition: { key: () => 1, schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const scope = effectScope();
+
+    expect(() =>
+      app.runWithContext(() =>
+        scope.run(() =>
+          useRouteResource({
+            route: "tasks",
+            resource,
+            filters: TaskFilters,
+            detail: { param: "id" },
+          }),
+        ),
+      ),
+    ).toThrow("detail.parseKey");
+    scope.stop();
+  });
+});

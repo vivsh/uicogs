@@ -231,6 +231,26 @@ Each `query()` call creates an independent collection controller. Equivalent col
 
 Query fields never enter the entity type.
 
+## Route-Aware Collections
+
+In Vue pages, `useRouteCollection()` can bind either a resource controller or a named
+query collection to route filters, pagination, and ordering. It keeps the collection
+controller as the data/cache owner; the URL is only the canonical page-state input.
+
+```ts
+const route = useRouteState({ route: "tasks", query: SearchTasks });
+const collection = useRouteCollection({
+  route,
+  collection: api.resource(Tasks).query("search", {}),
+  filters: SearchTasks,
+});
+```
+
+The default URL convention is `page`, `page_size`, and `ordering` (`-title` means
+descending). Filter form submission, sort changes, and pagination push locations;
+back/forward re-applies the corresponding collection state. Use `useRouteResource()`
+when the same page also owns an optional `:id` detail route.
+
 ## Operations
 
 Built-in operation factories are:

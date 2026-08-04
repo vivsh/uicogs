@@ -146,6 +146,14 @@ describe("Quasar forms and fields", () => {
     await filter.find("form").trigger("submit");
     await flushPromises();
     expect(collection.load).toHaveBeenCalledOnce();
+
+    const routeBound = mount(UcFilter, {
+      props: { form: successful },
+      global: { stubs: quasarStubs },
+    });
+    await routeBound.find("form").trigger("submit");
+    await flushPromises();
+    expect(collection.load).toHaveBeenCalledOnce();
   });
 
   it("notifies when submission validation fails", async () => {
@@ -400,6 +408,28 @@ describe("Quasar views and tables", () => {
     expect(requests.at(-1)?.query).toMatchObject({ text: "one", page: 2, page_size: 10 });
   });
 
+  it("waits for route-aware table state changes before loading", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    let release: (() => void) | undefined;
+    const sorted = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    resource.sort.mockImplementation(async () => sorted);
+    const wrapper = mount(UcTable, {
+      props: { resource },
+      global: { stubs: quasarStubs },
+    });
+
+    wrapper.findComponent({ name: "QTableStub" }).vm.$emit("request", {
+      pagination: { page: 2, rowsPerPage: 25, sortBy: "title", descending: false },
+    });
+    await nextTick();
+    expect(resource.load).not.toHaveBeenCalled();
+    release?.();
+    await flushPromises();
+    expect(resource.load).toHaveBeenCalledOnce();
+  });
+
   it("auto-loads empty tables and emits load failures", async () => {
     const successful = externalResource({ rows: [] });
     mount(UcTable, {
@@ -510,6 +540,20 @@ describe("Quasar views and tables", () => {
     await table.setProps({ selection: "multiple" });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("v-model:selected-keys"));
+  });
+
+  it("renders a supplied collection while retaining the resource for detail state", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "Resource row" }] });
+    const list = externalResource({ rows: [{ id: 2, title: "Route row" }] });
+    const collection = { ...list, resource: list.definition };
+    const wrapper = mount(UcResourceView, {
+      props: { resource, collection, autoLoad: false, create: false },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.findComponent({ name: "QTableStub" }).props("rows")).toEqual([
+      { id: 2, title: "Route row" },
+    ]);
   });
 
   it("accepts explicit selected-key prop and event bindings without a warning", () => {

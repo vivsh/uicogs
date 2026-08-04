@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `a7c4a83ab6b431a8bbed0bd42062b49a5577266ba45b1cbc1638911c3d81b532`
+Declaration SHA-256: `de6f087c2922d4579f709cb72b3218dd8aac50d61daeef3ac02e524042b800c8`
 
 ```ts
 // index.d.ts
@@ -101,12 +101,16 @@ interface ResourceLike extends ExternalStore<object> {
 interface TableCollectionLike extends ExternalStore<object> {
     readonly resource: ResourceLike["definition"];
     readonly loading: boolean;
+    readonly error?: {
+        readonly message?: string;
+    };
     readonly pageInfo?: unknown;
     all(): readonly object[];
     load(): Promise<unknown>;
-    page(index: number, size?: number): TableCollectionLike;
-    sort(field?: string, descending?: boolean): TableCollectionLike;
-    nextPage(): TableCollectionLike;
+    refresh(): Promise<unknown>;
+    page(index: number, size?: number): TableCollectionLike | Promise<void>;
+    sort(field?: string, descending?: boolean): TableCollectionLike | Promise<void>;
+    nextPage(): TableCollectionLike | Promise<void>;
     hasMore(): boolean;
 }
 interface ActionLike extends ExternalStore<object> {
@@ -191,10 +195,7 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<FormLike>;
         required: true;
     };
-    collection: {
-        type: PropType<CollectionLike>;
-        required: true;
-    };
+    collection: PropType<CollectionLike>;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
@@ -202,10 +203,7 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<FormLike>;
         required: true;
     };
-    collection: {
-        type: PropType<CollectionLike>;
-        required: true;
-    };
+    collection: PropType<CollectionLike>;
 }>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     title: StringConstructor;
@@ -357,6 +355,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<ResourceLike>;
         required: true;
     };
+    collection: PropType<TableCollectionLike>;
     title: StringConstructor;
     modelValue: PropType<EntityKey | undefined>;
     selectedKeys: {
@@ -397,6 +396,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<ResourceLike>;
         required: true;
     };
+    collection: PropType<TableCollectionLike>;
     title: StringConstructor;
     modelValue: PropType<EntityKey | undefined>;
     selectedKeys: {

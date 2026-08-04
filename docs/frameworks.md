@@ -107,6 +107,24 @@ useUcResourceView
 
 These view models derive rendering state. They do not own request or cache logic.
 
+## Vue Route State
+
+`@uicogs/vue` also supplies Vue Router 4 composables for shareable page state:
+
+```text
+useRouteState
+useRouteForm
+useRouteCollection
+useRouteResource
+```
+
+They require an application-installed Vue Router and a named route, normally one
+optional detail parameter such as `/tasks/:id?`. `useRouteState` is the low-level typed
+query/parameter bridge. `useRouteForm` writes submitted filters. `useRouteCollection`
+owns URL-driven list filters, sorting, and pagination. `useRouteResource` composes those
+pieces for `UcResourceView`-style list/detail pages. See [Routing](routing.md#shareable-list-and-detail-state)
+for the complete pattern.
+
 ## React
 
 `@uicogs/react` provides `withReact()` and hooks around the same core runtime.

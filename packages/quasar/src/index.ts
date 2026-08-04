@@ -140,12 +140,14 @@ interface ResourceLike extends ExternalStore<object> {
 interface TableCollectionLike extends ExternalStore<object> {
   readonly resource: ResourceLike["definition"];
   readonly loading: boolean;
+  readonly error?: { readonly message?: string };
   readonly pageInfo?: unknown;
   all(): readonly object[];
   load(): Promise<unknown>;
-  page(index: number, size?: number): TableCollectionLike;
-  sort(field?: string, descending?: boolean): TableCollectionLike;
-  nextPage(): TableCollectionLike;
+  refresh(): Promise<unknown>;
+  page(index: number, size?: number): TableCollectionLike | Promise<void>;
+  sort(field?: string, descending?: boolean): TableCollectionLike | Promise<void>;
+  nextPage(): TableCollectionLike | Promise<void>;
   hasMore(): boolean;
 }
 
@@ -377,7 +379,7 @@ export const UcFilter = defineComponent({
   name: "UcFilter",
   props: {
     form: { type: Object as PropType<FormLike>, required: true },
-    collection: { type: Object as PropType<CollectionLike>, required: true },
+    collection: Object as PropType<CollectionLike>,
   },
   setup(props, { slots }) {
     return () =>
@@ -385,7 +387,7 @@ export const UcFilter = defineComponent({
         UcForm,
         {
           form: props.form,
-          onSuccess: () => props.collection.load(),
+          ...(props.collection ? { onSuccess: () => props.collection!.load() } : {}),
         },
         slots,
       );
@@ -559,16 +561,20 @@ export const UcTable = defineComponent({
     }): void => {
       const page = details.pagination;
       if (!page) return;
-      collection.sort(page.sortBy, page.descending);
-      if (page.page) collection.page(page.page, page.rowsPerPage || props.pageSize);
-      void run(() => collection.load());
+      void run(async () => {
+        await collection.sort(page.sortBy, page.descending);
+        if (page.page) await collection.page(page.page, page.rowsPerPage || props.pageSize);
+        return collection.load();
+      });
     };
     const scroll = (event: Event): void => {
       if (!props.infinite || collection.loading || !collection.hasMore()) return;
       const target = event.target as HTMLElement | null;
       if (!target || target.scrollTop + target.clientHeight + 24 < target.scrollHeight) return;
-      collection.nextPage();
-      void run(() => collection.load());
+      void run(async () => {
+        await collection.nextPage();
+        return collection.load();
+      });
     };
     onMounted(() => {
       if (props.autoLoad && !rows.value.length) void run(() => collection.load());
@@ -664,6 +670,7 @@ export const UcResourceView = defineComponent({
   name: "UcResourceView",
   props: {
     resource: { type: Object as PropType<ResourceLike>, required: true },
+    collection: Object as PropType<TableCollectionLike>,
     title: String,
     modelValue: [String, Number] as PropType<EntityKey | undefined>,
     selectedKeys: {
@@ -698,15 +705,17 @@ export const UcResourceView = defineComponent({
   setup(props, { slots, emit }) {
     useControlledSelectionWarning(() => props.selection);
     const resource = vueReactive(props.resource);
+    const listCollection = vueReactive(props.collection ?? resource);
+    const listDefinition = props.collection ? props.collection.resource : resource.definition;
     const active = shallowRef<ResourceObjectLike>();
     const createController = shallowRef<FormLike>();
     const editController = shallowRef<FormLike>();
     const creating = shallowRef(false);
-    const rows = computed(() => resource.all().map(entityRecord));
-    const columns = computed(() => props.columns ?? columnsFor(resource.definition));
+    const rows = computed(() => listCollection.all().map(entityRecord));
+    const columns = computed(() => props.columns ?? columnsFor(listDefinition));
     const selectedRows = computed(() => {
       const keys = new Set(props.selectedKeys);
-      return rows.value.filter((row) => keys.has(keyFor(resource.definition, row)));
+      return rows.value.filter((row) => keys.has(keyFor(listDefinition, row)));
     });
 
     const run = async (operation: () => Promise<unknown>): Promise<void> => {
@@ -755,34 +764,36 @@ export const UcResourceView = defineComponent({
 
     watch(() => props.modelValue, bind, { immediate: true });
     onMounted(() => {
-      if (props.autoLoad && !rows.value.length) void run(() => resource.load());
+      if (props.autoLoad && !rows.value.length) void run(() => listCollection.load());
     });
 
     const defaultList = () => {
-      if (resource.error)
+      if (listCollection.error)
         return h(
           QBanner,
           { class: "bg-negative text-white" },
           {
-            default: () => resource.error?.message ?? "Unable to load records",
+            default: () => listCollection.error?.message ?? "Unable to load records",
             action: () =>
               h(QBtn, {
                 flat: true,
                 label: "Retry",
-                onClick: () => run(() => resource.load()),
+                onClick: () => run(() => listCollection.load()),
               }),
           },
         );
-      if (!rows.value.length && !resource.loading)
+      if (!rows.value.length && !listCollection.loading)
         return h("div", { class: "uc-resource-view__empty q-pa-lg text-center" }, props.emptyLabel);
-      return h(UcTable, {
-        resource,
+      const tableProps = {
         columns: columns.value,
         selection: props.selection,
         selectedKeys: props.selectedKeys,
         "onUpdate:selectedKeys": (keys: readonly EntityKey[]) => emit("update:selectedKeys", keys),
         onSelect: open,
-      });
+      };
+      return props.collection
+        ? h(UcTable, { ...tableProps, collection: listCollection as TableCollectionLike })
+        : h(UcTable, { ...tableProps, resource });
     };
 
     return () => {
@@ -792,20 +803,20 @@ export const UcResourceView = defineComponent({
         rows: rows.value,
         open,
         create: startCreate,
-        refresh: () => run(() => resource.refresh()),
+        refresh: () => run(() => listCollection.refresh()),
       }) ?? [slots["before-list"]?.(), defaultList(), slots["after-list"]?.()];
       const detail = creating.value
         ? (slots.create?.({
             resource,
             close,
-            refresh: () => run(() => resource.refresh()),
+            refresh: () => run(() => listCollection.refresh()),
           }) ??
           (createController.value
             ? h(UcForm, {
                 form: createController.value,
                 onSuccess: () => {
                   close();
-                  void run(() => resource.refresh());
+                  void run(() => listCollection.refresh());
                 },
                 onFailure: (failure: unknown) => emit("failure", failure),
               })
@@ -824,7 +835,7 @@ export const UcResourceView = defineComponent({
                       form: editController.value,
                       onSuccess: () => {
                         close();
-                        void run(() => resource.refresh());
+                        void run(() => listCollection.refresh());
                       },
                       onFailure: (failure: unknown) => emit("failure", failure),
                     })
@@ -845,8 +856,8 @@ export const UcResourceView = defineComponent({
           aside,
           asideWidth: props.asideWidth,
           mode: props.mode,
-          loading: resource.loading,
-          refresh: () => resource.refresh(),
+          loading: listCollection.loading,
+          refresh: () => listCollection.refresh(),
           "onUpdate:aside": (open: boolean) => !open && close(),
         },
         {
@@ -875,7 +886,7 @@ export const UcResourceView = defineComponent({
                     selectedKeys: props.selectedKeys,
                     selectedRows: selectedRows.value,
                     create: startCreate,
-                    refresh: () => run(() => resource.refresh()),
+                    refresh: () => run(() => listCollection.refresh()),
                   }),
                 ]
               : undefined,

@@ -1,0 +1,107 @@
+import { expectAssignable, expectType } from "tsd";
+import { createUiCogs, fields, resource, schema } from "@uicogs/core";
+import {
+  standardRoutePagination,
+  useRouteCollection,
+  useRouteForm,
+  useRouteResource,
+  useRouteState,
+  type RoutePaginationCodec,
+} from "@uicogs/vue";
+
+const TaskFilters = schema({
+  status: fields.Str({ wireName: "state" }),
+  owner: fields.ID({ wireName: "owner_id" }),
+});
+const TaskParams = schema({ id: fields.ID() });
+const Task = schema({ id: fields.ID(), title: fields.Str({ required: true }) });
+const Tasks = resource({ name: "tasks", schema: Task, key: "id" });
+
+const route = useRouteState({ route: "tasks", query: TaskFilters, params: TaskParams });
+expectAssignable<Readonly<Partial<{ readonly status?: string; readonly owner?: number }>>>(
+  route.query.value,
+);
+expectAssignable<Readonly<Partial<{ readonly id: number }>>>(route.params.value);
+expectType<Promise<void>>(route.push({ query: { status: "open" }, params: { id: 2 } }));
+
+const form = useRouteForm({ route, schema: TaskFilters });
+expectType<string | undefined>(form.values.status);
+
+declare const collection: {
+  readonly resource: { readonly key: "id"; readonly schema: typeof Task };
+  readonly loading: boolean;
+  all(): readonly Readonly<Record<string, unknown>>[];
+  load(): Promise<unknown>;
+  refresh(): Promise<unknown>;
+  filter(values: Readonly<Record<string, unknown>>): unknown;
+  sort(field?: string, descending?: boolean): unknown;
+  page(index: number, size?: number): unknown;
+  nextPage(): unknown;
+  hasMore(): boolean;
+};
+const routeCollection = useRouteCollection({ route, collection, filters: TaskFilters });
+expectType<Promise<void>>(routeCollection.sort("title", true));
+expectType<Promise<void>>(routeCollection.page(2, 50));
+expectType<Promise<void>>(routeCollection.nextPage());
+
+const customPagination: RoutePaginationCodec = {
+  keys: ["offset", "limit"],
+  read: () => ({ index: 1, size: 25 }),
+  write: () => ({ offset: undefined, limit: undefined }),
+};
+expectType<RoutePaginationCodec>(standardRoutePagination);
+useRouteCollection({ route, collection, filters: TaskFilters, pagination: customPagination });
+
+declare const taskResource: {
+  readonly definition: { readonly key: "id"; readonly schema: typeof Task };
+  readonly resource: { readonly key: "id"; readonly schema: typeof Task };
+  readonly loading: boolean;
+  all(): readonly Readonly<Record<string, unknown>>[];
+  load(): Promise<unknown>;
+  refresh(): Promise<unknown>;
+  filter(values: Readonly<Record<string, unknown>>): unknown;
+  sort(field?: string, descending?: boolean): unknown;
+  page(index: number, size?: number): unknown;
+  nextPage(): unknown;
+  hasMore(): boolean;
+  get(key: number): {
+    readonly loading: boolean;
+    readonly value?: Readonly<Record<string, unknown>>;
+    load(): Promise<unknown>;
+  };
+};
+const page = useRouteResource({
+  route: "tasks",
+  resource: taskResource,
+  filters: TaskFilters,
+  detail: { param: "id" },
+});
+expectType<Promise<void>>(page.open(2));
+expectType<Promise<void>>(page.close());
+
+const api = createUiCogs({ resources: [Tasks] });
+const directResourcePage = useRouteResource({
+  route: "tasks",
+  resource: api.resource(Tasks),
+  filters: TaskFilters,
+  detail: { param: "id" },
+});
+expectType<Promise<void>>(directResourcePage.open(2));
+
+const FunctionalTasks = resource({
+  name: "functional-tasks",
+  schema: Task,
+  key: (task) => task.id ?? 0,
+});
+const functionalApi = createUiCogs({ resources: [FunctionalTasks] });
+const functionalResourcePage = useRouteResource({
+  route: "functional-tasks",
+  resource: functionalApi.resource(FunctionalTasks),
+  filters: TaskFilters,
+  detail: {
+    param: "id",
+    parseKey: (value) => Number(value),
+    formatKey: (key) => String(key),
+  },
+});
+expectType<Promise<void>>(functionalResourcePage.open(2));

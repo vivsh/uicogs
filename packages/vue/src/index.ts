@@ -38,6 +38,7 @@ import {
 import { type RouteRecordRaw, type RouteLocationNormalizedLoaded, type Router } from "vue-router";
 
 export * from "@uicogs/core";
+export * from "./route-state.js";
 
 const proxies = new WeakMap<object, object>();
 

@@ -56,6 +56,26 @@ const form = api.resource(Tasks).get(42).form(TaskEdit);
 
 The controller owns an isolated draft. Editing the draft never mutates cached entity data.
 
+## Route-Bound Filter Forms
+
+For a shareable list page, let the URL own filter state instead of making `UcFilter`
+load a collection directly. `useRouteForm()` creates a normal query-mode form whose
+successful submission pushes one canonical route location; browser navigation resets its
+draft from that location.
+
+```ts
+const route = useRouteState({ route: "tasks", query: TaskFilters });
+const filterForm = useRouteForm({ route, schema: TaskFilters });
+```
+
+```vue
+<UcFilter :form="filterForm" />
+```
+
+Do not pass `collection` in this case: `useRouteCollection()` or `useRouteResource()`
+watches the URL and performs the matching load. `UcFilter` still accepts `collection`
+for the direct, non-route-bound pattern and retains its existing load-on-success behavior.
+
 ## Render A Form View
 
 Pass a schema view when the default `UcForm` controls should render a display subset of
