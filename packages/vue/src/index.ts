@@ -12,14 +12,13 @@ import {
   isLoggedIn,
 } from "@uicogs/core";
 import {
-  type Breadcrumb,
-  type ResolvedNavigationNode,
-  type ResolvedRouteEntry,
-  type RouteAccess,
-  type RouteLocation,
-  type RouteNode,
-  type RouteRegistry,
-} from "@uicogs/routes";
+  canAccessRoute,
+  useUiCogsNavigation,
+  validateNavigation,
+  type UiCogsBreadcrumb,
+  type UiCogsNavigationNode,
+  type UiCogsNavigationOptions,
+} from "./navigation.js";
 import {
   computed,
   getCurrentScope,
@@ -35,10 +34,11 @@ import {
   type ShallowRef,
   type InjectionKey,
 } from "vue";
-import { type RouteRecordRaw, type RouteLocationNormalizedLoaded, type Router } from "vue-router";
+import { type RouteLocationNormalizedLoaded, type RouteLocationRaw, type Router } from "vue-router";
 
 export * from "@uicogs/core";
 export * from "./route-state.js";
+export * from "./navigation.js";
 
 const proxies = new WeakMap<object, object>();
 
@@ -72,37 +72,30 @@ export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
 }
 
 export interface WithVueOptions {
+  readonly navigation?: UiCogsNavigationOptions;
   readonly onDenied?: (input: {
-    readonly route: ResolvedRouteEntry<unknown, object>;
-    readonly location: RouteLocation;
-  }) => string | false | void;
-}
-
-export interface VueRouteRuntime<TIcon = unknown> {
-  readonly registry: RouteRegistry<unknown, TIcon, object>;
-  navigationTree(placement: string): ComputedRef<readonly ResolvedNavigationNode<TIcon>[]>;
-  breadcrumbs(): ComputedRef<readonly Breadcrumb<TIcon>[]>;
-  hasPermission(path: string): ComputedRef<boolean>;
+    readonly to: RouteLocationNormalizedLoaded;
+    readonly scopes: readonly string[];
+  }) => RouteLocationRaw | false | void;
 }
 
 interface VueRuntimeSource extends Record<never, never> {
   readonly ready: Promise<void>;
-  readonly routes: RouteRegistry<unknown, unknown, Record<never, never>>;
   readonly context: ExternalStore<object>;
   readonly live: ExternalStore<object>;
   readonly auth?: RuntimeAuthController;
   bindControllerAdapter(adapter: ControllerAdapter): void;
 }
 
-export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<
-  T,
-  "routes" | "context" | "live" | "auth"
-> & {
+export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "context" | "live" | "auth"> & {
   readonly core: T;
-  readonly routes: VueRouteRuntime;
   readonly context: T["context"];
   readonly live: T["live"];
   readonly auth: T["auth"];
+  navigation(placement: string): ComputedRef<readonly UiCogsNavigationNode[]>;
+  breadcrumbs(placement: string): ComputedRef<readonly UiCogsBreadcrumb[]>;
+  hasScope(scope: string): ComputedRef<boolean>;
+  hasScopes(scopes: readonly string[]): ComputedRef<boolean>;
 };
 
 /** A Vue plugin and its application-specific, fully typed component composable. */
@@ -119,8 +112,8 @@ export async function withVue<T extends VueRuntimeSource>(
   await cogs.ready;
   const uiCogs: Plugin = {
     install(app: App) {
-      const router = cogs.routes.entries.length ? routerFor(app) : undefined;
-      bindVueRuntime(app, cogs, router, options.onDenied);
+      validateNavigation(options.navigation ?? {});
+      bindVueRuntime(app, cogs, routerFor(app), options);
     },
   };
   return Object.freeze({
@@ -139,8 +132,8 @@ export function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueB
 function bindVueRuntime<T extends VueRuntimeSource>(
   app: App,
   cogs: T,
-  router: Router | undefined,
-  onDenied: WithVueOptions["onDenied"],
+  router: Router,
+  options: WithVueOptions,
 ): VueBoundUiCogs<T> {
   cogs.bindControllerAdapter(vueReactive);
   const revision = shallowRef(0);
@@ -148,48 +141,47 @@ function bindVueRuntime<T extends VueRuntimeSource>(
     revision.value += 1;
   });
   app.onUnmount(() => unsubscribe?.());
-  const access = (): RouteAccess => {
+  const access = () => {
     void revision.value;
-    return accessFor(cogs.auth);
+    return {
+      authenticated: isLoggedIn(cogs.auth),
+      scopes: cogs.auth?.scopes ?? new Set<string>(),
+    };
   };
-  const location = (): RouteLocation =>
-    router ? locationFor(router.currentRoute.value, cogs.routes) : emptyLocation;
-  if (router) {
-    router.beforeEach((to) => {
-      const routeLocation = locationFor(to, cogs.routes);
-      const entry = cogs.routes.resolve(routeLocation);
-      if (!entry || cogs.routes.hasPermission(entry.path, access())) return true;
-      const denied = onDenied?.({
-        route: entry as ResolvedRouteEntry<unknown, object>,
-        location: routeLocation,
-      });
-      return typeof denied === "string" ? { path: denied } : false;
-    });
-  }
-  const routeRuntime: VueRouteRuntime = Object.freeze({
-    registry: cogs.routes,
-    navigationTree: (placement: string) =>
-      computed(() => cogs.routes.navigationTree(placement, access(), location())),
-    breadcrumbs: () => computed(() => cogs.routes.breadcrumbs(access(), location())),
-    hasPermission: (path: string) => computed(() => cogs.routes.hasPermission(path, access())),
+  const staticRouteRecords = Object.freeze([...router.getRoutes()]);
+  router.beforeEach((to) => {
+    if (canAccessRoute(to.matched, access())) return true;
+    const scopes = Object.freeze(to.matched.flatMap((record) => record.meta.uicogs?.scopes ?? []));
+    return options.onDenied?.({ to, scopes }) ?? false;
   });
   const bound = Object.create(cogs) as VueBoundUiCogs<T>;
+  const navigation = (placement: string) =>
+    useUiCogsNavigation(options.navigation ?? {}, access, staticRouteRecords).navigation(placement);
+  const breadcrumbs = (placement: string) =>
+    useUiCogsNavigation(options.navigation ?? {}, access, staticRouteRecords).breadcrumbs(
+      placement,
+    );
   Object.defineProperties(bound, {
     core: { value: cogs },
-    routes: { value: routeRuntime },
     context: { value: vueReactive(cogs.context) },
     live: { value: vueReactive(cogs.live) },
     ...(cogs.auth ? { auth: { value: vueReactive(cogs.auth) } } : {}),
+    navigation: { value: navigation },
+    breadcrumbs: { value: breadcrumbs },
+    hasScope: {
+      value: (scope: string) =>
+        computed(() => access().authenticated && access().scopes.has(scope)),
+    },
+    hasScopes: {
+      value: (scopes: readonly string[]) =>
+        computed(
+          () => access().authenticated && scopes.every((scope) => access().scopes.has(scope)),
+        ),
+    },
   });
   app.provide(uiCogsKey, bound as VueBoundUiCogs<VueRuntimeSource>);
   return bound;
 }
-
-const emptyLocation: RouteLocation = Object.freeze({
-  path: "",
-  params: Object.freeze({}),
-  query: Object.freeze({}),
-});
 
 function routerFor(app: App): Router {
   const router = app.config.globalProperties.$router as unknown;
@@ -208,76 +200,6 @@ function isRouter(value: unknown): value is Router {
     "beforeEach" in value &&
     typeof value.beforeEach === "function"
   );
-}
-
-function accessFor(auth: RuntimeAuthController | undefined): RouteAccess {
-  if (!auth) return { authenticated: false, permissions: new Set<string>() };
-  const candidate = auth as RuntimeAuthController & {
-    readonly permissions?: ReadonlySet<string>;
-  };
-  return {
-    authenticated: isLoggedIn(candidate),
-    permissions: candidate.permissions ?? new Set<string>(),
-  };
-}
-
-function locationFor(
-  route: RouteLocationNormalizedLoaded,
-  registry: RouteRegistry<unknown, unknown, object>,
-): RouteLocation {
-  const params: Record<string, string | readonly string[] | undefined> = {};
-  for (const [name, value] of Object.entries(route.params)) {
-    if (typeof value === "string") params[name] = value;
-    else if (Array.isArray(value) && value.every((item) => typeof item === "string"))
-      params[name] = value;
-  }
-  const pattern = matchedPattern(route, registry);
-  return {
-    path: route.path,
-    ...(pattern === undefined ? {} : { pattern }),
-    params: Object.freeze(params),
-    query: route.query,
-  };
-}
-
-function matchedPattern(
-  route: RouteLocationNormalizedLoaded,
-  registry: RouteRegistry<unknown, unknown, object>,
-): string | undefined {
-  for (const record of [...route.matched].reverse()) {
-    const entry = registry.entry(record.path);
-    if (entry) return entry.path;
-  }
-  return undefined;
-}
-
-/** Compiles the UiCogs route tree into standard nested Vue Router records. */
-export function toRoutes(
-  registry: RouteRegistry<unknown, unknown, object>,
-): readonly RouteRecordRaw[] {
-  return Object.freeze(registry.tree.map(toVueRoute));
-}
-
-function toVueRoute(node: RouteNode<unknown, object>): RouteRecordRaw {
-  if ("children" in node) {
-    return Object.freeze({
-      path: node.path,
-      ...(node.component === undefined
-        ? {}
-        : { component: node.component as RouteRecordRaw["component"] }),
-      ...(node.meta === undefined ? {} : { meta: node.meta }),
-      children: Object.freeze(node.children.map(toVueRoute)),
-    }) as RouteRecordRaw;
-  }
-  return Object.freeze({
-    path: node.path,
-    ...(node.name === undefined ? {} : { name: node.name }),
-    ...(node.component === undefined
-      ? {}
-      : { component: node.component as RouteRecordRaw["component"] }),
-    ...(node.redirect === undefined ? {} : { redirect: node.redirect }),
-    ...(node.meta === undefined ? {} : { meta: node.meta }),
-  }) as RouteRecordRaw;
 }
 
 export function useUcController<T extends ExternalStore<object>>(controller: T): T {

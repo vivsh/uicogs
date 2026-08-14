@@ -24,6 +24,7 @@ export interface RuntimeAuthController<
 > extends ExternalStore<TSnapshot> {
   readonly value: TSnapshot;
   readonly status: string;
+  readonly scopes: ReadonlySet<string>;
   readonly sessionGeneration: number;
   middleware(): TransportMiddleware;
   attach(bindings: AuthRuntimeBindings): void;

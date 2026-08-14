@@ -26,15 +26,15 @@ the UiCogs Vue plugin.
 
 ```ts
 import { createUiCogs } from "@uicogs/core";
-import { toRoutes, withVue } from "@uicogs/vue";
+import { withVue } from "@uicogs/vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-export const { uiCogs } = await withVue(api);
 const router = createRouter({
   history: createWebHistory(),
-  routes: toRoutes(api.routes),
+  routes,
 });
+export const { uiCogs } = await withVue(api, { navigation });
 app.use(router).use(uiCogs);
 ```
 
@@ -135,16 +135,7 @@ Create the application runtime normally.
 import { createUiCogs } from "@uicogs/core";
 import { withReact } from "@uicogs/react";
 
-export const api = withReact(
-  createUiCogs({
-    resources: [Tasks],
-    baseUrl: "/api/",
-  }),
-  {
-    router,
-    useLocation,
-  },
-);
+export const api = withReact(createUiCogs({ resources: [Tasks], baseUrl: "/api/" }));
 ```
 
 Memoize controller creation by logical identity.
@@ -181,7 +172,7 @@ The hooks use `useSyncExternalStore`.
 React Strict Mode may mount effects more than once. Equivalent requests still deduplicate in the shared runtime. Memoization avoids unnecessary controller replacement.
 
 Render the application beneath `api.Provider`; `useUiCogs()` then exposes the same
-React-bound runtime, including reactive route navigation and breadcrumbs.
+React-bound runtime. React Router records remain application-owned.
 
 For typed application access, export the same small wrapper pattern:
 
@@ -193,16 +184,12 @@ export const useUiCogs = () => useInjectedUiCogs<typeof api.core>();
 
 ## Routing
 
-Pass immutable flat, nested, or mixed `routes` plus independent `navigation` and
-`breadcrumbsFrom` to `createUiCogs()`. A node with `children` is a structural group;
-an empty child gives its parent URL a page. Access rules inherit through the declaration
-tree.
-
-Vue's `toRoutes(api.routes)` and React's `toReactRoutes(api.routes)` preserve nested
-records. The bindings add access checks and expose reactive `navigationTree()`,
-`breadcrumbs()`, and `hasPermission()`. React redirects require an explicit conversion
-callback. See [Routing](routing.md) for the complete contract. The server remains
-responsible for endpoint authorization.
+Vue applications use normal Vue Router records with typed `meta.uicogs` scopes and
+placement-specific navigation metadata. `withVue()` adds the native guard and exposes
+reactive `navigation()`, `breadcrumbs()`, `hasScope()`, and `hasScopes()` helpers.
+Menu groups are declared separately from router nesting. React Router remains
+application-owned. See [Routing](routing.md) for the complete Vue contract. The server
+remains responsible for endpoint authorization.
 
 ## Quasar Package
 

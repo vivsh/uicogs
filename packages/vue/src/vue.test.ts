@@ -2,6 +2,7 @@ import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, effectScope, nextTick, ref, watchEffect } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
 import {
   createUiCogs as createCoreUiCogs,
   Store,
@@ -30,7 +31,7 @@ async function createUiCogs(options: Parameters<typeof createCoreUiCogs>[0]) {
   const core = createCoreUiCogs(options);
   const app = createApp(defineComponent({ setup: () => () => null }));
   const binding = await withVue(core);
-  app.use(binding.uiCogs);
+  app.use(createRouter({ history: createMemoryHistory(), routes: [] })).use(binding.uiCogs);
   return app.runWithContext(() => binding.useUiCogs()) as unknown as typeof core;
 }
 
@@ -39,7 +40,7 @@ describe("Vue controller integration", () => {
     const core = createCoreUiCogs({ context: { locale: "en" } });
     const app = createApp(defineComponent({ setup: () => () => null }));
     const binding = await withVue(core);
-    app.use(binding.uiCogs);
+    app.use(createRouter({ history: createMemoryHistory(), routes: [] })).use(binding.uiCogs);
     const api = app.runWithContext(() => binding.useUiCogs());
     const values: string[] = [];
     const stop = watchEffect(() => {

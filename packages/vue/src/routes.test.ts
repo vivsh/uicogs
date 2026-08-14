@@ -1,139 +1,140 @@
 import { createUiCogs } from "@uicogs/core";
 import { createApp, defineComponent } from "vue";
-import { createMemoryHistory, createRouter } from "vue-router";
+import { createMemoryHistory, createRouter, type RouteRecordRaw } from "vue-router";
 import { describe, expect, it } from "vitest";
-import { toRoutes, withVue } from "./index.js";
+import { canAccessRoute, withVue } from "./index.js";
+
+const Page = defineComponent({ setup: () => () => null });
 
 describe("withVue route binding", () => {
-  /** Verifies that the binding creates a router and derives reactive navigation. */
-  it("binds an installed Vue Router and derives reactive navigation", async () => {
-    const app = createApp(defineComponent({ setup: () => () => null }));
-    const core = createUiCogs({
-      routes: [{ path: "/login", component: defineComponent({ setup: () => () => null }) }],
-      navigation: {
-        sidebar: [
-          {
-            id: "account",
-            label: "Account",
-            children: [{ route: "/login", label: "Sign in" }],
+  /** Verifies that standard Vue Router records produce independent grouped navigation. */
+  it("derives navigation and breadcrumbs from Vue Router metadata", async () => {
+    const routes = [
+      {
+        path: "/login",
+        name: "login",
+        component: Page,
+        meta: {
+          uicogs: {
+            navigation: {
+              side: { parent: "account", label: ({ route }) => `Sign in from ${route.path}` },
+            },
           },
-        ],
+        },
       },
-      breadcrumbsFrom: "sidebar",
+    ] satisfies RouteRecordRaw[];
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const core = createUiCogs();
+    const binding = await withVue(core, {
+      navigation: { side: { groups: [{ id: "account", label: "Account" }] } },
     });
-    const router = createRouter({ history: createMemoryHistory(), routes: toRoutes(core.routes) });
-    const binding = await withVue(core);
     app.use(router).use(binding.uiCogs);
     const cogs = app.runWithContext(() => binding.useUiCogs());
-    const sidebar = cogs.routes.navigationTree("sidebar");
-    const breadcrumbs = cogs.routes.breadcrumbs();
+    const side = app.runWithContext(() => cogs.navigation("side"));
+    const breadcrumbs = app.runWithContext(() => cogs.breadcrumbs("side"));
 
     await router.push("/login");
-    expect(sidebar.value).toMatchObject([
-      { kind: "group", id: "account", children: [{ label: "Sign in", current: true }] },
+    expect(side.value).toMatchObject([
+      {
+        kind: "group",
+        id: "account",
+        children: [{ kind: "route", label: "Sign in from /login", current: true }],
+      },
     ]);
     expect(breadcrumbs.value).toEqual([
       { label: "Account", current: false },
-      { label: "Sign in", current: true },
+      { label: "Sign in from /login", current: true, to: { name: "login" } },
     ]);
-    app.runWithContext(() => expect(binding.useUiCogs().core).toBe(core));
+    router.addRoute({
+      path: "/later",
+      component: Page,
+      meta: { uicogs: { navigation: { side: { label: "Added later" } } } },
+    });
+    await router.push("/later");
+    expect(side.value).toHaveLength(1);
     core.dispose();
   });
 
-  /** Verifies that the binding redirects an unauthorized route through its own callback. */
-  it("redirects denied navigation with a normalized UiCogs location", async () => {
+  /** Verifies that the native guard receives native Vue Router target data on denial. */
+  it("denies scoped routes through the native Vue Router guard", async () => {
+    const routes = [
+      { path: "/login", component: Page },
+      {
+        path: "/tasks",
+        component: Page,
+        meta: { uicogs: { scopes: ["tasks.read"] } },
+      },
+    ] satisfies RouteRecordRaw[];
     const app = createApp(defineComponent({ setup: () => () => null }));
-    const core = createUiCogs({
-      routes: [
-        { path: "/login", component: defineComponent({ setup: () => () => null }) },
-        {
-          path: "/tasks",
-          component: defineComponent({ setup: () => () => null }),
-          auth: { all: ["tasks.view"] },
-        },
-      ],
-    });
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const core = createUiCogs();
     const denied: string[] = [];
-    const router = createRouter({ history: createMemoryHistory(), routes: toRoutes(core.routes) });
     const binding = await withVue(core, {
-      onDenied: ({ location }) => {
-        denied.push(location.path);
+      onDenied: ({ to, scopes }) => {
+        denied.push(`${to.path}:${scopes.join(",")}`);
         return "/login";
       },
     });
     app.use(router).use(binding.uiCogs);
 
     await router.push("/tasks");
-    expect(denied).toEqual(["/tasks"]);
+    expect(denied).toEqual(["/tasks:tasks.read"]);
     expect(router.currentRoute.value.path).toBe("/login");
     core.dispose();
   });
 
-  it("preserves nested router records and raw child paths", () => {
-    const Layout = defineComponent({ setup: () => () => null });
-    const Home = defineComponent({ setup: () => () => null });
-    const User = defineComponent({ setup: () => () => null });
-    const core = createUiCogs({
-      routes: [
-        {
-          path: "/app",
-          component: Layout,
-          meta: { section: "app" },
-          children: [
-            { path: "", component: Home, name: "home" },
-            { path: "users/:id", component: User, meta: { page: "user" } },
-          ],
-        },
-      ],
-    });
-
-    expect(toRoutes(core.routes)).toMatchObject([
+  /** Verifies guest-only, authenticated, and additive scope policies from matched records. */
+  it("applies additive matched-route scopes", () => {
+    const routes = [
       {
-        path: "/app",
-        component: Layout,
-        meta: { section: "app" },
+        path: "/admin",
+        component: Page,
+        meta: { uicogs: { scopes: ["admin.read"] } },
         children: [
-          { path: "", component: Home, name: "home" },
-          { path: "users/:id", component: User, meta: { page: "user" } },
+          {
+            path: "users",
+            component: Page,
+            meta: { uicogs: { scopes: ["users.read"] } },
+          },
         ],
       },
-    ]);
-    expect(core.routes.entries.map((entry) => entry.path)).toEqual(["/app", "/app/users/:id"]);
-    core.dispose();
+      { path: "/guest", component: Page },
+      { path: "/account", component: Page, meta: { uicogs: { scopes: [] } } },
+    ] satisfies RouteRecordRaw[];
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const adminUsers = router.resolve("/admin/users").matched;
+    expect(
+      canAccessRoute(adminUsers, { authenticated: true, scopes: new Set(["admin.read"]) }),
+    ).toBe(false);
+    expect(
+      canAccessRoute(adminUsers, {
+        authenticated: true,
+        scopes: new Set(["admin.read", "users.read"]),
+      }),
+    ).toBe(true);
+    expect(
+      canAccessRoute(router.resolve("/guest").matched, { authenticated: false, scopes: new Set() }),
+    ).toBe(true);
+    expect(
+      canAccessRoute(router.resolve("/guest").matched, { authenticated: true, scopes: new Set() }),
+    ).toBe(false);
+    expect(
+      canAccessRoute(router.resolve("/account").matched, {
+        authenticated: true,
+        scopes: new Set(),
+      }),
+    ).toBe(true);
   });
 
-  it("uses the deepest Vue matched pattern for access and denied callbacks", async () => {
+  /** Verifies invalid named menu group declarations fail when the plugin is installed. */
+  it("rejects an unknown navigation group parent", async () => {
     const app = createApp(defineComponent({ setup: () => () => null }));
-    const Page = defineComponent({ setup: () => () => null });
-    const core = createUiCogs({
-      routes: [
-        { path: "/login", component: Page },
-        {
-          path: "/admin",
-          component: Page,
-          children: [
-            {
-              path: ":id(\\d+)",
-              component: Page,
-              auth: { all: ["admin.read"] },
-            },
-          ],
-        },
-      ],
+    const router = createRouter({ history: createMemoryHistory(), routes: [] });
+    const binding = await withVue(createUiCogs(), {
+      navigation: { side: { groups: [{ id: "users", parent: "missing", label: "Users" }] } },
     });
-    const denied: Array<{ path: string; pattern?: string }> = [];
-    const router = createRouter({ history: createMemoryHistory(), routes: toRoutes(core.routes) });
-    const binding = await withVue(core, {
-      onDenied: ({ location }) => {
-        denied.push({ path: location.path, pattern: location.pattern });
-        return "/login";
-      },
-    });
-    app.use(router).use(binding.uiCogs);
-
-    await router.push("/admin/42");
-    expect(denied).toEqual([{ path: "/admin/42", pattern: "/admin/:id(\\d+)" }]);
-    expect(router.currentRoute.value.path).toBe("/login");
-    core.dispose();
+    app.use(router);
+    expect(() => app.use(binding.uiCogs)).toThrow("Unknown UiCogs navigation group parent");
   });
 });

@@ -120,11 +120,7 @@ importers:
         specifier: workspace:^
         version: link:../core
 
-  packages/core:
-    dependencies:
-      '@uicogs/routes':
-        specifier: workspace:^
-        version: link:../routes
+  packages/core: {}
 
   packages/echarts:
     dependencies:

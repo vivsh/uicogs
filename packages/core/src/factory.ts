@@ -19,12 +19,6 @@ import {
 } from "./resource.js";
 import { EventBus } from "./store.js";
 import { pagination } from "./transport.js";
-import {
-  createRouteRegistry,
-  type NavigationPlacements,
-  type RouteNode,
-  type RouteRegistry,
-} from "@uicogs/routes";
 
 export class Cogs<
   TApplicationContext,
@@ -32,9 +26,6 @@ export class Cogs<
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
   TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
-  TComponent = unknown,
-  TIcon = unknown,
-  TMeta extends object = Readonly<Record<never, never>>,
 > extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources, TServices> {
   declare readonly auth: AuthControllerOf<TAuth>;
   readonly context: RuntimeContextStore<
@@ -51,19 +42,8 @@ export class Cogs<
   readonly local: typeof local = local;
   readonly pagination: typeof pagination = pagination;
   readonly events = new EventBus<TEvents>();
-  readonly routes: RouteRegistry<TComponent, TIcon, TMeta>;
 
-  constructor(
-    options: CogsOptions<
-      TApplicationContext,
-      TAuth,
-      TResources,
-      TServices,
-      TComponent,
-      TIcon,
-      TMeta
-    >,
-  ) {
+  constructor(options: CogsOptions<TApplicationContext, TAuth, TResources, TServices>) {
     super(
       options as unknown as UiCogsOptions<
         UiCogsContext<TApplicationContext, TAuth>,
@@ -76,11 +56,6 @@ export class Cogs<
       TApplicationContext,
       UiCogsContext<TApplicationContext, TAuth>
     >;
-    this.routes = createRouteRegistry<TComponent, TIcon, TMeta>({
-      routes: options.routes as readonly RouteNode<TComponent, TMeta>[] | undefined,
-      navigation: options.navigation as NavigationPlacements<TIcon> | undefined,
-      breadcrumbsFrom: options.breadcrumbsFrom,
-    });
   }
 }
 
@@ -89,9 +64,6 @@ export type CogsOptions<
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
   TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
-  TComponent = unknown,
-  TIcon = unknown,
-  TMeta extends object = Readonly<Record<never, never>>,
 > =
   UiCogsOptions<
     UiCogsContext<TApplicationContext, TAuth>,
@@ -107,9 +79,6 @@ export type CogsOptions<
       >
       ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
           readonly context?: ApplicationContext<TApplicationContext>;
-          readonly routes?: readonly RouteNode<TComponent, TMeta>[];
-          readonly navigation?: NavigationPlacements<TIcon>;
-          readonly breadcrumbsFrom?: string;
           readonly persistence?: TOptions extends { readonly cache: CacheStore }
             ? Omit<PersistenceOptions<NoInfer<TApplicationContext>>, "cache"> & {
                 readonly cache: false;
@@ -127,36 +96,13 @@ export function createUiCogs<
     readonly ResourceDefinitionIdentity[],
   const TServices extends readonly ServiceDefinitionIdentity[] =
     readonly ServiceDefinitionIdentity[],
-  TComponent = unknown,
-  TIcon = unknown,
-  TMeta extends object = Readonly<Record<never, never>>,
 >(
-  options: CogsOptions<
+  options: CogsOptions<TApplicationContext, TAuth, TResources, TServices> = {} as CogsOptions<
     TApplicationContext,
     TAuth,
     TResources,
-    TServices,
-    TComponent,
-    TIcon,
-    TMeta
-  > = {} as CogsOptions<
-    TApplicationContext,
-    TAuth,
-    TResources,
-    TServices,
-    TComponent,
-    TIcon,
-    TMeta
+    TServices
   >,
-): Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices, TComponent, TIcon, TMeta> {
-  return new Cogs<
-    TApplicationContext,
-    TEvents,
-    TAuth,
-    TResources,
-    TServices,
-    TComponent,
-    TIcon,
-    TMeta
-  >(options);
+): Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices> {
+  return new Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices>(options);
 }

@@ -23,9 +23,6 @@ import {
   type OperationOutput,
   type ResourceDefinition,
   type ResponseAdapter,
-  type RouteEntry,
-  type RouteNode,
-  type ResolvedRouteEntry,
   type ServiceDefinition,
 } from "@uicogs/core";
 import { responseAdapters as httpResponseAdapters } from "@uicogs/http";
@@ -326,32 +323,8 @@ expectAssignable<MultipartAdapter>({
   parts: (part) => [{ name: part.name, value: part.value }],
 });
 
-const routed = createUiCogs({
-  routes: [{ path: "/users", component: "UsersPage", auth: { all: ["users.read"] } }],
-  navigation: { sidebar: [{ route: "/users", label: "Users", icon: "users" }] },
-  breadcrumbsFrom: "sidebar",
-});
-expectType<ResolvedRouteEntry<string, Readonly<Record<never, never>>> | undefined>(
-  routed.routes.entry("/users"),
-);
-expectAssignable<RouteEntry<string>>({ path: "/users", component: "UsersPage" });
-expectAssignable<RouteNode<string>>({
-  path: "/accounts",
-  component: "AccountLayout",
-  children: [
-    { path: "", component: "AccountHome" },
-    { path: ":id", component: "AccountDetail" },
-    { path: "/login", redirect: { name: "sign-in" } },
-  ],
-});
-expectError<RouteEntry<string>>({
-  path: "/invalid",
-  component: "Invalid",
-  redirect: "/users",
-});
-expectError<RouteNode<string>>({ path: "/invalid", children: [], redirect: "/users" });
 expectError(
   createUiCogs({
-    routes: [{ path: "/invalid", component: "Invalid", auth: { all: [], any: [] } }],
+    routes: [{ path: "/invalid", component: "Invalid" }],
   }),
 );

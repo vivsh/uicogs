@@ -13,6 +13,7 @@ import type { TransportMiddleware } from "./transport.js";
 
 class TestAuthController implements RuntimeAuthController<object> {
   constructor(readonly status = "anonymous") {}
+  readonly scopes = new Set<string>();
   readonly sessionGeneration = 0;
   bindings?: AuthRuntimeBindings;
 

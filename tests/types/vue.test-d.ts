@@ -1,5 +1,6 @@
-import { expectAssignable, expectType } from "tsd";
+import { expectAssignable, expectError, expectType } from "tsd";
 import { createUiCogs, fields, resource, schema } from "@uicogs/core";
+import { createNavigation } from "@uicogs/routes";
 import {
   standardRoutePagination,
   useRouteCollection,
@@ -7,7 +8,28 @@ import {
   useRouteResource,
   useRouteState,
   type RoutePaginationCodec,
+  type UiCogsNavigationGroup,
+  type UiCogsRouteMeta,
 } from "@uicogs/vue";
+import type { RouteRecordRaw } from "vue-router";
+
+expectAssignable<RouteRecordRaw>({
+  path: "/users",
+  component: {},
+  meta: {
+    uicogs: {
+      scopes: ["users.read"],
+      navigation: { side: { parent: "administration", label: "Users", order: 10 } },
+    },
+  },
+});
+expectAssignable<UiCogsNavigationGroup>({ id: "administration", label: "Administration" });
+const sharedNavigation = createNavigation({
+  side: { groups: [{ id: "administration", label: "Administration" }] },
+});
+expectAssignable<import("@uicogs/vue").UiCogsNavigationOptions>(sharedNavigation);
+expectError<UiCogsRouteMeta>({ auth: { all: ["users.read"] } });
+expectError<UiCogsRouteMeta>({ scopes: ["users.read"], permissions: ["users.read"] });
 
 const TaskFilters = schema({
   status: fields.Str({ wireName: "state" }),

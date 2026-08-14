@@ -86,18 +86,17 @@ and invalid auth operation references.
 All options below belong in the same `createUiCogs()` call. They are optional unless
 the application needs their capability.
 
-| Need                                   | Initialization                                                                                                      |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Application values used by definitions | `context: { locale, timeZone }`; do not include `auth`.                                                             |
-| Persistent context and cache           | `persistence: { backend: storage.indexedDb(...) }`. Context and cache are both enabled by default.                  |
-| Authentication                         | `auth: jwtAuth(...)` or `auth: cookieAuth(...)`, using operation references from registered resources or services.  |
-| Custom cache                           | `cache`, with `persistence.cache: false`; it cannot coexist with the built-in durable cache.                        |
-| Cache behaviour                        | `cachePolicy: "cache-first"`, `"network-only"`, or `"stale-while-revalidate"`.                                      |
-| Error normalization                    | `errorAdapters: [...]`.                                                                                             |
-| SSE/live updates                       | `live: sse(...)` from `@uicogs/http`.                                                                               |
-| Relation key loading                   | `relationDefaults: { byKeys: ... }`.                                                                                |
-| Routes and navigation                  | Flat or nested `routes`, plus `navigation` and `breadcrumbsFrom`; definitions stay immutable and framework-neutral. |
-| Unauthenticated but partitioned cache  | `cacheScope: () => scope`. Auth strategies own scope when `auth` is configured.                                     |
+| Need                                   | Initialization                                                                                                     |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Application values used by definitions | `context: { locale, timeZone }`; do not include `auth`.                                                            |
+| Persistent context and cache           | `persistence: { backend: storage.indexedDb(...) }`. Context and cache are both enabled by default.                 |
+| Authentication                         | `auth: jwtAuth(...)` or `auth: cookieAuth(...)`, using operation references from registered resources or services. |
+| Custom cache                           | `cache`, with `persistence.cache: false`; it cannot coexist with the built-in durable cache.                       |
+| Cache behaviour                        | `cachePolicy: "cache-first"`, `"network-only"`, or `"stale-while-revalidate"`.                                     |
+| Error normalization                    | `errorAdapters: [...]`.                                                                                            |
+| SSE/live updates                       | `live: sse(...)` from `@uicogs/http`.                                                                              |
+| Relation key loading                   | `relationDefaults: { byKeys: ... }`.                                                                               |
+| Unauthenticated but partitioned cache  | `cacheScope: () => scope`. Auth strategies own scope when `auth` is configured.                                    |
 
 For example, a browser runtime with persistence and authentication can be assembled
 without manually wiring middleware or cache scope:
@@ -176,15 +175,15 @@ Vue Router; `withVue()` adds UiCogs reactivity, injection, and route access setu
 ```ts
 // uicogs.ts
 import { createUiCogs } from "@uicogs/core";
-import { toRoutes, withVue } from "@uicogs/vue";
+import { withVue } from "@uicogs/vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-export const { uiCogs } = await withVue(api);
 export const router = createRouter({
   history: createWebHistory(),
-  routes: toRoutes(api.routes),
+  routes,
 });
+export const { uiCogs } = await withVue(api, { navigation });
 
 // main.ts
 import { createApp } from "vue";
@@ -198,8 +197,8 @@ app.mount("#app");
 Export a small typed `useUiCogs` wrapper from a page-safe module that imports `api` only
 as a type, then import that wrapper in components. It retains exact application types
 without creating a bootstrap cycle. Its
-`routes.navigationTree()`, `routes.breadcrumbs()`, and `routes.hasPermission()` are
-reactive. `withVue()` never disposes the application-owned core runtime.
+`navigation()`, `breadcrumbs()`, `hasScope()`, and `hasScopes()` are reactive.
+`withVue()` never disposes the application-owned core runtime.
 
 ### React
 

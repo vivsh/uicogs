@@ -18,74 +18,59 @@ import {
   useForm,
   useObject,
   useResource,
-  toReactRoutes,
 } from "./index.js";
 
 afterEach(cleanup);
 
 describe("React controller integration", () => {
-  it("binds one core runtime and resolves route navigation through React hooks", () => {
-    const core = createUiCogs({
-      routes: [{ path: "/login", component: () => null }],
-      navigation: { shortcuts: [{ route: "/login", label: "Sign in" }] },
-    });
-    const cogs = withReact(core, {
-      router: {},
-      useLocation: () => ({ path: "/login", params: {}, query: {} }),
-    });
+  it("binds one core runtime through React context", () => {
+    const core = createUiCogs();
+    const cogs = withReact(core);
     function View() {
       const runtime = useUiCogs();
-      const links = runtime.routes.useNavigationTree("shortcuts");
-      return createElement("span", null, links[0]?.kind === "route" ? links[0].label : "none");
+      return createElement("span", null, runtime.core === core ? "bound" : "missing");
     }
 
     render(createElement(cogs.Provider, null, createElement(View)));
-    expect(screen.getByText("Sign in")).toBeDefined();
+    expect(screen.getByText("bound")).toBeDefined();
     core.dispose();
   });
 
-  it("preserves nested records and supports componentless route groups", () => {
-    const Layout = () => null;
-    const Home = () => null;
-    const core = createUiCogs({
+  it("reads scopes and independent navigation from native React Router declarations", () => {
+    const core = createUiCogs();
+    const cogs = withReact(core, {
       routes: [
         {
-          path: "/app",
-          component: Layout,
-          children: [{ path: "", component: Home, name: "home" }],
-        },
-        {
-          path: "/settings",
-          children: [{ path: "profile", component: Home }],
+          id: "login",
+          path: "/login",
+          handle: {
+            uicogs: {
+              navigation: {
+                side: {
+                  parent: "account",
+                  label: ({ matches }) => `Sign in ${matches[0]?.pathname}`,
+                },
+              },
+            },
+          },
         },
       ],
+      navigation: { side: { groups: [{ id: "account", label: "Account" }] } },
+      useMatches: () => [{ id: "login", pathname: "/login" }],
     });
+    function View() {
+      const runtime = useUiCogs();
+      const navigation = runtime.useNavigation("side");
+      const breadcrumbs = runtime.useBreadcrumbs("side");
+      return createElement(
+        "span",
+        null,
+        `${navigation[0]?.kind}:${breadcrumbs.map((item) => item.label).join("/")}:${runtime.useCanAccessRoute()}`,
+      );
+    }
 
-    expect(toReactRoutes(core.routes)).toMatchObject([
-      { path: "/app", Component: Layout, children: [{ path: "", Component: Home }] },
-      { path: "/settings", children: [{ path: "profile", Component: Home }] },
-    ]);
-    core.dispose();
-  });
-
-  it("requires an explicit React redirect adapter and receives the final target", () => {
-    const Page = () => null;
-    const core = createUiCogs({
-      routes: [
-        { path: "/old", redirect: "/middle" },
-        { path: "/middle", redirect: { name: "new" } },
-        { path: "/new", name: "new", component: Page },
-      ],
-    });
-
-    expect(() => toReactRoutes(core.routes)).toThrow("redirect adapter");
-    expect(
-      toReactRoutes(core.routes, { redirect: (target) => `redirect:${target}` }),
-    ).toMatchObject([
-      { path: "/old", Component: "redirect:/new" },
-      { path: "/middle", Component: "redirect:/new" },
-      { path: "/new", Component: Page },
-    ]);
+    render(createElement(cogs.Provider, null, createElement(View)));
+    expect(screen.getByText("group:Account/Sign in /login:true")).toBeDefined();
     core.dispose();
   });
 

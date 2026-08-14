@@ -36,17 +36,18 @@ export const api = createUiCogs({
 Replace the older Vue setup helpers with `await withVue(api)`:
 
 ```ts
-export const { uiCogs } = await withVue(api);
 const router = createRouter({
   history: createWebHistory(),
-  routes: toRoutes(api.routes),
+  routes,
 });
+export const { uiCogs } = await withVue(api, { navigation });
 app.use(router).use(uiCogs);
 ```
 
-The application owns the real Vue Router and uses `toRoutes(api.routes)`. `withVue()`
-returns the plugin, controller reactivity, access-aware navigation, and breadcrumbs; it
-does not own Vue Router, its records, or `<RouterView>`. Keep a page-safe typed
+The application owns the real Vue Router and declares standard records with optional
+`meta.uicogs` scopes and menu presentation. `withVue()` returns the plugin, controller
+reactivity, access-aware navigation, and breadcrumbs; it does not own Vue Router, its
+records, or `<RouterView>`. Keep a page-safe typed
 `useUiCogs` wrapper in a module that imports `api` only as a type.
 
 ## Runtime Context

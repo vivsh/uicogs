@@ -83,7 +83,7 @@ const Tokens = schema({
 const Claims = schema({
   sub: fields.Str({ required: true }),
   tenant: fields.Str({ required: true }),
-  permissions: fields.StrList({ required: true }),
+  scopes: fields.StrList({ required: true }),
   exp: fields.Int(),
   nbf: fields.Int(),
 });
@@ -122,7 +122,7 @@ const auth = jwtAuth({
   currentUser: Users.operation("current"),
   storage: memoryAuthStorage(),
   state: () => ({ selectedProject: undefined as number | undefined }),
-  permissions: ({ claims }) => claims.permissions,
+  scopes: ({ claims }) => claims.scopes,
   cacheScope: ({ claims }) => ({
     subject: claims.sub,
     tenant: claims.tenant,
@@ -142,20 +142,17 @@ const api = createUiCogs({
 });
 ```
 
-## Route Permissions And Roles
+## Route Scopes And Roles
 
-Route declarations consume the effective `api.auth.permissions` set. A guest-only
-route omits `auth`; authenticated routes use either `auth: { all: [...] }` or
-`auth: { any: [...] }`. `{ all: [] }` means any authenticated user.
-
-For nested routes, every explicit ancestor and leaf rule must pass. An omitted ancestor
-is neutral, while a chain with no rule remains guest-only. Redirects use the final
-target's access rules.
+Vue Router records consume the effective `api.auth.scopes` set through
+`meta.uicogs.scopes`. A matched chain with no scope declaration is guest-only;
+`scopes: []` means any authenticated user; every listed scope is required. Parent and
+child declarations combine.
 
 Role-based applications should map roles to stable capabilities in the strategy:
 
 ```ts
-permissions: ({ user }) => user.roles.flatMap((role) => rolePermissions[role] ?? []);
+scopes: ({ user }) => user.roles.flatMap((role) => roleScopes[role] ?? []);
 ```
 
 The Vue and React bindings use that set to hide unavailable links and block client
@@ -217,7 +214,7 @@ const auth = cookieAuth({
     token: () => readCookie("csrftoken"),
   },
   state: () => ({ selectedProject: undefined as number | undefined }),
-  permissions: ({ user }) => user.permissions,
+  scopes: ({ user }) => user.scopes,
   subject: ({ user }) => user.id,
   cacheScope: ({ user }) => ({
     subject: user.id,
@@ -267,7 +264,7 @@ Shared JWT and cookie state:
 api.auth.value;
 api.auth.status;
 api.auth.user;
-api.auth.permissions;
+api.auth.scopes;
 api.auth.state;
 api.auth.error;
 api.auth.sessionGeneration;

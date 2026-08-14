@@ -1,7 +1,7 @@
 {
   "name": "@uicogs/routes",
   "version": "0.1.0",
-  "description": "Framework-neutral route, access, and navigation definitions for UiCogs.",
+  "description": "Framework-neutral scope resolution for UiCogs framework bindings.",
   "license": "MIT",
   "author": "UiCogs",
   "type": "module",

@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `8b08bd2b48b5d087b81270809edf8b43b20cbc533d7d219724743a8afd3e6725`
+Declaration SHA-256: `a9773aa53e4d0b480f18761b2c9e3623bd640731aca975fb209cad781171f600`
 
 ```ts
 // index.d.ts
@@ -8,10 +8,72 @@ import * as _vue_reactivity from '@vue/reactivity';
 import * as _uicogs_core from '@uicogs/core';
 import { EntityKey, Shape, Infer, Schema, ValidationIssue, FormController, FormSchema, Descriptor, ExternalStore, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
 export * from '@uicogs/core';
-import { RouteRegistry, ResolvedNavigationNode, Breadcrumb, ResolvedRouteEntry, RouteLocation } from '@uicogs/routes';
 import * as vue from 'vue';
 import { ComputedRef, Plugin, Ref, ShallowRef } from 'vue';
-import { RouteRecordRaw } from 'vue-router';
+import { NavigationGroup, NavigationDefinition, ScopeAccess } from '@uicogs/routes';
+import { RouteLocationNormalizedLoaded, RouteLocationRaw, RouteRecordNormalized } from 'vue-router';
+
+/** Presentation metadata attached to a standard Vue Router route record. */
+interface UiCogsRouteMeta {
+    readonly scopes?: readonly string[];
+    readonly navigation?: Readonly<Record<string, UiCogsNavigationLink>>;
+}
+/** One route link's presentation for a named navigation placement. */
+interface UiCogsNavigationLink {
+    readonly parent?: string;
+    readonly label?: UiCogsNavigationLabel;
+    readonly icon?: UiCogsNavigationIcon;
+    readonly order?: number;
+}
+/** One non-link group declared once for a navigation placement. */
+type UiCogsNavigationGroup = NavigationGroup<UiCogsNavigationLabel, UiCogsNavigationIcon>;
+/** Named group declarations used by the Vue binding. */
+type UiCogsNavigationOptions = NavigationDefinition<UiCogsNavigationLabel, UiCogsNavigationIcon>;
+/** Current Vue Router location supplied to dynamic navigation presentation. */
+interface UiCogsNavigationContext {
+    readonly route: RouteLocationNormalizedLoaded;
+}
+type UiCogsNavigationLabel = string | ((context: UiCogsNavigationContext) => string);
+type UiCogsNavigationIcon = unknown | ((context: UiCogsNavigationContext) => unknown);
+/** A scope-filtered link suitable for rendering by a Vue application. */
+interface UiCogsNavigationRoute {
+    readonly kind: "route";
+    readonly id: string;
+    readonly label: string;
+    readonly icon?: unknown;
+    readonly to?: RouteLocationRaw;
+    readonly current: boolean;
+}
+/** A scope-filtered non-link group suitable for rendering by a Vue application. */
+interface UiCogsNavigationGroupNode {
+    readonly kind: "group";
+    readonly id: string;
+    readonly label: string;
+    readonly icon?: unknown;
+    readonly children: readonly UiCogsNavigationNode[];
+}
+type UiCogsNavigationNode = UiCogsNavigationRoute | UiCogsNavigationGroupNode;
+/** One breadcrumb derived from a named navigation placement. */
+interface UiCogsBreadcrumb {
+    readonly label: string;
+    readonly icon?: unknown;
+    readonly to?: RouteLocationRaw;
+    readonly current: boolean;
+}
+declare module "vue-router" {
+    interface RouteMeta {
+        readonly uicogs?: UiCogsRouteMeta;
+    }
+}
+/** Evaluates the additive scope policy for Vue Router's matched records. */
+declare function canAccessRoute(matched: readonly RouteRecordNormalized[], access: ScopeAccess): boolean;
+/** Creates composition-safe reactive navigation helpers without retaining a router on UiCogs. */
+declare function useUiCogsNavigation(navigation: UiCogsNavigationOptions, access: () => ScopeAccess, records?: readonly RouteRecordNormalized[]): Readonly<{
+    navigation: (placement: string) => ComputedRef<readonly UiCogsNavigationNode[]>;
+    breadcrumbs: (placement: string) => ComputedRef<readonly UiCogsBreadcrumb[]>;
+}>;
+/** Validates group identity, parent relationships, and group cycles before installation. */
+declare function validateNavigation(navigation: UiCogsNavigationOptions): void;
 
 type EmptyShape = Readonly<Record<never, never>>;
 type RouteUrlValue = string | number | boolean | null | readonly (string | number | boolean | null)[];
@@ -148,31 +210,28 @@ declare function useRouteResource<TResource extends RouteResourceSource, TFilter
 
 declare function vueReactive<T extends ExternalStore<object>>(controller: T): T;
 interface WithVueOptions {
+    readonly navigation?: UiCogsNavigationOptions;
     readonly onDenied?: (input: {
-        readonly route: ResolvedRouteEntry<unknown, object>;
-        readonly location: RouteLocation;
-    }) => string | false | void;
-}
-interface VueRouteRuntime<TIcon = unknown> {
-    readonly registry: RouteRegistry<unknown, TIcon, object>;
-    navigationTree(placement: string): ComputedRef<readonly ResolvedNavigationNode<TIcon>[]>;
-    breadcrumbs(): ComputedRef<readonly Breadcrumb<TIcon>[]>;
-    hasPermission(path: string): ComputedRef<boolean>;
+        readonly to: RouteLocationNormalizedLoaded;
+        readonly scopes: readonly string[];
+    }) => RouteLocationRaw | false | void;
 }
 interface VueRuntimeSource extends Record<never, never> {
     readonly ready: Promise<void>;
-    readonly routes: RouteRegistry<unknown, unknown, Record<never, never>>;
     readonly context: ExternalStore<object>;
     readonly live: ExternalStore<object>;
     readonly auth?: RuntimeAuthController;
     bindControllerAdapter(adapter: ControllerAdapter): void;
 }
-type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "routes" | "context" | "live" | "auth"> & {
+type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "context" | "live" | "auth"> & {
     readonly core: T;
-    readonly routes: VueRouteRuntime;
     readonly context: T["context"];
     readonly live: T["live"];
     readonly auth: T["auth"];
+    navigation(placement: string): ComputedRef<readonly UiCogsNavigationNode[]>;
+    breadcrumbs(placement: string): ComputedRef<readonly UiCogsBreadcrumb[]>;
+    hasScope(scope: string): ComputedRef<boolean>;
+    hasScopes(scopes: readonly string[]): ComputedRef<boolean>;
 };
 /** A Vue plugin and its application-specific, fully typed component composable. */
 interface VueUiCogsBinding<T extends VueRuntimeSource> {
@@ -183,8 +242,6 @@ interface VueUiCogsBinding<T extends VueRuntimeSource> {
 declare function withVue<T extends VueRuntimeSource>(cogs: T, options?: WithVueOptions): Promise<VueUiCogsBinding<T>>;
 /** Returns the Vue-bound application runtime installed by withVue(). */
 declare function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T>;
-/** Compiles the UiCogs route tree into standard nested Vue Router records. */
-declare function toRoutes(registry: RouteRegistry<unknown, unknown, object>): readonly RouteRecordRaw[];
 declare function useUcController<T extends ExternalStore<object>>(controller: T): T;
 declare const useUcResource: typeof useUcController;
 declare const useUcObject: typeof useUcController;
@@ -250,5 +307,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteDetailOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, type VueBoundUiCogs, type VueRouteRuntime, type VueUiCogsBinding, type WithVueOptions, createRendererRegistry, standardRoutePagination, toRoutes, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, vueReactive, withVue };
+export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteDetailOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
 ```

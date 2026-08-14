@@ -46,4 +46,3 @@ export * from "./store.js";
 export * from "./struct.js";
 export * from "./transport.js";
 export * from "./utils.js";
-export * from "@uicogs/routes";

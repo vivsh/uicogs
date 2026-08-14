@@ -223,7 +223,7 @@ The core owns behavior; framework packages observe controllers rather than dupli
 | ----------------- | ------------------------------------------------------------------------- |
 | `@uicogs/core`    | definitions, runtime, Fetch transport, cache, resources, forms, relations |
 | `@uicogs/echarts` | schema-bound ECharts definitions, reactive bindings, and Vue components   |
-| `@uicogs/routes`  | immutable route access, navigation groups, and breadcrumbs                |
+| `@uicogs/routes`  | framework-neutral scope resolution used by framework bindings             |
 | `@uicogs/vue`     | `withVue()`, Vue Router binding, reactive controllers, and injection      |
 | `@uicogs/react`   | `withReact()` and React hooks built on `useSyncExternalStore`             |
 | `@uicogs/quasar`  | Quasar fields, forms, tables, actions, and resource views                 |
@@ -237,15 +237,21 @@ Vue applications create the same core runtime as every other application, then b
 
 ```ts
 import { createUiCogs } from "@uicogs/core";
-import { toRoutes, withVue } from "@uicogs/vue";
+import { withVue } from "@uicogs/vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-const { uiCogs } = await withVue(api);
 const router = createRouter({
   history: createWebHistory(),
-  routes: toRoutes(api.routes),
+  routes: [
+    {
+      path: "/tasks",
+      component: TasksPage,
+      meta: { uicogs: { scopes: ["tasks.read"], navigation: { side: { label: "Tasks" } } } },
+    },
+  ],
 });
+const { uiCogs } = await withVue(api, { navigation: { side: { groups: [] } } });
 app.use(router).use(uiCogs);
 
 // a component

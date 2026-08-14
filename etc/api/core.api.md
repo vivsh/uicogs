@@ -1,12 +1,9 @@
 # @uicogs/core API
 
-Declaration SHA-256: `fb03b84dbd494168db8f1fc04ef53e039f437effdfeeb1d09c72d1f2dbfde451`
+Declaration SHA-256: `cf32a132482c4e8e1e4f11af936f93c0b7e4daee4406389a55792fb3db2dbc57`
 
 ```ts
 // index.d.ts
-import { RouteRegistry, RouteNode, NavigationPlacements } from '@uicogs/routes';
-export * from '@uicogs/routes';
-
 interface ExternalStore<TSnapshot> {
     getSnapshot(): TSnapshot;
     subscribe(listener: () => void): () => void;
@@ -2164,6 +2161,7 @@ interface AuthRuntimeBindings {
 interface RuntimeAuthController<TSnapshot extends object = object> extends ExternalStore<TSnapshot> {
     readonly value: TSnapshot;
     readonly status: string;
+    readonly scopes: ReadonlySet<string>;
     readonly sessionGeneration: number;
     middleware(): TransportMiddleware;
     attach(bindings: AuthRuntimeBindings): void;
@@ -2207,7 +2205,7 @@ declare function withQuery(url: string, query?: Readonly<Record<string, unknown>
 declare function prepareBody(body: unknown, encoding?: BodyEncoding, adapter?: MultipartAdapter): PreparedBody;
 declare function multipart(values: Readonly<Record<string, unknown>>, adapter?: MultipartAdapter): FormData;
 
-declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>> extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources, TServices> {
+declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[]> extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources, TServices> {
     readonly auth: AuthControllerOf<TAuth>;
     readonly context: RuntimeContextStore<TApplicationContext, UiCogsContext<TApplicationContext, TAuth>>;
     readonly fields: typeof fields;
@@ -2220,21 +2218,17 @@ declare class Cogs<TApplicationContext, TEvents extends object = Readonly<Record
     readonly local: typeof local;
     readonly pagination: typeof pagination;
     readonly events: EventBus<TEvents>;
-    readonly routes: RouteRegistry<TComponent, TIcon, TMeta>;
-    constructor(options: CogsOptions<TApplicationContext, TAuth, TResources, TServices, TComponent, TIcon, TMeta>);
+    constructor(options: CogsOptions<TApplicationContext, TAuth, TResources, TServices>);
 }
-type CogsOptions<TApplicationContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>> = UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> extends infer TOptions ? TOptions extends UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
+type CogsOptions<TApplicationContext, TAuth extends AuthStrategyDefinition | undefined = undefined, TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[]> = UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> extends infer TOptions ? TOptions extends UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources, TServices> ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
     readonly context?: ApplicationContext<TApplicationContext>;
-    readonly routes?: readonly RouteNode<TComponent, TMeta>[];
-    readonly navigation?: NavigationPlacements<TIcon>;
-    readonly breadcrumbsFrom?: string;
     readonly persistence?: TOptions extends {
         readonly cache: CacheStore;
     } ? Omit<PersistenceOptions<NoInfer<TApplicationContext>>, "cache"> & {
         readonly cache: false;
     } : PersistenceOptions<NoInfer<TApplicationContext>>;
 } : never : never;
-declare function createUiCogs<TApplicationContext = undefined, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, const TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], const TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[], TComponent = unknown, TIcon = unknown, TMeta extends object = Readonly<Record<never, never>>>(options?: CogsOptions<TApplicationContext, TAuth, TResources, TServices, TComponent, TIcon, TMeta>): Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices, TComponent, TIcon, TMeta>;
+declare function createUiCogs<TApplicationContext = undefined, TEvents extends object = Readonly<Record<never, never>>, TAuth extends AuthStrategyDefinition | undefined = undefined, const TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[], const TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[]>(options?: CogsOptions<TApplicationContext, TAuth, TResources, TServices>): Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices>;
 
 type Constructor<T = object> = abstract new (...args: never[]) => T;
 type ClassSchema<T extends object, TContext = unknown> = {

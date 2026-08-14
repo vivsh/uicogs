@@ -53,11 +53,10 @@ export const Tasks = resource({
 `TaskCreate` defines the editable fields and payload. `TaskTable` defines table
 columns. Neither holds cache, network, or component state.
 
-## Declare Routes And Runtime
+## Declare Runtime And Vue Routes
 
-Routes are pure core definitions. This flat route is also the smallest valid route
-tree. Layouts may instead declare `children` with empty, relative, or absolute paths;
-navigation always refers to normalized leaf paths.
+The core runtime has no route declarations. Define normal Vue Router records next to
+the application router, with optional UiCogs metadata for scopes and menus.
 
 ```ts
 // src/api.ts
@@ -71,12 +70,16 @@ export const api = createUiCogs({
   resources: [Tasks],
   responseAdapter: responseAdapters.vyuh(),
   context: { locale: "en", timeZone: "UTC" },
-  routes: [{ path: "/tasks", component: TasksPage }],
-  navigation: {
-    sidebar: [{ route: "/tasks", label: "Tasks" }],
-  },
-  breadcrumbsFrom: "sidebar",
 });
+
+export const routes = [
+  {
+    path: "/tasks",
+    name: "tasks",
+    component: TasksPage,
+    meta: { uicogs: { navigation: { side: { label: "Tasks" } } } },
+  },
+];
 ```
 
 ## Start Vue And The Router
@@ -90,17 +93,17 @@ plugin for UiCogs access-aware navigation.
 import { createApp } from "vue";
 import { Quasar } from "quasar";
 import { createRouter, createWebHistory } from "vue-router";
-import { toRoutes, withVue } from "@uicogs/vue";
+import { withVue } from "@uicogs/vue";
 import "quasar/dist/quasar.css";
 import App from "./App.vue";
 import { api } from "./api.js";
 
 const app = createApp(App).use(Quasar);
-const { uiCogs } = await withVue(api);
 const router = createRouter({
   history: createWebHistory(),
-  routes: toRoutes(api.routes),
+  routes,
 });
+const { uiCogs } = await withVue(api);
 app.use(router).use(uiCogs);
 app.mount("#app");
 ```
@@ -112,14 +115,14 @@ The root component renders the active route:
 <template><RouterView /></template>
 ```
 
-Use the bound router or reactive navigation in components:
+Use the application router or reactive navigation in components:
 
 ```vue
 <script setup lang="ts">
 import { useUiCogs } from "../uicogs.js";
 
 const api = useUiCogs();
-const sidebar = api.routes.navigationTree("sidebar");
+const sidebar = api.navigation("side");
 </script>
 
 <template>
@@ -129,10 +132,9 @@ const sidebar = api.routes.navigationTree("sidebar");
 </template>
 ```
 
-`navigationTree()` and `breadcrumbs()` are reactive. Protected routes declare
-`auth: { all: ["tasks.view"] }` or `auth: { any: [...] }`; configure an auth strategy
-before using them. See [Routing](routing.md) for layouts, inherited access, matching,
-and redirects.
+`navigation()` and `breadcrumbs()` are reactive. Protected Vue Router records declare
+`meta: { uicogs: { scopes: ["tasks.view"] } }`; configure an auth strategy before using
+them. See [Routing](routing.md) for matched scope inheritance and independent menus.
 
 ## Render A Resource, Form, And Table
 

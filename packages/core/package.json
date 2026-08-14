@@ -24,9 +24,6 @@
     "dist"
   ],
   "sideEffects": false,
-  "dependencies": {
-    "@uicogs/routes": "workspace:^"
-  },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "test": "vitest run"
