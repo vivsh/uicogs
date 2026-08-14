@@ -208,18 +208,25 @@ application-owned page route inside `UcAppLayout`:
 ```vue
 <UcAppLayout
   :brand="{ label: 'Example' }"
+  :navigation-width="216"
+  :notifications-width="320"
+  :navigation-toggle-props="{ flat: true, round: true, dense: true }"
+  :notifications-toggle-props="{ flat: true, round: true, dense: true }"
   :notifications="notifications"
   v-model:navigation-open="navigationOpen"
   v-model:notifications-open="notificationsOpen"
   @notification-mark-read="markRead"
 >
+  <template #topbar-actions><ThemeToggle /></template>
   <router-view />
 </UcAppLayout>
 ```
 
 The component reads the `sidebar` and `topbar` named navigation placements by default.
 Notification data remains an application resource/service concern; the layout only
-renders it and emits user intent.
+renders it and emits user intent. Width props are forwarded to native drawers only when
+set. `topbar-actions` renders after the built-in notification button; `topbar-before`
+renders before generated topbar links.
 
 ### React
 

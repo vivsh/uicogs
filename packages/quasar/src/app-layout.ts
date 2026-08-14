@@ -31,6 +31,17 @@ export type UcAppBrand = Readonly<{
 }> &
   UcAppBrandDestination;
 
+/** Safe presentation properties forwarded to one built-in UcAppLayout header button. */
+export interface UcAppLayoutActionProps {
+  readonly flat?: boolean;
+  readonly round?: boolean;
+  readonly dense?: boolean;
+  readonly size?: string;
+  readonly color?: string;
+  readonly icon?: string;
+  readonly "aria-label"?: string;
+}
+
 /** A Quasar application shell composed from UiCogs navigation and its optional live inbox. */
 export const UcAppLayout = defineComponent({
   name: "UcAppLayout",
@@ -40,6 +51,10 @@ export const UcAppLayout = defineComponent({
     topbarPlacement: { type: [String, Boolean] as PropType<string | false>, default: "topbar" },
     drawerFooterPlacement: [String, Boolean] as PropType<string | false | undefined>,
     navigationBadges: { type: Object as PropType<UcNavigationBadges>, default: () => ({}) },
+    navigationWidth: Number,
+    notificationsWidth: Number,
+    navigationToggleProps: Object as PropType<UcAppLayoutActionProps>,
+    notificationsToggleProps: Object as PropType<UcAppLayoutActionProps>,
     navigationOpen: { type: Boolean, default: false },
     notificationsOpen: { type: Boolean, default: false },
     notifications: Array as PropType<readonly UcNotification[]>,
@@ -103,6 +118,8 @@ export const UcAppLayout = defineComponent({
                   ? h(QBtn, {
                       icon: "menu",
                       "aria-label": "Toggle navigation",
+                      class: "uc-app-layout__navigation-toggle",
+                      ...props.navigationToggleProps,
                       onClick: () => emit("update:navigationOpen", !props.navigationOpen),
                     })
                   : undefined,
@@ -122,19 +139,14 @@ export const UcAppLayout = defineComponent({
                         renderTopbar(topbar.value),
                     )
                   : undefined,
-                slots["topbar-actions"]
-                  ? h(
-                      "div",
-                      { class: "uc-app-layout__topbar-actions" },
-                      slots["topbar-actions"]?.(),
-                    )
-                  : undefined,
                 hasNotifications.value
                   ? h(
                       QBtn,
                       {
                         icon: "notifications",
                         "aria-label": "Show notifications",
+                        class: "uc-app-layout__notifications-toggle",
+                        ...props.notificationsToggleProps,
                         onClick: () => emit("update:notificationsOpen", !props.notificationsOpen),
                       },
                       () =>
@@ -147,6 +159,13 @@ export const UcAppLayout = defineComponent({
                           : undefined,
                     )
                   : undefined,
+                slots["topbar-actions"]
+                  ? h(
+                      "div",
+                      { class: "uc-app-layout__topbar-actions" },
+                      slots["topbar-actions"]?.(),
+                    )
+                  : undefined,
               ]),
             )
           : undefined,
@@ -154,9 +173,10 @@ export const UcAppLayout = defineComponent({
           ? h(
               QDrawer,
               {
-                class: "uc-app-layout__drawer",
+                class: ["uc-app-layout__drawer", "uc-app-layout__navigation-drawer"],
                 modelValue: props.navigationOpen,
                 showIfAbove: true,
+                ...(props.navigationWidth === undefined ? {} : { width: props.navigationWidth }),
                 "onUpdate:modelValue": (value: boolean) => emit("update:navigationOpen", value),
               },
               () => [
@@ -188,6 +208,9 @@ export const UcAppLayout = defineComponent({
                 class: "uc-app-layout__notifications-drawer",
                 side: "right",
                 modelValue: props.notificationsOpen,
+                ...(props.notificationsWidth === undefined
+                  ? {}
+                  : { width: props.notificationsWidth }),
                 "onUpdate:modelValue": (value: boolean) => emit("update:notificationsOpen", value),
               },
               () => [

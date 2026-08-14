@@ -273,7 +273,9 @@ export const useUiCogs = () => useInjectedUiCogs<typeof api>();
 
 For a ready Quasar shell, use `UcAppLayout`. It renders named UiCogs side/top
 navigation, an optional notification drawer, and page content while leaving all
-styling and notification persistence to the application. See [Frameworks](docs/frameworks.md#quasar-application-layout).
+styling and notification persistence to the application. Its public drawer-width,
+header-control props, and `topbar-actions` slot support compact shells without
+targeting Quasar internals. See [Frameworks](docs/frameworks.md#quasar-application-layout).
 
 ## Installation
 

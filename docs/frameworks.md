@@ -229,6 +229,10 @@ UiCogs Vue binding and Vue Router. It resolves named navigation placements throu
 ```vue
 <UcAppLayout
   :brand="{ label: 'Example', to: { name: 'home' } }"
+  :navigation-width="216"
+  :notifications-width="320"
+  :navigation-toggle-props="{ flat: true, round: true, dense: true, icon: 'menu_open' }"
+  :notifications-toggle-props="{ flat: true, round: true, dense: true, icon: 'inbox' }"
   drawer-footer-placement="session"
   :navigation-badges="{
     notifications: { value: unreadCount, label: `${unreadCount} unread notifications` },
@@ -250,6 +254,16 @@ optional. `UcNavigationTree` can also render any `cogs.navigation(placement)` re
 directly. Its `navigation-badges` keys are route/navigation node ids, so a standard
 Notifications route can show an unread count in the side menu.
 
+`navigation-width` and `notifications-width` forward to the corresponding native
+`QDrawer` only when supplied, retaining Quasar's defaults otherwise. The two
+`*-toggle-props` fields intentionally expose only safe `QBtn` presentation properties:
+`flat`, `round`, `dense`, `size`, `color`, `icon`, and `aria-label`. UiCogs keeps the
+controlled drawer click behavior; consumers cannot accidentally replace it.
+
+Header content is ordered as navigation toggle, brand, `topbar-before`, generated
+topbar links, notification toggle, then `topbar-actions`. This makes
+`topbar-actions` the app-specific extension point after the built-in controls.
+
 `UcNotificationList` reads `useUiCogs().notifications` by default. Pass `items` or a
 `source` only for a controlled alternate inbox, tests, or Storybook. It emits open,
 action, mark-read, dismiss, and retry intent; resources or services still own backend
@@ -267,7 +281,8 @@ stylesheet.
 
 - Layout: `uc-app-layout`, `uc-app-layout__header`, `__toolbar`, `__brand`,
   `__topbar-links`, `__topbar-actions`, `__drawer`, `__navigation`,
-  `__drawer-footer`, `__notifications-drawer`, and `__page`.
+  `__drawer-footer`, `__navigation-drawer`, `__notifications-drawer`,
+  `__navigation-toggle`, `__notifications-toggle`, and `__page`.
 - Navigation: `uc-navigation-tree`, `__item`, `__item--active`, `__group`,
   `__group-label`, and `__badge`.
 - Notifications: `uc-notification-list`, `__item`, `__item--read`,

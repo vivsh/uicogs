@@ -1,6 +1,7 @@
 import { expectAssignable, expectError, expectType } from "tsd";
 import {
   type UcAppBrand,
+  type UcAppLayoutActionProps,
   type UcNavigationBadge,
   type UcNotification,
   type UcNotificationAction,
@@ -31,6 +32,16 @@ expectError(defineSkin({ field: { clearable: true } }));
 expectError(defineSkin({ field: { outlined: () => true } }));
 
 expectAssignable<UcAppBrand>({ label: "Example", to: { name: "home" } });
+expectAssignable<UcAppLayoutActionProps>({
+  flat: true,
+  round: true,
+  dense: true,
+  size: "sm",
+  color: "primary",
+  icon: "menu_open",
+  "aria-label": "Open navigation",
+});
+expectError<UcAppLayoutActionProps>({ onClick: () => undefined });
 expectAssignable<UcNavigationBadge>({ value: 3, label: "3 unread notifications" });
 expectAssignable<UcNotification>({
   id: "release",

@@ -185,6 +185,67 @@ describe("Quasar application shell", () => {
     expect(empty.find(".uc-app-layout__drawer").exists()).toBe(false);
     expect(empty.find(".uc-app-layout__notifications-drawer").exists()).toBe(false);
   });
+
+  it("forwards compact drawer and header-control props without changing defaults", () => {
+    navigation.value = {
+      sidebar: [{ kind: "route", id: "tasks", label: "Tasks", to: "/tasks", current: false }],
+    };
+    const compact = mount(UcAppLayout, {
+      props: {
+        navigationWidth: 216,
+        notificationsWidth: 320,
+        notifications: [],
+        navigationToggleProps: {
+          flat: true,
+          round: true,
+          dense: true,
+          size: "sm",
+          color: "primary",
+          icon: "menu_open",
+          "aria-label": "Open app navigation",
+        },
+        notificationsToggleProps: {
+          flat: true,
+          round: true,
+          dense: true,
+          icon: "inbox",
+          "aria-label": "Open inbox",
+        },
+      },
+      slots: { "topbar-actions": () => h("button", { id: "theme" }, "Theme") },
+      global: { stubs: quasarStubs },
+    });
+    const drawers = compact.findAll("[data-q-drawer]");
+    expect(drawers[0]?.attributes("width")).toBe("216");
+    expect(drawers[1]?.attributes("width")).toBe("320");
+    const controls = compact.findAll(
+      ".uc-app-layout__navigation-toggle, .uc-app-layout__notifications-toggle",
+    );
+    expect(controls[0]?.attributes()).toMatchObject({
+      flat: "true",
+      round: "true",
+      dense: "true",
+      size: "sm",
+      color: "primary",
+      icon: "menu_open",
+      "aria-label": "Open app navigation",
+    });
+    expect(controls[1]?.attributes()).toMatchObject({ icon: "inbox", "aria-label": "Open inbox" });
+    expect(compact.find("#theme").element.compareDocumentPosition(controls[1]!.element)).toBe(
+      Node.DOCUMENT_POSITION_PRECEDING,
+    );
+
+    const defaults = mount(UcAppLayout, {
+      props: { notifications: [] },
+      global: { stubs: quasarStubs },
+    });
+    expect(defaults.findAll("[data-q-drawer]").every((drawer) => !drawer.attributes("width"))).toBe(
+      true,
+    );
+    expect(defaults.find(".uc-app-layout__notifications-toggle").attributes("icon")).toBe(
+      "notifications",
+    );
+  });
 });
 
 const buttonStub = defineComponent({
@@ -206,7 +267,7 @@ const quasarStubs = {
   QLayout: simpleStub("QLayoutStub"),
   QHeader: simpleStub("QHeaderStub"),
   QToolbar: simpleStub("QToolbarStub"),
-  QDrawer: simpleStub("QDrawerStub"),
+  QDrawer: drawerStub(),
   QPageContainer: simpleStub("QPageContainerStub"),
   QList: simpleStub("QListStub"),
   QItem: itemStub,
@@ -229,6 +290,15 @@ function simpleStub(name: string) {
     name,
     setup(_props, { attrs, slots }) {
       return () => h("div", attrs, slots.default?.());
+    },
+  });
+}
+
+function drawerStub() {
+  return defineComponent({
+    name: "QDrawerStub",
+    setup(_props, { attrs, slots }) {
+      return () => h("div", { ...attrs, "data-q-drawer": true }, slots.default?.());
     },
   });
 }

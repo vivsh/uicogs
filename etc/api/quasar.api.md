@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `0b016fca97348d6c552709e3b70ff25a603f91ead307fbabc1e5f99f76c7b627`
+Declaration SHA-256: `b50bbe2b435b4154daa32468424f67253141c1a41bf9e2856918e2701f098539`
 
 ```ts
 // index.d.ts
@@ -122,6 +122,16 @@ type UcAppBrand = Readonly<{
     readonly label: string;
     readonly icon?: string;
 }> & UcAppBrandDestination;
+/** Safe presentation properties forwarded to one built-in UcAppLayout header button. */
+interface UcAppLayoutActionProps {
+    readonly flat?: boolean;
+    readonly round?: boolean;
+    readonly dense?: boolean;
+    readonly size?: string;
+    readonly color?: string;
+    readonly icon?: string;
+    readonly "aria-label"?: string;
+}
 /** A Quasar application shell composed from UiCogs navigation and its optional live inbox. */
 declare const UcAppLayout: vue.DefineComponent<vue.ExtractPropTypes<{
     brand: PropType<UcAppBrand>;
@@ -138,6 +148,10 @@ declare const UcAppLayout: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<UcNavigationBadges>;
         default: () => {};
     };
+    navigationWidth: NumberConstructor;
+    notificationsWidth: NumberConstructor;
+    navigationToggleProps: PropType<UcAppLayoutActionProps>;
+    notificationsToggleProps: PropType<UcAppLayoutActionProps>;
     navigationOpen: {
         type: BooleanConstructor;
         default: boolean;
@@ -169,6 +183,10 @@ declare const UcAppLayout: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<UcNavigationBadges>;
         default: () => {};
     };
+    navigationWidth: NumberConstructor;
+    notificationsWidth: NumberConstructor;
+    navigationToggleProps: PropType<UcAppLayoutActionProps>;
+    notificationsToggleProps: PropType<UcAppLayoutActionProps>;
     navigationOpen: {
         type: BooleanConstructor;
         default: boolean;
@@ -907,5 +925,5 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
 ```
