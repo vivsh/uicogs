@@ -254,6 +254,39 @@ Manual editor-kind selection is an override.
 
 File and image fields use the form's typed file values and progress state.
 
+### Quasar skin
+
+Use `defineSkin()` and `injectSkin(app, skin)` to set Quasar-native presentation
+defaults for one Vue application. Install the skin before mounting the app.
+
+```ts
+import { defineSkin, injectSkin } from "@uicogs/quasar";
+
+injectSkin(
+  app,
+  defineSkin({
+    palette: { primary: "#5b4bdb" },
+    form: { class: "app-form" },
+    field: { outlined: true, bgColor: "grey-2" },
+  }),
+);
+```
+
+Only recognised palette roles (`primary`, `secondary`, `accent`, `dark`, `positive`,
+`negative`, `info`, and `warning`) are accepted. They become scoped Quasar `--q-*`
+variables on that app root. UiCogs does not expose arbitrary CSS-variable names or
+create `--uc-*` variables.
+
+`UcForm` accepts a local `skin` prop for form and field overrides. Field skins allow
+common Quasar appearance props (`outlined`, `filled`, `standout`, `borderless`,
+`dense`, `color`, `bgColor`, and `labelColor`) plus `class` and `style`. A static
+object or one `{ name, field, form }` resolver is supported. Skin classes and styles
+merge with editor configuration; UiCogs-required model, choice, readonly, and error
+bindings take precedence.
+
+Stable CSS hooks are present without a skin: `uc-form`, `uc-field`,
+`uc-field-<editor-kind>`, and `uc-field-<schema-name>`.
+
 ## Quasar Table
 
 `UcTable` derives columns from the resource schema unless its optional immutable view
@@ -284,6 +317,14 @@ Selection is key-based. Bulk selection is independent of the loaded page.
 Infinite loading uses explicit collection accumulation.
 
 Columns and cells can be overridden without changing cached entities.
+
+### Table CSS hooks
+
+Generated Quasar tables always include `uc-table` and `uc-table-<resource-name>`.
+Generated rows include `uc-table-row`; generated column headers and cells include
+`uc-table-column-<column-name>`. Custom `UcTable` columns retain their Quasar
+`classes` and `headerClasses` alongside these hooks. A custom body or header slot owns
+its own markup, so it should apply the relevant stable classes explicitly.
 
 ## UcView
 

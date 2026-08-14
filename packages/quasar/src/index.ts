@@ -3,8 +3,12 @@ import {
   removedFile,
   type Descriptor,
   type ExternalStore,
+  type Field,
   type FileValue,
+  type FormCompatibleSchema,
+  type FormController,
   type FormProgress,
+  type FormSchema,
   type NormalizedFailure,
 } from "@uicogs/core";
 import { createRendererRegistry, vueReactive } from "@uicogs/vue";
@@ -47,9 +51,74 @@ import {
   ref,
   shallowRef,
   watch,
+  type App,
   type InjectionKey,
   type PropType,
 } from "vue";
+
+type UiClass = string | readonly string[];
+type UiStyle = string | Readonly<Record<string, string | number>>;
+
+/** The supported Quasar palette roles that UiCogs can scope to one Vue application. */
+export interface QuasarPalette {
+  readonly primary?: string;
+  readonly secondary?: string;
+  readonly accent?: string;
+  readonly dark?: string;
+  readonly positive?: string;
+  readonly negative?: string;
+  readonly info?: string;
+  readonly warning?: string;
+}
+
+/** Quasar-compatible classes and styles for a generated form root. */
+export interface FormSkin {
+  readonly class?: UiClass;
+  readonly style?: UiStyle;
+}
+
+/** The deliberately small set of common Quasar field appearance properties. */
+export interface FieldSkin {
+  readonly outlined?: boolean;
+  readonly filled?: boolean;
+  readonly standout?: boolean;
+  readonly borderless?: boolean;
+  readonly dense?: boolean;
+  readonly color?: string;
+  readonly bgColor?: string;
+  readonly labelColor?: string;
+  readonly class?: UiClass;
+  readonly style?: UiStyle;
+}
+
+/** Context passed once to a dynamic field skin resolver. */
+export interface FieldSkinContext {
+  readonly name: string;
+  readonly field: FieldSkinField;
+  readonly form: FieldSkinForm;
+}
+
+/** Immutable core field definition exposed to a field-skin resolver. */
+export type FieldSkinField = Field<unknown, unknown, unknown, unknown, boolean, boolean, boolean>;
+
+/** Core form controller projection exposed to a field-skin resolver. */
+export type FieldSkinForm = FormController<FormSchema<FormCompatibleSchema, unknown>>;
+
+/** Resolves a complete field appearance from its immutable schema field and form state. */
+export type FieldSkinResolver = (context: FieldSkinContext) => FieldSkin;
+
+/** Reusable application-level presentation defaults for UiCogs Quasar controls. */
+export interface UiCogsQuasarSkin {
+  readonly palette?: QuasarPalette;
+  readonly form?: FormSkin;
+  readonly field?: FieldSkin | FieldSkinResolver;
+}
+
+/** Per-form skin overrides. Palette installation is intentionally application-scoped. */
+export interface UiCogsQuasarFormSkin {
+  readonly form?: FormSkin;
+  readonly field?: FieldSkin | FieldSkinResolver;
+}
 
 interface FormLike extends ExternalStore<object> {
   readonly schema: {
@@ -118,6 +187,7 @@ interface ResourceObjectLike extends ExternalStore<object> {
 
 interface ResourceLike extends ExternalStore<object> {
   readonly definition: {
+    readonly name: string;
     readonly key: unknown;
     readonly schema: {
       readonly shape: Readonly<Record<string, unknown>>;
@@ -167,9 +237,63 @@ export interface UcResourceColumn {
   readonly align?: "left" | "right" | "center";
   readonly sortable?: boolean;
   readonly format?: (value: unknown, row: Readonly<Record<string, unknown>>) => string;
+  readonly classes?: UiClass;
+  readonly headerClasses?: UiClass;
 }
 
 const formKey: InjectionKey<FormLike> = Symbol("uicogs-form");
+const skinKey: InjectionKey<UiCogsQuasarSkin> = Symbol("uicogs-quasar-skin");
+const formSkinKey: InjectionKey<() => UiCogsQuasarFormSkin | undefined> =
+  Symbol("uicogs-quasar-form-skin");
+const paletteRoles: Readonly<Record<keyof QuasarPalette, string>> = Object.freeze({
+  primary: "--q-primary",
+  secondary: "--q-secondary",
+  accent: "--q-accent",
+  dark: "--q-dark",
+  positive: "--q-positive",
+  negative: "--q-negative",
+  info: "--q-info",
+  warning: "--q-warning",
+});
+
+/** Creates an immutable, typed Quasar skin definition. */
+export function defineSkin(skin: UiCogsQuasarSkin = {}): UiCogsQuasarSkin {
+  return Object.freeze({
+    ...(skin.palette ? { palette: Object.freeze({ ...skin.palette }) } : {}),
+    ...(skin.form ? { form: freezeFormSkin(skin.form) } : {}),
+    ...(skin.field
+      ? { field: typeof skin.field === "function" ? skin.field : freezeFieldSkin(skin.field) }
+      : {}),
+  });
+}
+
+/**
+ * Provides one skin to a Vue application and scopes palette variables to its root element.
+ * Call before mounting the application. The returned disposer restores the prior palette values.
+ */
+export function injectSkin(app: App, skin: UiCogsQuasarSkin): () => void {
+  const definition = defineSkin(skin);
+  app.provide(skinKey, definition);
+  let restore: () => void = () => undefined;
+  let active = true;
+  app.mixin({
+    mounted() {
+      if (!active || this.$root !== this || !definition.palette) return;
+      restore();
+      restore = applyPalette(this.$el, definition.palette);
+    },
+    unmounted() {
+      if (this.$root !== this) return;
+      restore();
+      restore = () => undefined;
+    },
+  });
+  return () => {
+    active = false;
+    restore();
+    restore = () => undefined;
+  };
+}
 
 export const quasarRenderers = createRendererRegistry<unknown, unknown>();
 quasarRenderers
@@ -214,6 +338,7 @@ export const UcForm = defineComponent({
   props: {
     form: { type: Object as PropType<FormLike>, required: true },
     view: Object as PropType<ViewLike>,
+    skin: Object as PropType<UiCogsQuasarFormSkin>,
     failureMessage: {
       type: String,
       default: "Form validation failed. Please check the error messages.",
@@ -222,7 +347,9 @@ export const UcForm = defineComponent({
   emits: ["success", "failure"],
   setup(props, { slots, emit }) {
     const form = vueReactive(props.form);
+    const applicationSkin = inject(skinKey, undefined);
     provide(formKey, form);
+    provide(formSkinKey, () => props.skin);
     return () => {
       const summary = [...form.unboundIssues, ...form.issues.filter((issue) => !issue.path.length)];
       const children = slots.default?.() ?? [
@@ -232,6 +359,8 @@ export const UcForm = defineComponent({
       return h(
         QForm,
         {
+          class: mergeClasses("uc-form", applicationSkin?.form?.class, props.skin?.form?.class),
+          style: mergeStyles(applicationSkin?.form?.style, props.skin?.form?.style),
           onSubmit: async () => {
             const result = await form.submit();
             if (isSuccess(result)) emit("success", result.value);
@@ -281,12 +410,29 @@ export const UcField = defineComponent({
   setup(props) {
     const form = inject(formKey);
     if (!form) throw new Error("UcField must be rendered inside UcForm");
+    const applicationSkin = inject(skinKey, undefined);
+    const currentFormSkin = inject(formSkinKey, undefined);
     return () => {
       const field = form.schema.fields.shape[props.name];
       if (!field) throw new Error(`Field ${props.name} is not present in the form schema`);
       const descriptor = props.kind ? ({ kind: props.kind } as Descriptor) : field.options?.editor;
       const kind = descriptor?.kind ?? "text";
       const descriptorOptions = optionsFor(descriptor);
+      const applicationAppearance = resolveFieldSkin(applicationSkin?.field, {
+        name: props.name,
+        field: field as FieldSkinField,
+        form: form as unknown as FieldSkinForm,
+      });
+      const formAppearance = resolveFieldSkin(currentFormSkin?.()?.field, {
+        name: props.name,
+        field: field as FieldSkinField,
+        form: form as unknown as FieldSkinForm,
+      });
+      const appearance = mergeFieldAppearance(
+        applicationAppearance,
+        formAppearance,
+        descriptorOptions,
+      );
       const component = quasarRenderers.editor(descriptor) ?? QInput;
       const issues = form.issues.filter((issue) => issue.path[0] === props.name);
       const value = form.values[props.name];
@@ -305,6 +451,7 @@ export const UcField = defineComponent({
                 ? "textarea"
                 : undefined;
       const control = h(component as never, {
+        ...appearance,
         modelValue,
         "onUpdate:modelValue": (next: unknown) =>
           form.set(props.name, fileKind ? toFileValue(next, Boolean(multiple)) : next),
@@ -328,6 +475,13 @@ export const UcField = defineComponent({
             : {}),
         error: issues.length > 0,
         ...(issues[0] ? { errorMessage: issues[0].message } : {}),
+        class: mergeClasses(
+          classValue(appearance.class),
+          "uc-field",
+          `uc-field-${cssPart(kind)}`,
+          `uc-field-${cssPart(props.name)}`,
+        ),
+        style: styleValue(appearance.style),
       });
       if (!fileKind) return control;
       const remote = fileValues(value).filter((item) => item.kind === "remote");
@@ -535,10 +689,24 @@ export const UcTable = defineComponent({
       return rows.value.filter((row) => selected.has(keyFor(definition, row)));
     });
     const columns = computed(() => {
-      const sourceColumns = props.columns ?? columnsFor(definition);
+      const sourceColumns = (props.columns ?? columnsFor(definition)).map((column) => ({
+        ...column,
+        classes: mergeClasses(column.classes, `uc-table-column-${cssPart(column.name)}`),
+        headerClasses: mergeClasses(
+          column.headerClasses,
+          `uc-table-column-${cssPart(column.name)}`,
+        ),
+      }));
       return props.serial
         ? [
-            { name: "$serial", label: "#", field: "$serial", align: "right" as const },
+            {
+              name: "$serial",
+              label: "#",
+              field: "$serial",
+              align: "right" as const,
+              classes: "uc-table-column-serial",
+              headerClasses: "uc-table-column-serial",
+            },
             ...sourceColumns,
           ]
         : sourceColumns;
@@ -593,6 +761,7 @@ export const UcTable = defineComponent({
               readonly name: string;
               readonly value: unknown;
               readonly align?: string;
+              readonly classes?: UiClass;
             }[];
             selected: boolean;
           };
@@ -600,7 +769,7 @@ export const UcTable = defineComponent({
             QTr,
             {
               props: rowProps,
-              class: props.rowClass?.(item.row),
+              class: mergeClasses("uc-table-row", props.rowClass?.(item.row)),
               onClick: () => emit("select", item.row),
             },
             () => [
@@ -615,10 +784,17 @@ export const UcTable = defineComponent({
                   )
                 : undefined,
               ...item.cols.map((column) =>
-                h(QTd, { props: rowProps, key: column.name }, () =>
-                  column.name === "$serial"
-                    ? rows.value.indexOf(item.row) + 1
-                    : renderField(definition, column.name, column.value, item.row),
+                h(
+                  QTd,
+                  {
+                    props: rowProps,
+                    key: column.name,
+                    class: mergeClasses(column.classes, `uc-table-column-${cssPart(column.name)}`),
+                  },
+                  () =>
+                    column.name === "$serial"
+                      ? rows.value.indexOf(item.row) + 1
+                      : renderField(definition, column.name, column.value, item.row),
                 ),
               ),
             ],
@@ -639,6 +815,11 @@ export const UcTable = defineComponent({
         QTable,
         {
           ...attrs,
+          class: mergeClasses(
+            classValue(attrs.class),
+            "uc-table",
+            `uc-table-${cssPart(definition.name)}`,
+          ),
           rows: rows.value,
           columns: columns.value,
           rowKey: (row: Readonly<Record<string, unknown>>) => keyFor(definition, row),
@@ -921,6 +1102,136 @@ export function UcAlertFailure(message: string, options: QNotifyCreateOptions = 
   Notify.create({ type: "negative", closeBtn: true, ...options, message });
 }
 
+function freezeFormSkin(skin: FormSkin): FormSkin {
+  return Object.freeze({
+    ...(skin.class === undefined ? {} : { class: freezeClass(skin.class) }),
+    ...(skin.style === undefined ? {} : { style: freezeStyle(skin.style) }),
+  });
+}
+
+function freezeFieldSkin(skin: FieldSkin): FieldSkin {
+  return Object.freeze({
+    ...(skin.outlined === undefined ? {} : { outlined: skin.outlined }),
+    ...(skin.filled === undefined ? {} : { filled: skin.filled }),
+    ...(skin.standout === undefined ? {} : { standout: skin.standout }),
+    ...(skin.borderless === undefined ? {} : { borderless: skin.borderless }),
+    ...(skin.dense === undefined ? {} : { dense: skin.dense }),
+    ...(skin.color === undefined ? {} : { color: skin.color }),
+    ...(skin.bgColor === undefined ? {} : { bgColor: skin.bgColor }),
+    ...(skin.labelColor === undefined ? {} : { labelColor: skin.labelColor }),
+    ...(skin.class === undefined ? {} : { class: freezeClass(skin.class) }),
+    ...(skin.style === undefined ? {} : { style: freezeStyle(skin.style) }),
+  });
+}
+
+function freezeClass(value: UiClass): UiClass {
+  return Array.isArray(value) ? Object.freeze([...value]) : value;
+}
+
+function freezeStyle(value: UiStyle): UiStyle {
+  return typeof value === "string" ? value : Object.freeze({ ...value });
+}
+
+function resolveFieldSkin(
+  skin: FieldSkin | FieldSkinResolver | undefined,
+  context: FieldSkinContext,
+): FieldSkin | undefined {
+  return typeof skin === "function" ? skin(context) : skin;
+}
+
+function mergeFieldAppearance(
+  application: FieldSkin | undefined,
+  form: FieldSkin | undefined,
+  descriptor: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const output = { ...application, ...form, ...descriptor };
+  return Object.freeze({
+    ...output,
+    class: mergeClasses(application?.class, form?.class, classValue(descriptor.class)),
+    style: mergeStyles(application?.style, form?.style, styleValue(descriptor.style)),
+  });
+}
+
+function mergeClasses(...values: readonly (UiClass | undefined)[]): string | undefined {
+  const classes = values.flatMap((value) => {
+    if (value === undefined) return [];
+    return typeof value === "string" ? value.split(/\s+/) : value;
+  });
+  const unique = [...new Set(classes.filter(Boolean))];
+  return unique.length ? unique.join(" ") : undefined;
+}
+
+function mergeStyles(...values: readonly (UiStyle | undefined)[]): UiStyle | undefined {
+  const defined = values.filter((value): value is UiStyle => value !== undefined);
+  if (!defined.length) return undefined;
+  if (defined.some((value) => typeof value === "string")) return defined.join(";");
+  return Object.freeze(Object.assign({}, ...defined));
+}
+
+function classValue(value: unknown): UiClass | undefined {
+  const classes = classNames(value);
+  return classes.length ? classes : undefined;
+}
+
+function classNames(value: unknown): readonly string[] {
+  if (typeof value === "string") return value.split(/\s+/).filter(Boolean);
+  if (Array.isArray(value)) return value.flatMap(classNames);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.entries(value)
+    .filter(([, enabled]) => Boolean(enabled))
+    .map(([name]) => name);
+}
+
+function styleValue(value: unknown): UiStyle | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return Object.entries(value).every(
+    ([, item]) => typeof item === "string" || typeof item === "number",
+  )
+    ? (value as Readonly<Record<string, string | number>>)
+    : undefined;
+}
+
+function applyPalette(root: unknown, palette: QuasarPalette): () => void {
+  const host = paletteHost(root);
+  if (!host) return () => undefined;
+  const previous = Object.entries(paletteRoles).flatMap(([role, variable]) => {
+    const value = palette[role as keyof QuasarPalette];
+    if (value === undefined) return [];
+    const style = host.style;
+    const current = style.getPropertyValue(variable);
+    const priority = style.getPropertyPriority(variable);
+    style.setProperty(variable, value);
+    return [[variable, current, priority] as const];
+  });
+  return () => {
+    for (const [variable, value, priority] of previous) {
+      if (value) host.style.setProperty(variable, value, priority);
+      else host.style.removeProperty(variable);
+    }
+  };
+}
+
+function paletteHost(root: unknown): { readonly style: CSSStyleDeclaration } | undefined {
+  if (isStyleHost(root)) return root;
+  if (typeof root !== "object" || root === null || !("parentElement" in root)) return undefined;
+  return isStyleHost(root.parentElement) ? root.parentElement : undefined;
+}
+
+function isStyleHost(value: unknown): value is { readonly style: CSSStyleDeclaration } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "style" in value &&
+    typeof (value as { readonly style?: unknown }).style === "object"
+  );
+}
+
+function cssPart(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  return normalized || "value";
+}
+
 export const UcCancel = defineComponent({
   name: "UcCancel",
   inheritAttrs: false,
@@ -1186,6 +1497,8 @@ function columnsFor(definition: ResourceLike["definition"]): readonly UcResource
         field: name,
         align: "left" as const,
         sortable: Boolean(options?.sort),
+        classes: `uc-table-column-${cssPart(name)}`,
+        headerClasses: `uc-table-column-${cssPart(name)}`,
       }),
     ];
   });

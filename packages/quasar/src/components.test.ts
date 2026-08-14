@@ -780,6 +780,14 @@ const controlStub = defineComponent({
     multiple: Boolean,
     readonly: Boolean,
     accept: String,
+    outlined: Boolean,
+    filled: Boolean,
+    standout: Boolean,
+    borderless: Boolean,
+    dense: Boolean,
+    color: String,
+    bgColor: String,
+    labelColor: String,
   },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
@@ -833,11 +841,12 @@ const buttonStub = defineComponent({
 const formStub = defineComponent({
   name: "QFormStub",
   emits: ["submit"],
-  setup(_props, { emit, slots }) {
+  setup(_props, { attrs, emit, slots }) {
     return () =>
       h(
         "form",
         {
+          ...attrs,
           onSubmit: (event: Event) => {
             event.preventDefault();
             emit("submit");
@@ -860,9 +869,9 @@ const tableStub = defineComponent({
     rowsPerPageOptions: Array,
   },
   emits: ["request", "update:selected", "scroll"],
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () =>
-      h("div", { "data-q-table": true }, [
+      h("div", { ...attrs, "data-q-table": true }, [
         ...(props.rows ?? []).map((row, index) =>
           slots.body
             ? slots.body({
@@ -871,6 +880,7 @@ const tableStub = defineComponent({
                   const value = column as {
                     name: string;
                     field: string | ((item: unknown) => unknown);
+                    classes?: string;
                   };
                   return {
                     name: value.name,
@@ -878,6 +888,7 @@ const tableStub = defineComponent({
                       typeof value.field === "function"
                         ? value.field(row)
                         : (row as Readonly<Record<string, unknown>>)[value.field],
+                    classes: value.classes,
                   };
                 }),
                 selected: false,
@@ -887,6 +898,16 @@ const tableStub = defineComponent({
                 { type: "button", key: index },
                 `row-${String((row as { id?: unknown }).id)}`,
               ),
+        ),
+        h(
+          "table",
+          h(
+            "thead",
+            (props.columns ?? []).map((column) => {
+              const value = column as { name: string; headerClasses?: string };
+              return h("th", { class: value.headerClasses }, value.name);
+            }),
+          ),
         ),
         slots["bottom-row"]?.(),
       ]);
@@ -961,16 +982,16 @@ const quasarStubs = {
   QTr: defineComponent({
     name: "QTrStub",
     setup:
-      (_props, { slots }) =>
+      (_props, { attrs, slots }) =>
       () =>
-        h("tr", slots.default?.()),
+        h("tr", attrs, slots.default?.()),
   }),
   QTd: defineComponent({
     name: "QTdStub",
     setup:
-      (_props, { slots }) =>
+      (_props, { attrs, slots }) =>
       () =>
-        h("td", slots.default?.()),
+        h("td", attrs, slots.default?.()),
   }),
 };
 
@@ -1001,7 +1022,7 @@ function externalResource(options: {
   const sort = vi.fn();
   const nextPage = vi.fn();
   const resource = {
-    definition: { key: "id", schema: { shape: {} } },
+    definition: { name: "tasks", key: "id", schema: { shape: {} } },
     loading: options.loading ?? false,
     error: options.error,
     pageInfo: undefined,

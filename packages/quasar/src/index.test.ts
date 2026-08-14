@@ -4,7 +4,7 @@ import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, nextTick } from "vue";
+import { defineComponent, h, nextTick, type App } from "vue";
 import { Dialog, Notify } from "quasar";
 import {
   RequestError,
@@ -33,7 +33,11 @@ import {
   UcSubmit,
   UcTable,
   UcView,
+  defineSkin,
+  injectSkin,
   quasarRenderers,
+  type FieldSkin,
+  type UiCogsQuasarSkin,
 } from "./index.js";
 
 let notifyCreate = vi.fn();
@@ -294,9 +298,173 @@ describe("Quasar forms and fields", () => {
       }),
     ).toThrow("not present in the form schema");
   });
+
+  it("adds stable form and field classes without a skin", () => {
+    const schema = defineSchema({ internal_note: fields.Str() });
+    const form = createFormController(schema.toForm(), { internal_note: "Private" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.find("form").classes()).toContain("uc-form");
+    expect(wrapper.find("input").classes()).toEqual(
+      expect.arrayContaining(["uc-field", "uc-field-text", "uc-field-internal_note"]),
+    );
+  });
+
+  it("merges application, form, and schema field appearances in order", () => {
+    const schema = defineSchema({
+      title: fields.Str({
+        editor: {
+          kind: "text",
+          options: { outlined: false, bgColor: "blue-1", class: "schema-title" },
+        },
+      }),
+    });
+    const form = createFormController(schema.toForm(), { title: "Task" });
+    const wrapper = mount(UcForm, {
+      props: {
+        form,
+        skin: { form: { class: "compact-form" }, field: { dense: true, bgColor: "grey-1" } },
+      },
+      global: {
+        plugins: [
+          skinPlugin({
+            form: { class: "application-form" },
+            field: { outlined: true, bgColor: "grey-2", class: "application-field" },
+          }),
+        ],
+        stubs: quasarStubs,
+      },
+    });
+    const control = wrapper.findComponent(controlStub);
+
+    expect(wrapper.find("form").classes()).toEqual(
+      expect.arrayContaining(["uc-form", "application-form", "compact-form"]),
+    );
+    expect(control.props("outlined")).toBe(false);
+    expect(control.props("dense")).toBe(true);
+    expect(control.props("bgColor")).toBe("blue-1");
+    expect(control.find("input").classes()).toEqual(
+      expect.arrayContaining(["application-field", "schema-title", "uc-field-title"]),
+    );
+  });
+
+  it("keeps UiCogs model, validation, and readonly bindings ahead of skins", () => {
+    const schema = defineSchema({ title: fields.Str({ readonly: true }) });
+    const form = createFormController(schema.toForm(), { title: "Authoritative" });
+    form.applyFailure({
+      kind: "validation",
+      issues: [serverIssue(["title"], "Title is invalid")],
+      retryable: false,
+    });
+    const conflicting = {
+      modelValue: "Incorrect",
+      error: false,
+      readonly: false,
+    } as unknown as FieldSkin;
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { plugins: [skinPlugin({ field: conflicting })], stubs: quasarStubs },
+    });
+    const control = wrapper.findComponent(controlStub);
+
+    expect(control.props("modelValue")).toBe("Authoritative");
+    expect(control.props("error")).toBe(true);
+    expect(control.props("readonly")).toBe(true);
+  });
+
+  it("reacts to callback field skins in automatic and custom form layouts", async () => {
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "Initial" });
+    const skin = defineSkin({
+      field: ({ name, field, form: currentForm }) => ({
+        bgColor: currentForm.field(name).dirty ? "amber-1" : "grey-2",
+        class: field.options?.label ? "labeled" : "plain",
+      }),
+    });
+    const automatic = mount(UcForm, {
+      props: { form },
+      global: { plugins: [skinPlugin(skin)], stubs: quasarStubs },
+    });
+    const custom = mount(UcForm, {
+      props: { form },
+      slots: { default: () => h(UcField, { name: "title" }) },
+      global: { plugins: [skinPlugin(skin)], stubs: quasarStubs },
+    });
+
+    expect(automatic.findComponent(controlStub).props("bgColor")).toBe("grey-2");
+    expect(custom.findComponent(controlStub).find("input").classes()).toContain("uc-field-title");
+    await automatic.find("input").setValue("Changed");
+    expect(automatic.findComponent(controlStub).props("bgColor")).toBe("amber-1");
+  });
+
+  it("scopes recognised palette roles to the application root and restores them on disposal", () => {
+    let dispose: () => void = () => undefined;
+    const plugin = {
+      install(app: App) {
+        dispose = injectSkin(
+          app,
+          defineSkin({ palette: { primary: "#5b4bdb", negative: "#c62828" } }),
+        );
+      },
+    };
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "Task" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { plugins: [plugin], stubs: quasarStubs },
+    });
+    const root = wrapper.find("form").element as HTMLElement;
+
+    expect(root.style.getPropertyValue("--q-primary")).toBe("#5b4bdb");
+    expect(root.style.getPropertyValue("--q-negative")).toBe("#c62828");
+    expect(root.style.getPropertyValue("--uc-primary")).toBe("");
+    dispose();
+    expect(root.style.getPropertyValue("--q-primary")).toBe("");
+  });
 });
 
 describe("Quasar views and tables", () => {
+  it("adds stable table hooks and preserves custom column classes", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const wrapper = mount(UcTable, {
+      props: {
+        resource,
+        class: { "caller-table": true },
+        rowClass: () => "application-row",
+        columns: [
+          {
+            name: "title",
+            label: "Title",
+            field: "title",
+            classes: "application-cell",
+            headerClasses: "application-header",
+          },
+        ],
+      },
+      global: { stubs: quasarStubs },
+    });
+    const table = wrapper.findComponent({ name: "QTableStub" });
+    const column = (
+      table.props("columns") as readonly { classes?: string; headerClasses?: string }[]
+    )[0];
+
+    expect(table.classes()).toEqual(
+      expect.arrayContaining(["caller-table", "uc-table", "uc-table-tasks"]),
+    );
+    expect(column?.classes).toContain("application-cell");
+    expect(column?.classes).toContain("uc-table-column-title");
+    expect(column?.headerClasses).toContain("application-header");
+    expect(column?.headerClasses).toContain("uc-table-column-title");
+    expect(wrapper.find(".uc-table-row").classes()).toContain("application-row");
+    expect(wrapper.find("th").classes()).toContain("uc-table-column-title");
+    expect(wrapper.find("td").classes()).toEqual(
+      expect.arrayContaining(["application-cell", "uc-table-column-title"]),
+    );
+  });
+
   it("renders split, stack, and dialog views and closes with Escape", async () => {
     const wrapper = mount(UcView, {
       props: { title: "Tasks", aside: true, mode: "split", loading: true },
@@ -1033,6 +1201,14 @@ const controlStub = defineComponent({
     multiple: Boolean,
     readonly: Boolean,
     accept: String,
+    outlined: Boolean,
+    filled: Boolean,
+    standout: Boolean,
+    borderless: Boolean,
+    dense: Boolean,
+    color: String,
+    bgColor: String,
+    labelColor: String,
   },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
@@ -1086,11 +1262,12 @@ const buttonStub = defineComponent({
 const formStub = defineComponent({
   name: "QFormStub",
   emits: ["submit"],
-  setup(_props, { emit, slots }) {
+  setup(_props, { attrs, emit, slots }) {
     return () =>
       h(
         "form",
         {
+          ...attrs,
           onSubmit: (event: Event) => {
             event.preventDefault();
             emit("submit");
@@ -1113,9 +1290,9 @@ const tableStub = defineComponent({
     rowsPerPageOptions: Array,
   },
   emits: ["request", "update:selected", "scroll"],
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () =>
-      h("div", { "data-q-table": true }, [
+      h("div", { ...attrs, "data-q-table": true }, [
         ...(props.rows ?? []).map((row, index) =>
           slots.body
             ? slots.body({
@@ -1124,6 +1301,7 @@ const tableStub = defineComponent({
                   const value = column as {
                     name: string;
                     field: string | ((item: unknown) => unknown);
+                    classes?: string;
                   };
                   return {
                     name: value.name,
@@ -1131,6 +1309,7 @@ const tableStub = defineComponent({
                       typeof value.field === "function"
                         ? value.field(row)
                         : (row as Readonly<Record<string, unknown>>)[value.field],
+                    classes: value.classes,
                   };
                 }),
                 selected: false,
@@ -1140,6 +1319,16 @@ const tableStub = defineComponent({
                 { type: "button", key: index },
                 `row-${String((row as { id?: unknown }).id)}`,
               ),
+        ),
+        h(
+          "table",
+          h(
+            "thead",
+            (props.columns ?? []).map((column) => {
+              const value = column as { name: string; headerClasses?: string };
+              return h("th", { class: value.headerClasses }, value.name);
+            }),
+          ),
         ),
         slots["bottom-row"]?.(),
       ]);
@@ -1214,18 +1403,26 @@ const quasarStubs = {
   QTr: defineComponent({
     name: "QTrStub",
     setup:
-      (_props, { slots }) =>
+      (_props, { attrs, slots }) =>
       () =>
-        h("tr", slots.default?.()),
+        h("tr", attrs, slots.default?.()),
   }),
   QTd: defineComponent({
     name: "QTdStub",
     setup:
-      (_props, { slots }) =>
+      (_props, { attrs, slots }) =>
       () =>
-        h("td", slots.default?.()),
+        h("td", attrs, slots.default?.()),
   }),
 };
+
+function skinPlugin(skin: UiCogsQuasarSkin) {
+  return {
+    install(app: App) {
+      injectSkin(app, skin);
+    },
+  };
+}
 
 function externalCollection() {
   const store = new Store({ revision: 0 });
@@ -1255,7 +1452,7 @@ function externalResource(options: {
   const sort = vi.fn();
   const nextPage = vi.fn();
   const resource = {
-    definition: { key: "id", schema: { shape: options.schemaShape ?? {} } },
+    definition: { name: "tasks", key: "id", schema: { shape: options.schemaShape ?? {} } },
     loading: options.loading ?? false,
     error: options.error,
     pageInfo: undefined,

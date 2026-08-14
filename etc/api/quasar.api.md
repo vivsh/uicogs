@@ -1,15 +1,69 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `de6f087c2922d4579f709cb72b3218dd8aac50d61daeef3ac02e524042b800c8`
+Declaration SHA-256: `212c0cbf36f4e6ec7c1ae971d101b6714e40c4e2a5e49706eebfc221d61a2142`
 
 ```ts
 // index.d.ts
 import * as vue from 'vue';
-import { PropType } from 'vue';
+import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
-import { ExternalStore, FormProgress, Descriptor } from '@uicogs/core';
+import { Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor } from '@uicogs/core';
 import { QDialogOptions, QNotifyCreateOptions } from 'quasar';
 
+type UiClass = string | readonly string[];
+type UiStyle = string | Readonly<Record<string, string | number>>;
+/** The supported Quasar palette roles that UiCogs can scope to one Vue application. */
+interface QuasarPalette {
+    readonly primary?: string;
+    readonly secondary?: string;
+    readonly accent?: string;
+    readonly dark?: string;
+    readonly positive?: string;
+    readonly negative?: string;
+    readonly info?: string;
+    readonly warning?: string;
+}
+/** Quasar-compatible classes and styles for a generated form root. */
+interface FormSkin {
+    readonly class?: UiClass;
+    readonly style?: UiStyle;
+}
+/** The deliberately small set of common Quasar field appearance properties. */
+interface FieldSkin {
+    readonly outlined?: boolean;
+    readonly filled?: boolean;
+    readonly standout?: boolean;
+    readonly borderless?: boolean;
+    readonly dense?: boolean;
+    readonly color?: string;
+    readonly bgColor?: string;
+    readonly labelColor?: string;
+    readonly class?: UiClass;
+    readonly style?: UiStyle;
+}
+/** Context passed once to a dynamic field skin resolver. */
+interface FieldSkinContext {
+    readonly name: string;
+    readonly field: FieldSkinField;
+    readonly form: FieldSkinForm;
+}
+/** Immutable core field definition exposed to a field-skin resolver. */
+type FieldSkinField = Field<unknown, unknown, unknown, unknown, boolean, boolean, boolean>;
+/** Core form controller projection exposed to a field-skin resolver. */
+type FieldSkinForm = FormController<FormSchema<FormCompatibleSchema, unknown>>;
+/** Resolves a complete field appearance from its immutable schema field and form state. */
+type FieldSkinResolver = (context: FieldSkinContext) => FieldSkin;
+/** Reusable application-level presentation defaults for UiCogs Quasar controls. */
+interface UiCogsQuasarSkin {
+    readonly palette?: QuasarPalette;
+    readonly form?: FormSkin;
+    readonly field?: FieldSkin | FieldSkinResolver;
+}
+/** Per-form skin overrides. Palette installation is intentionally application-scoped. */
+interface UiCogsQuasarFormSkin {
+    readonly form?: FormSkin;
+    readonly field?: FieldSkin | FieldSkinResolver;
+}
 interface FormLike extends ExternalStore<object> {
     readonly schema: {
         readonly fields: {
@@ -78,6 +132,7 @@ interface ResourceObjectLike extends ExternalStore<object> {
 }
 interface ResourceLike extends ExternalStore<object> {
     readonly definition: {
+        readonly name: string;
         readonly key: unknown;
         readonly schema: {
             readonly shape: Readonly<Record<string, unknown>>;
@@ -126,7 +181,16 @@ interface UcResourceColumn {
     readonly align?: "left" | "right" | "center";
     readonly sortable?: boolean;
     readonly format?: (value: unknown, row: Readonly<Record<string, unknown>>) => string;
+    readonly classes?: UiClass;
+    readonly headerClasses?: UiClass;
 }
+/** Creates an immutable, typed Quasar skin definition. */
+declare function defineSkin(skin?: UiCogsQuasarSkin): UiCogsQuasarSkin;
+/**
+ * Provides one skin to a Vue application and scopes palette variables to its root element.
+ * Call before mounting the application. The returned disposer restores the prior palette values.
+ */
+declare function injectSkin(app: App, skin: UiCogsQuasarSkin): () => void;
 declare const quasarRenderers: _uicogs_vue.RendererRegistry<unknown, unknown>;
 declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     form: {
@@ -134,6 +198,7 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
         required: true;
     };
     view: PropType<ViewLike>;
+    skin: PropType<UiCogsQuasarFormSkin>;
     failureMessage: {
         type: StringConstructor;
         default: string;
@@ -146,6 +211,7 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
         required: true;
     };
     view: PropType<ViewLike>;
+    skin: PropType<UiCogsQuasarFormSkin>;
     failureMessage: {
         type: StringConstructor;
         default: string;
@@ -258,7 +324,7 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     "onUpdate:aside"?: ((...args: any[]) => any) | undefined;
     "onAside-hidden"?: ((...args: any[]) => any) | undefined;
 }>, {
-    mode: "split" | "dialog" | "auto" | "stack";
+    mode: "auto" | "split" | "dialog" | "stack";
     aside: boolean;
     loading: boolean;
     asideWidth: string;
@@ -391,7 +457,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     editForm: ObjectConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "create")[], "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "create", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     resource: {
         type: PropType<ResourceLike>;
         required: true;
@@ -436,15 +502,15 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     "onUpdate:modelValue"?: ((...args: any[]) => any) | undefined;
     "onUpdate:selectedKeys"?: ((...args: any[]) => any) | undefined;
     onLoaded?: ((...args: any[]) => any) | undefined;
-    onView?: ((...args: any[]) => any) | undefined;
     onCreate?: ((...args: any[]) => any) | undefined;
+    onView?: ((...args: any[]) => any) | undefined;
 }>, {
-    mode: "split" | "dialog" | "auto" | "stack";
+    create: boolean;
+    mode: "auto" | "split" | "dialog" | "stack";
     asideWidth: string;
     selectedKeys: readonly EntityKey[];
     selection: "multiple" | "none" | "single";
     autoLoad: boolean;
-    create: boolean;
     emptyLabel: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcFormAction: vue.DefineComponent<vue.ExtractPropTypes<{
@@ -637,5 +703,5 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { UcAction, UcAlert, UcAlertFailure, UcAlertSuccess, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertSuccess, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
 ```

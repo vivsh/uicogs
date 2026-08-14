@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser": "pnpm build && playwright test",
-    "test:types": "tsd --typings packages/core/src/index.ts --files tests/types/index.test-d.ts && tsd --typings packages/vue/src/index.ts --files tests/types/vue.test-d.ts && tsd --typings packages/echarts/src/index.ts --files tests/types/echarts.test-d.ts",
+    "test:types": "tsd --typings packages/core/src/index.ts --files tests/types/index.test-d.ts && tsd --typings packages/vue/src/index.ts --files tests/types/vue.test-d.ts && tsd --typings packages/echarts/src/index.ts --files tests/types/echarts.test-d.ts && tsd --typings packages/quasar/src/index.ts --files tests/types/quasar.test-d.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

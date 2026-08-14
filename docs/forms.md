@@ -330,3 +330,39 @@ enabled fields from validation.
 `UcSubmit` submits the controller.
 
 The components do not own validation rules. Every enabled form field participates even when no component is mounted.
+
+### Quasar skin and CSS hooks
+
+`@uicogs/quasar` can apply one typed, application-scoped skin. Install it before the
+Vue app mounts. Palette roles map only to Quasar's existing `--q-*` variables at that
+application's root; UiCogs does not create a second token system.
+
+```ts
+import { defineSkin, injectSkin } from "@uicogs/quasar";
+
+injectSkin(
+  app,
+  defineSkin({
+    palette: { primary: "#5b4bdb", negative: "#c62828" },
+    form: { class: "app-form" },
+    field: { outlined: true, bgColor: "grey-2", class: "app-form__field" },
+  }),
+);
+```
+
+Use `skin` on a form for local form and field overrides. A field skin may instead be
+one callback receiving `{ name, field, form }`, which is useful for state such as
+`form.field(name).dirty`. Field appearance merges application skin, form skin,
+editor configuration, then UiCogs-required bindings. Model values, validation errors,
+choices, and readonly behavior therefore cannot be replaced by a skin.
+
+```vue
+<UcForm :form="form" :skin="{ field: { dense: true, bgColor: 'grey-1' } }">
+  <UcField name="title" />
+</UcForm>
+```
+
+The following stable classes are always emitted: `uc-form`; `uc-field`,
+`uc-field-<editor-kind>`, and `uc-field-<schema-name>`. For example,
+`uc-field-password` and `uc-field-internal_note` are safe CSS hooks for app styling.
+They merge with skin and editor classes.
