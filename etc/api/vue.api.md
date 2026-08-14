@@ -1,12 +1,12 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `1c6c21f6037d16b2bd09c1540d66a76770ff4a49ea25a761bebf0b1283bab823`
+Declaration SHA-256: `b58d255418003f60d9f20448654f0a007506add456d2f8121f12cbd6798af79d`
 
 ```ts
 // index.d.ts
 import * as _vue_reactivity from '@vue/reactivity';
 import * as _uicogs_core from '@uicogs/core';
-import { EntityKey, Shape, Infer, Schema, ValidationIssue, FormController, FormSchema, Descriptor, ExternalStore, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
+import { EntityKey, Shape, Infer, Schema, ValidationIssue, FormController, FormSchema, Descriptor, ExternalStore, NotificationController, AlertController, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
 export * from '@uicogs/core';
 import * as vue from 'vue';
 import { ComputedRef, Plugin, Ref, ShallowRef } from 'vue';
@@ -224,13 +224,17 @@ interface VueRuntimeSource extends Record<never, never> {
     readonly ready: Promise<void>;
     readonly context: ExternalStore<object>;
     readonly live: ExternalStore<object>;
+    readonly notifications: NotificationController;
+    readonly alerts: AlertController;
     readonly auth?: RuntimeAuthController;
     bindControllerAdapter(adapter: ControllerAdapter): void;
 }
-type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "context" | "live" | "auth"> & {
+type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "context" | "live" | "auth" | "notifications" | "alerts"> & {
     readonly core: T;
     readonly context: T["context"];
     readonly live: T["live"];
+    readonly notifications: T["notifications"];
+    readonly alerts: T["alerts"];
     readonly auth: T["auth"];
     navigation(placement: string): ComputedRef<readonly UiCogsNavigationNode[]>;
     breadcrumbs(placement: string): ComputedRef<readonly UiCogsBreadcrumb[]>;

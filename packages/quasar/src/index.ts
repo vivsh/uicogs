@@ -56,6 +56,11 @@ import {
   type PropType,
 } from "vue";
 
+export * from "./app-layout.js";
+export * from "./alert-host.js";
+export * from "./navigation.js";
+export * from "./notifications.js";
+
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
 
@@ -701,6 +706,7 @@ export const UcTable = defineComponent({
     const columns = computed(() => {
       const sourceColumns = (props.columns ?? columnsFor(definition)).map((column) => ({
         ...column,
+        align: column.align ?? "left",
         classes: mergeClasses(column.classes, `uc-table-column-${cssPart(column.name)}`),
         headerClasses: mergeClasses(
           column.headerClasses,

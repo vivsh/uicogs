@@ -17,6 +17,8 @@ import {
   type Infer,
   type Input,
   type LiveSource,
+  type LiveEffect,
+  type UiNotification,
   type LiveStatus,
   type MultipartAdapter,
   type OperationInput,
@@ -315,6 +317,19 @@ expectAssignable<LiveSource<{ locale: string }>>({
       },
     },
   }),
+});
+const liveEffect: LiveEffect = {
+  kind: "notification",
+  mutation: { action: "upsert", item: { id: "release", title: "Release ready" } },
+};
+void liveEffect;
+expectAssignable<UiNotification>({ id: "release", title: "Release ready" });
+createUiCogs({
+  live: {
+    sources: [],
+    adapters: [{ map: () => ({ kind: "alert", alert: { message: "Saved" } }) }],
+    notifications: { maximumItems: 100 },
+  },
 });
 
 expectAssignable<MultipartAdapter>({

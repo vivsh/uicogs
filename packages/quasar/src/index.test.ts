@@ -477,14 +477,22 @@ describe("Quasar views and tables", () => {
             classes: "application-cell",
             headerClasses: "application-header",
           },
+          {
+            name: "priority",
+            label: "Priority",
+            field: "priority",
+            align: "right",
+          },
         ],
       },
       global: { stubs: quasarStubs },
     });
     const table = wrapper.findComponent({ name: "QTableStub" });
-    const column = (
-      table.props("columns") as readonly { classes?: string; headerClasses?: string }[]
-    )[0];
+    const columns = table.props("columns") as readonly {
+      classes?: string;
+      headerClasses?: string;
+    }[];
+    const column = columns[0];
 
     expect(table.classes()).toEqual(
       expect.arrayContaining(["caller-table", "uc-table", "uc-table-tasks"]),
@@ -493,6 +501,8 @@ describe("Quasar views and tables", () => {
     expect(column?.classes).toContain("uc-table-column-title");
     expect(column?.headerClasses).toContain("application-header");
     expect(column?.headerClasses).toContain("uc-table-column-title");
+    expect(columns[0]).toMatchObject({ align: "left" });
+    expect(columns[1]).toMatchObject({ align: "right" });
     expect(wrapper.find(".uc-table-row").classes()).toContain("application-row");
     expect(wrapper.find("th").classes()).toContain("uc-table-column-title");
     expect(wrapper.find("td").classes()).toEqual(

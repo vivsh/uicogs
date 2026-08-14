@@ -94,7 +94,7 @@ the application needs their capability.
 | Custom cache                           | `cache`, with `persistence.cache: false`; it cannot coexist with the built-in durable cache.                       |
 | Cache behaviour                        | `cachePolicy: "cache-first"`, `"network-only"`, or `"stale-while-revalidate"`.                                     |
 | Error normalization                    | `errorAdapters: [...]`.                                                                                            |
-| SSE/live updates                       | `live: sse(...)` from `@uicogs/http`.                                                                              |
+| Live cache, inbox, and alerts          | `live: { sources: [sse(...)], adapters: [...] }` from `@uicogs/http`.                                              |
 | Relation key loading                   | `relationDefaults: { byKeys: ... }`.                                                                               |
 | Unauthenticated but partitioned cache  | `cacheScope: () => scope`. Auth strategies own scope when `auth` is configured.                                    |
 
@@ -199,6 +199,27 @@ as a type, then import that wrapper in components. It retains exact application 
 without creating a bootstrap cycle. Its
 `navigation()`, `breadcrumbs()`, `hasScope()`, and `hasScopes()` are reactive.
 `withVue()` never disposes the application-owned core runtime.
+
+### Quasar Application Shell
+
+When using Quasar, install `@uicogs/quasar` after the Vue binding and render the
+application-owned page route inside `UcAppLayout`:
+
+```vue
+<UcAppLayout
+  :brand="{ label: 'Example' }"
+  :notifications="notifications"
+  v-model:navigation-open="navigationOpen"
+  v-model:notifications-open="notificationsOpen"
+  @notification-mark-read="markRead"
+>
+  <router-view />
+</UcAppLayout>
+```
+
+The component reads the `sidebar` and `topbar` named navigation placements by default.
+Notification data remains an application resource/service concern; the layout only
+renders it and emits user intent.
 
 ### React
 

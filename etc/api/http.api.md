@@ -1,10 +1,10 @@
 # @uicogs/http API
 
-Declaration SHA-256: `be86da09920503a2d8d5571f58fa5bfe517efc2ab77cf379e1a28e2b536836c2`
+Declaration SHA-256: `5082ac66d1ed3516d294d1b2d0e5cee46aab7d019371e656ad9a5fbe5fa679c8`
 
 ```ts
 // index.d.ts
-import { LiveRetryOptions, LiveVersion, LiveMutation, ErrorAdapter, PaginationAdapter, LiveFrame, ResponseAdapter, LiveSource } from '@uicogs/core';
+import { LiveRetryOptions, LiveVersion, LiveEffectResult, LiveOpenOptions, ErrorAdapter, PaginationAdapter, LiveFrame, LiveSource, ResponseAdapter } from '@uicogs/core';
 export { MultipartEncodingError, PreparedBody, multipart, multipartAdapter, prepareBody, withQuery } from '@uicogs/core';
 
 interface SseOptions<TContext> {
@@ -30,7 +30,7 @@ interface SseOptions<TContext> {
             readonly data: string;
             readonly id?: string;
         };
-    }) => LiveMutation | readonly LiveMutation[] | undefined | Promise<LiveMutation | readonly LiveMutation[] | undefined>;
+    }) => LiveEffectResult | Promise<LiveEffectResult>;
     readonly onUnhandled?: (event: {
         readonly type: string;
         readonly data: string;
@@ -38,6 +38,42 @@ interface SseOptions<TContext> {
     }) => void;
 }
 declare function sse<TContext = unknown>(options: SseOptions<TContext>): LiveSource<TContext>;
+interface WebSocketMessage {
+    readonly data: string;
+}
+interface LiveWebSocket {
+    readonly readyState?: number;
+    close(code?: number, reason?: string): void;
+    addEventListener?(type: "open" | "message" | "error" | "close", listener: (event: unknown) => void): void;
+    removeEventListener?(type: "open" | "message" | "error" | "close", listener: (event: unknown) => void): void;
+    onopen?: (() => void) | null;
+    onmessage?: ((event: WebSocketMessage) => void) | null;
+    onerror?: (() => void) | null;
+    onclose?: (() => void) | null;
+}
+interface WebSocketOptions<TContext> extends Omit<SseOptions<TContext>, "url"> {
+    readonly url: string;
+    readonly createSocket?: (url: string) => LiveWebSocket;
+}
+/** Creates an injected-or-browser WebSocket live source without exposing browser APIs to core. */
+declare function websocket<TContext = unknown>(options: WebSocketOptions<TContext>): LiveSource<TContext>;
+interface PollOptions<TContext> extends Omit<SseOptions<TContext>, "url"> {
+    readonly intervalMs: number;
+    request(options: {
+        readonly context: TContext;
+        readonly scope: string;
+        readonly transport: LiveOpenOptions<TContext>["transport"];
+        readonly baseUrl: string;
+        readonly signal: AbortSignal;
+    }): Promise<LiveEventResult | readonly LiveEventResult[] | undefined>;
+}
+interface LiveEventResult {
+    readonly type: string;
+    readonly data: string;
+    readonly id?: string;
+}
+/** Polls one non-overlapping request per live connection; controller retry schedules the next poll. */
+declare function poll<TContext = unknown>(options: PollOptions<TContext>): LiveSource<TContext>;
 declare function parseEventStream(body: AsyncIterable<Uint8Array>): AsyncIterable<LiveFrame>;
 declare const pagination: {
     drf: () => PaginationAdapter;
@@ -97,5 +133,5 @@ declare function problemDetailsErrors(): ErrorAdapter;
 declare function jsonApiErrors(): ErrorAdapter;
 declare function graphqlErrors(): ErrorAdapter;
 
-export { type GraphqlConnectionResponseOptions, type JsonApiResponseOptions, type SseOptions, drfErrors, graphqlErrors, jsonApiErrors, laravelErrors, pagination, parseEventStream, problemDetailsErrors, responseAdapters, sse, vyuhErrors };
+export { type GraphqlConnectionResponseOptions, type JsonApiResponseOptions, type LiveEventResult, type LiveWebSocket, type PollOptions, type SseOptions, type WebSocketMessage, type WebSocketOptions, drfErrors, graphqlErrors, jsonApiErrors, laravelErrors, pagination, parseEventStream, poll, problemDetailsErrors, responseAdapters, sse, vyuhErrors, websocket };
 ```

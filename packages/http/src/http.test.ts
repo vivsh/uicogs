@@ -13,7 +13,9 @@ import {
   prepareBody,
   problemDetailsErrors,
   responseAdapters,
+  poll,
   sse,
+  websocket,
   vyuhErrors,
   withQuery,
 } from "./index.js";
@@ -99,6 +101,49 @@ describe("HTTP adapters", () => {
     expect(requestUrl).toBe("/api/events");
     expect(requestHeaders?.["Last-Event-ID"]).toBe("6");
     expect(frames).toHaveLength(1);
+  });
+
+  it("normalizes polling and injected WebSocket messages as live event frames", async () => {
+    const pollSource = poll({
+      intervalMs: 100,
+      request: async () => ({ type: "inbox", data: '{"id":"one"}' }),
+    });
+    const pollResult = await pollSource.open({
+      context: undefined,
+      scope: "anonymous",
+      transport: { request: async () => ({ status: 200, data: undefined }) },
+      baseUrl: "/api/",
+      signal: new AbortController().signal,
+    });
+    expect(await pollResult.frames[Symbol.asyncIterator]().next()).toEqual({
+      done: false,
+      value: { kind: "event", event: { type: "inbox", data: '{"id":"one"}' } },
+    });
+
+    const listeners = new Map<string, (event: unknown) => void>();
+    const socket = {
+      close: () => undefined,
+      addEventListener: (type: string, listener: (event: unknown) => void) => {
+        listeners.set(type, listener);
+      },
+      removeEventListener: (type: string) => listeners.delete(type),
+    };
+    const source = websocket({ url: "events", createSocket: () => socket });
+    const opening = source.open({
+      context: undefined,
+      scope: "anonymous",
+      transport: { request: async () => ({ status: 200, data: undefined }) },
+      baseUrl: "/api/",
+      signal: new AbortController().signal,
+    });
+    listeners.get("open")?.({});
+    const result = await opening;
+    const next = result.frames[Symbol.asyncIterator]().next();
+    listeners.get("message")?.({ data: '{"id":"one"}' });
+    await expect(next).resolves.toEqual({
+      done: false,
+      value: { kind: "event", event: { type: "message", data: '{"id":"one"}' } },
+    });
   });
 
   it("rejects unavailable streaming and preserves terminal 204 responses", async () => {

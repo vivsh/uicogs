@@ -5,7 +5,7 @@ import {
   responseAdapters as coreResponseAdapters,
   type ErrorAdapter,
   type LiveFrame,
-  type LiveMutation,
+  type LiveEffectResult,
   type LiveOpenOptions,
   type LiveRetryOptions,
   type LiveSource,
@@ -41,11 +41,7 @@ export interface SseOptions<TContext> {
     readonly event: string;
     readonly payload: unknown;
     readonly source: { readonly type: string; readonly data: string; readonly id?: string };
-  }) =>
-    | LiveMutation
-    | readonly LiveMutation[]
-    | undefined
-    | Promise<LiveMutation | readonly LiveMutation[] | undefined>;
+  }) => LiveEffectResult | Promise<LiveEffectResult>;
   readonly onUnhandled?: (event: {
     readonly type: string;
     readonly data: string;
@@ -81,6 +77,91 @@ export function sse<TContext = unknown>(options: SseOptions<TContext>): LiveSour
   });
 }
 
+export interface WebSocketMessage {
+  readonly data: string;
+}
+
+export interface LiveWebSocket {
+  readonly readyState?: number;
+  close(code?: number, reason?: string): void;
+  addEventListener?(
+    type: "open" | "message" | "error" | "close",
+    listener: (event: unknown) => void,
+  ): void;
+  removeEventListener?(
+    type: "open" | "message" | "error" | "close",
+    listener: (event: unknown) => void,
+  ): void;
+  onopen?: (() => void) | null;
+  onmessage?: ((event: WebSocketMessage) => void) | null;
+  onerror?: (() => void) | null;
+  onclose?: (() => void) | null;
+}
+
+export interface WebSocketOptions<TContext> extends Omit<SseOptions<TContext>, "url"> {
+  readonly url: string;
+  readonly createSocket?: (url: string) => LiveWebSocket;
+}
+
+/** Creates an injected-or-browser WebSocket live source without exposing browser APIs to core. */
+export function websocket<TContext = unknown>(
+  options: WebSocketOptions<TContext>,
+): LiveSource<TContext> {
+  return Object.freeze({
+    ...(options.retry ? { retry: options.retry } : {}),
+    ...(options.enabled ? { enabled: options.enabled } : {}),
+    ...(options.version ? { version: options.version } : {}),
+    ...(options.map ? { map: options.map } : {}),
+    ...(options.onUnhandled ? { onUnhandled: options.onUnhandled } : {}),
+    async open(connection: LiveOpenOptions<TContext>) {
+      const createSocket = options.createSocket ?? browserSocket();
+      if (!createSocket) throw new LiveSourceError("No WebSocket implementation is available");
+      const socket = createSocket(joinUrl(connection.baseUrl, options.url));
+      await awaitSocketOpen(socket, connection.signal);
+      const frames = socketFrames(socket, connection.signal);
+      return { status: 200, frames };
+    },
+  });
+}
+
+export interface PollOptions<TContext> extends Omit<SseOptions<TContext>, "url"> {
+  readonly intervalMs: number;
+  request(options: {
+    readonly context: TContext;
+    readonly scope: string;
+    readonly transport: LiveOpenOptions<TContext>["transport"];
+    readonly baseUrl: string;
+    readonly signal: AbortSignal;
+  }): Promise<LiveEventResult | readonly LiveEventResult[] | undefined>;
+}
+
+export interface LiveEventResult {
+  readonly type: string;
+  readonly data: string;
+  readonly id?: string;
+}
+
+/** Polls one non-overlapping request per live connection; controller retry schedules the next poll. */
+export function poll<TContext = unknown>(options: PollOptions<TContext>): LiveSource<TContext> {
+  if (!Number.isSafeInteger(options.intervalMs) || options.intervalMs < 1)
+    throw new Error("poll.intervalMs must be a positive integer");
+  return Object.freeze({
+    retry: { initialMs: options.intervalMs, maximumMs: options.intervalMs, jitter: 0 },
+    ...(options.enabled ? { enabled: options.enabled } : {}),
+    ...(options.version ? { version: options.version } : {}),
+    ...(options.map ? { map: options.map } : {}),
+    ...(options.onUnhandled ? { onUnhandled: options.onUnhandled } : {}),
+    async open(connection: LiveOpenOptions<TContext>) {
+      const result = await options.request(connection);
+      const events = result === undefined ? [] : Array.isArray(result) ? result : [result];
+      return {
+        status: 200,
+        frames: pollFrames(events),
+      };
+    },
+  });
+}
+
 export async function* parseEventStream(body: AsyncIterable<Uint8Array>): AsyncIterable<LiveFrame> {
   const decoder = new TextDecoder();
   let pending: LiveFrame[] = [];
@@ -108,6 +189,126 @@ export async function* parseEventStream(body: AsyncIterable<Uint8Array>): AsyncI
   const remaining = decoder.decode();
   if (remaining) parser.feed(remaining);
   yield* pending;
+}
+
+function browserSocket(): ((url: string) => LiveWebSocket) | undefined {
+  const constructor = globalThis.WebSocket;
+  return constructor ? (url) => new constructor(url) as unknown as LiveWebSocket : undefined;
+}
+
+async function* pollFrames(events: readonly LiveEventResult[]): AsyncIterable<LiveFrame> {
+  for (const event of events) yield { kind: "event", event };
+}
+
+function awaitSocketOpen(socket: LiveWebSocket, signal: AbortSignal): Promise<void> {
+  if (socket.readyState === 1) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const open = () => settle(resolve);
+    const failed = () =>
+      settle(() => reject(new LiveSourceError("WebSocket connection failed", true)));
+    const aborted = () => settle(() => reject(new DOMException("Aborted", "AbortError")));
+    const settle = (done: () => void) => {
+      removeSocketListener(socket, "open", open);
+      removeSocketListener(socket, "error", failed);
+      removeSocketListener(socket, "close", failed);
+      signal.removeEventListener("abort", aborted);
+      done();
+    };
+    addSocketListener(socket, "open", open);
+    addSocketListener(socket, "error", failed);
+    addSocketListener(socket, "close", failed);
+    signal.addEventListener("abort", aborted, { once: true });
+  });
+}
+
+async function* socketFrames(socket: LiveWebSocket, signal: AbortSignal): AsyncIterable<LiveFrame> {
+  const queue = new AsyncFrameQueue();
+  const message = (event: unknown) => {
+    if (!isSocketMessage(event)) return;
+    queue.push({ kind: "event", event: { type: "message", data: event.data } });
+  };
+  const close = () => queue.close();
+  const abort = () => {
+    socket.close();
+    queue.close();
+  };
+  addSocketListener(socket, "message", message);
+  addSocketListener(socket, "close", close);
+  addSocketListener(socket, "error", close);
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    yield* queue;
+  } finally {
+    signal.removeEventListener("abort", abort);
+    removeSocketListener(socket, "message", message);
+    removeSocketListener(socket, "close", close);
+    removeSocketListener(socket, "error", close);
+    socket.close();
+  }
+}
+
+class AsyncFrameQueue implements AsyncIterable<LiveFrame> {
+  private readonly frames: LiveFrame[] = [];
+  private readonly waiters: ((result: IteratorResult<LiveFrame>) => void)[] = [];
+  private closed = false;
+
+  push(frame: LiveFrame): void {
+    if (this.closed) return;
+    const waiter = this.waiters.shift();
+    if (waiter) waiter({ done: false, value: frame });
+    else this.frames.push(frame);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) waiter({ done: true, value: undefined });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<LiveFrame> {
+    return {
+      next: () => {
+        const frame = this.frames.shift();
+        if (frame) return Promise.resolve({ done: false, value: frame });
+        if (this.closed) return Promise.resolve({ done: true, value: undefined });
+        return new Promise((resolve) => this.waiters.push(resolve));
+      },
+    };
+  }
+}
+
+function addSocketListener(
+  socket: LiveWebSocket,
+  type: "open" | "message" | "error" | "close",
+  listener: (event: unknown) => void,
+): void {
+  if (socket.addEventListener) socket.addEventListener(type, listener);
+  else if (type === "open") socket.onopen = () => listener(undefined);
+  else if (type === "message") socket.onmessage = listener as (event: WebSocketMessage) => void;
+  else if (type === "close") socket.onclose = () => listener(undefined);
+  else if (type === "error") socket.onerror = () => listener(undefined);
+}
+
+function removeSocketListener(
+  socket: LiveWebSocket,
+  type: "open" | "message" | "error" | "close",
+  listener: (event: unknown) => void,
+): void {
+  socket.removeEventListener?.(type, listener);
+  if (socket.removeEventListener) return;
+  if (type === "open") socket.onopen = null;
+  else if (type === "message") socket.onmessage = null;
+  else if (type === "error") socket.onerror = null;
+  else socket.onclose = null;
+}
+
+function isSocketMessage(value: unknown): value is WebSocketMessage {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "data" in value &&
+    typeof (value as { readonly data?: unknown }).data === "string"
+  );
 }
 
 export const pagination = {

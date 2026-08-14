@@ -24,7 +24,11 @@ import type { RelationConfig, RelationEndpointMutation, RelationKeyFetchOptions 
 import type { NormalizedFailure, ValidationResult } from "./issues.js";
 import { normalizeFailure, RequestError } from "./issues.js";
 import {
-  LiveController,
+  AlertController,
+  LiveHubController,
+  NotificationController,
+  type LiveConfiguration,
+  type LiveEffect,
   type LiveEvent,
   type LiveMutation,
   type LiveSource,
@@ -614,7 +618,7 @@ interface UiCogsBaseOptions<
   readonly adapter?: ControllerAdapter;
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly responseAdapter?: ResponseAdapter;
-  readonly live?: LiveSource<TContext>;
+  readonly live?: LiveConfiguration<TContext>;
   readonly relationDefaults?: {
     readonly byKeys?: RelationKeyFetchOptions<TContext>;
   };
@@ -830,7 +834,11 @@ export class UiCogs<
   readonly ready: Promise<void>;
   readonly cache: CacheStore;
   readonly requests = new RequestCoordinator();
-  readonly live: LiveController<TContext>;
+  readonly live: LiveHubController<TContext>;
+  /** Framework-neutral, bounded inbox state fed exclusively by live notification effects. */
+  readonly notifications: NotificationController;
+  /** Framework-neutral, once-delivered alert queue fed exclusively by live alert effects. */
+  readonly alerts: AlertController;
   readonly auth?: RuntimeAuthController;
   protected readonly contextController: ContextStoreController<unknown, TContext>;
   private readonly definitions = new Map<string, RuntimeDefinition<TContext>>();
@@ -961,17 +969,29 @@ export class UiCogs<
     for (const definition of options.services ?? []) this.registerService(definition);
     this.validateRelations();
     void this.managedCache.activateScope?.(runtime.scope());
+    const liveOptions = normalizeLiveConfiguration(options.live);
+    this.notifications = runtime.adapter(
+      new NotificationController(
+        liveOptions.sources.length > 0,
+        liveOptions.notifications?.maximumItems,
+      ),
+    );
+    this.alerts = runtime.adapter(new AlertController());
     this.live = runtime.adapter(
-      new LiveController(options.live, {
-        context: runtime.context,
-        scope: runtime.scope,
-        transport: runtime.transport,
-        baseUrl: runtime.baseUrl,
-        dispatchDefault: (event, payload, version, scope) =>
-          this.dispatchDefaultLiveEvent(event, payload, version, scope),
-        dispatchMutation: (mutation, version, scope) =>
-          this.dispatchLiveMutation(mutation, version, scope),
-      }),
+      new LiveHubController(
+        liveOptions.sources,
+        {
+          context: runtime.context,
+          scope: runtime.scope,
+          transport: runtime.transport,
+          baseUrl: runtime.baseUrl,
+          dispatchDefault: (event, payload, version, scope) =>
+            this.dispatchDefaultLiveEvent(event, payload, version, scope),
+          dispatchEffects: (effects, version, scope) =>
+            this.dispatchLiveEffects(effects, version, scope),
+        },
+        liveOptions.adapters,
+      ),
     );
     let contextValue = this.contextController.value;
     this.contextUnsubscribe = this.contextController.subscribe(() => {
@@ -1237,6 +1257,20 @@ export class UiCogs<
     const existed = Boolean(this.cache.entity(address, encoded));
     normalizeEntity(this.runtime, definition, parsed, key, undefined, scope, version);
     if (!existed) this.runtime.applyCollectionMembership(address, encoded, parsed);
+  }
+
+  private dispatchLiveEffects(
+    effects: readonly (LiveMutation | LiveEffect)[],
+    version: LiveVersion | undefined,
+    scope: string,
+  ): void {
+    for (const effect of effects) {
+      if ("kind" in effect) {
+        if (effect.kind === "mutation") this.dispatchLiveMutation(effect.mutation, version, scope);
+        else if (effect.kind === "notification") this.notifications.apply(effect.mutation);
+        else this.alerts.enqueue(effect.alert);
+      } else this.dispatchLiveMutation(effect, version, scope);
+    }
   }
 
   private updateLiveCollectionMembership(
@@ -3868,6 +3902,21 @@ function keyFromPartial<TContext>(
   if (typeof key !== "string" && typeof key !== "number")
     throw new Error(`Resource ${definition.name} response does not contain a valid key`);
   return key;
+}
+
+function normalizeLiveConfiguration<TContext>(value: LiveConfiguration<TContext> | undefined): {
+  readonly sources: readonly LiveSource<TContext>[];
+  readonly adapters: readonly import("./live.js").LiveAdapter<TContext>[];
+  readonly notifications?: { readonly maximumItems?: number };
+} {
+  if (!value) return Object.freeze({ sources: Object.freeze([]), adapters: Object.freeze([]) });
+  if ("open" in value)
+    return Object.freeze({ sources: Object.freeze([value]), adapters: Object.freeze([]) });
+  return Object.freeze({
+    sources: Object.freeze([...value.sources]),
+    adapters: Object.freeze([...(value.adapters ?? [])]),
+    ...(value.notifications ? { notifications: value.notifications } : {}),
+  });
 }
 
 function liveMutationKey<TContext>(

@@ -9,6 +9,8 @@ import {
   type Schema,
   type Shape,
   type RuntimeAuthController,
+  type AlertController,
+  type NotificationController,
   isLoggedIn,
 } from "@uicogs/core";
 import {
@@ -83,14 +85,21 @@ interface VueRuntimeSource extends Record<never, never> {
   readonly ready: Promise<void>;
   readonly context: ExternalStore<object>;
   readonly live: ExternalStore<object>;
+  readonly notifications: NotificationController;
+  readonly alerts: AlertController;
   readonly auth?: RuntimeAuthController;
   bindControllerAdapter(adapter: ControllerAdapter): void;
 }
 
-export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "context" | "live" | "auth"> & {
+export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<
+  T,
+  "context" | "live" | "auth" | "notifications" | "alerts"
+> & {
   readonly core: T;
   readonly context: T["context"];
   readonly live: T["live"];
+  readonly notifications: T["notifications"];
+  readonly alerts: T["alerts"];
   readonly auth: T["auth"];
   navigation(placement: string): ComputedRef<readonly UiCogsNavigationNode[]>;
   breadcrumbs(placement: string): ComputedRef<readonly UiCogsBreadcrumb[]>;
@@ -165,6 +174,8 @@ function bindVueRuntime<T extends VueRuntimeSource>(
     core: { value: cogs },
     context: { value: vueReactive(cogs.context) },
     live: { value: vueReactive(cogs.live) },
+    notifications: { value: vueReactive(cogs.notifications) },
+    alerts: { value: vueReactive(cogs.alerts) },
     ...(cogs.auth ? { auth: { value: vueReactive(cogs.auth) } } : {}),
     navigation: { value: navigation },
     breadcrumbs: { value: breadcrumbs },

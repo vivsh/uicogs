@@ -212,7 +212,8 @@ Cache policies include `cache-first`, `network-only`, and `stale-while-revalidat
 - Explicit Vyuh, DRF, Laravel, Spring Data, JSON:API, GraphQL, and custom response profiles.
 - JWT and cookie authentication strategies with auth-owned cache scope.
 - Local storage, session storage, and IndexedDB persistence backends.
-- Optional Fetch-stream server-sent events that update the normalized cache.
+- Optional SSE, WebSocket, and polling live sources that update the normalized cache,
+  persistent inbox, and transient alert queue through one effect pipeline.
 - OpenAPI 3.0 and 3.1 definition and operation generation at build time.
 
 ## Frameworks
@@ -226,7 +227,7 @@ The core owns behavior; framework packages observe controllers rather than dupli
 | `@uicogs/routes`  | framework-neutral scope resolution used by framework bindings             |
 | `@uicogs/vue`     | `withVue()`, Vue Router binding, reactive controllers, and injection      |
 | `@uicogs/react`   | `withReact()` and React hooks built on `useSyncExternalStore`             |
-| `@uicogs/quasar`  | Quasar fields, forms, tables, actions, and resource views                 |
+| `@uicogs/quasar`  | Quasar forms, resource views, application layout, navigation, and inboxes |
 | `@uicogs/auth`    | JWT and cookie auth strategies                                            |
 | `@uicogs/http`    | response profiles, SSE, pagination, multipart, and server errors          |
 | `@uicogs/storage` | local, session, and IndexedDB persistence                                 |
@@ -269,6 +270,10 @@ export const useUiCogs = () => useInjectedUiCogs<typeof api>();
 ```
 
 `withVue()` awaits safe runtime initialization before the application mounts.
+
+For a ready Quasar shell, use `UcAppLayout`. It renders named UiCogs side/top
+navigation, an optional notification drawer, and page content while leaving all
+styling and notification persistence to the application. See [Frameworks](docs/frameworks.md#quasar-application-layout).
 
 ## Installation
 

@@ -213,9 +213,70 @@ UcAlert
 UcConfirm
 UcAlertSuccess
 UcAlertFailure
+UcNavigationTree
+UcNotificationList
+UcAppLayout
 ```
 
 There is no `UcViewset` export.
+
+## Quasar Application Layout
+
+`UcAppLayout` is an unstyled Quasar shell for applications that already install the
+UiCogs Vue binding and Vue Router. It resolves named navigation placements through
+`useUiCogs()`; it does not create routes, own authentication, or load application data.
+
+```vue
+<UcAppLayout
+  :brand="{ label: 'Example', to: { name: 'home' } }"
+  drawer-footer-placement="session"
+  :navigation-badges="{
+    notifications: { value: unreadCount, label: `${unreadCount} unread notifications` },
+  }"
+  :notifications="notifications"
+  v-model:navigation-open="navigationOpen"
+  v-model:notifications-open="notificationsOpen"
+  @notification-mark-read="markRead"
+  @notification-action="runNotificationAction"
+>
+  <template #topbar-actions><ThemeToggle /></template>
+  <template #drawer-footer><AccountLinks /></template>
+  <router-view />
+</UcAppLayout>
+```
+
+The default placements are `sidebar` and `topbar`; `drawer-footer-placement` is
+optional. `UcNavigationTree` can also render any `cogs.navigation(placement)` result
+directly. Its `navigation-badges` keys are route/navigation node ids, so a standard
+Notifications route can show an unread count in the side menu.
+
+`UcNotificationList` reads `useUiCogs().notifications` by default. Pass `items` or a
+`source` only for a controlled alternate inbox, tests, or Storybook. It emits open,
+action, mark-read, dismiss, and retry intent; resources or services still own backend
+persistence and authorization. `UcAlertHost` consumes `cogs.alerts` exactly once via
+Quasar Notify, and `UcAppLayout` mounts it automatically. Mount `UcAlertHost` once on
+applications that do not use the shell.
+
+`UcNotificationList` also exposes `notification`, `leading`, `actions`, `empty`, and
+`error` slots. `UcAppLayout` forwards these as `notification`, `notification-leading`,
+`notification-actions`, `notifications-empty`, and `notifications-error`.
+
+The components add only stable empty hooks. UiCogs supplies no shell CSS, spacing,
+palette, or inline styles; applications choose those through Quasar and their own
+stylesheet.
+
+- Layout: `uc-app-layout`, `uc-app-layout__header`, `__toolbar`, `__brand`,
+  `__topbar-links`, `__topbar-actions`, `__drawer`, `__navigation`,
+  `__drawer-footer`, `__notifications-drawer`, and `__page`.
+- Navigation: `uc-navigation-tree`, `__item`, `__item--active`, `__group`,
+  `__group-label`, and `__badge`.
+- Notifications: `uc-notification-list`, `__item`, `__item--read`,
+  `__item--unread`, `__item--info`, `__item--positive`, `__item--warning`,
+  `__item--negative`, `__leading`, `__content`, `__title`, `__message`,
+  `__timestamp`, `__actions`, `__empty`, and `__error`.
+
+Slots own their custom markup and should apply these hooks when they need the same
+styling contract.
 
 ## Quasar Forms
 

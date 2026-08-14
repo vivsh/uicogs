@@ -1,6 +1,6 @@
 # @uicogs/core API
 
-Declaration SHA-256: `cf32a132482c4e8e1e4f11af936f93c0b7e4daee4406389a55792fb3db2dbc57`
+Declaration SHA-256: `c6fdeba5264873d7dcb0230ab4cd9f1a29e9ecf9fc4dc0af8b074c73ec723021`
 
 ```ts
 // index.d.ts
@@ -1106,6 +1106,84 @@ interface LiveMutation {
     readonly value?: unknown;
     readonly key?: string | number;
 }
+/** Persistent inbox data shared by live adapters and framework renderers. */
+interface UiNotification {
+    readonly id: string | number;
+    readonly title: string;
+    readonly message?: string;
+    readonly level?: "info" | "positive" | "warning" | "negative";
+    readonly icon?: string;
+    readonly image?: {
+        readonly src: string;
+        readonly alt?: string;
+    };
+    readonly createdAt?: string;
+    readonly read?: boolean;
+    readonly actionUrl?: string;
+    readonly actions?: readonly UiNotificationAction[];
+}
+/** A declarative notification action. Applications decide how its intent reaches a backend. */
+interface UiNotificationAction {
+    readonly id: string;
+    readonly label: string;
+    readonly icon?: string;
+    readonly actionUrl?: string;
+    readonly priority?: "primary" | "overflow";
+}
+/** A transient message delivered exactly once by a framework alert host. */
+interface UiAlert {
+    readonly id?: string | number;
+    readonly message: string;
+    readonly caption?: string;
+    readonly level?: "info" | "positive" | "warning" | "negative";
+    readonly icon?: string;
+    readonly timeout?: number;
+}
+/** An atomic persistent-inbox change emitted by a live adapter. */
+type NotificationMutation = {
+    readonly action: "replace";
+    readonly items: readonly UiNotification[];
+    readonly unreadCount?: number;
+} | {
+    readonly action: "upsert";
+    readonly item: UiNotification;
+} | {
+    readonly action: "remove";
+    readonly id: UiNotification["id"];
+} | {
+    readonly action: "mark-read";
+    readonly id: UiNotification["id"];
+    readonly read?: boolean;
+};
+/** One normalized consequence of a live event. Plain LiveMutation values remain accepted for compatibility. */
+type LiveEffect = {
+    readonly kind: "mutation";
+    readonly mutation: LiveMutation;
+} | {
+    readonly kind: "notification";
+    readonly mutation: NotificationMutation;
+} | {
+    readonly kind: "alert";
+    readonly alert: UiAlert;
+};
+type LiveEffectResult = LiveMutation | LiveEffect | readonly (LiveMutation | LiveEffect)[] | undefined;
+interface LiveAdapter<TContext> {
+    map(options: {
+        readonly context: TContext;
+        readonly scope: string;
+        readonly event: string;
+        readonly payload: unknown;
+        readonly source: LiveEvent;
+    }): LiveEffectResult | Promise<LiveEffectResult>;
+}
+interface LiveOptions<TContext> {
+    readonly sources: readonly LiveSource<TContext>[];
+    readonly adapters?: readonly LiveAdapter<TContext>[];
+    readonly notifications?: {
+        readonly maximumItems?: number;
+    };
+}
+type LiveConfiguration<TContext> = LiveSource<TContext> | LiveOptions<TContext>;
 interface LiveRetryOptions {
     readonly initialMs?: number;
     readonly maximumMs?: number;
@@ -1125,6 +1203,8 @@ interface LiveOpenResult {
     readonly frames: AsyncIterable<LiveFrame>;
 }
 interface LiveSource<TContext> {
+    /** Stable diagnostic name. Defaults to its declaration index when omitted. */
+    readonly name?: string;
     readonly retry?: LiveRetryOptions;
     enabled?(options: {
         readonly context: TContext;
@@ -1139,7 +1219,7 @@ interface LiveSource<TContext> {
         readonly event: string;
         readonly payload: unknown;
         readonly source: LiveEvent;
-    }): LiveMutation | readonly LiveMutation[] | undefined | Promise<LiveMutation | readonly LiveMutation[] | undefined>;
+    }): LiveEffectResult | Promise<LiveEffectResult>;
     onUnhandled?(event: LiveEvent): void;
 }
 interface LiveDiagnostic {
@@ -1157,9 +1237,49 @@ interface LiveSnapshot {
     readonly connectedAt?: number;
     readonly retryAt?: number;
 }
+interface LiveSourceSnapshot extends LiveSnapshot {
+    readonly name: string;
+}
+interface LiveHubSnapshot extends LiveSnapshot {
+    readonly sources: readonly LiveSourceSnapshot[];
+}
+interface NotificationSnapshot {
+    readonly revision: number;
+    readonly status: "disabled" | "ready" | "error";
+    readonly items: readonly UiNotification[];
+    readonly unreadCount: number;
+    readonly error?: string;
+}
+interface AlertSnapshot {
+    readonly revision: number;
+    readonly items: readonly UiAlert[];
+}
 declare class LiveSourceError extends Error {
     readonly retryable: boolean;
     constructor(message: string, retryable?: boolean);
+}
+/** Framework-neutral, bounded inbox state. It never performs persistence or network mutations. */
+declare class NotificationController implements ExternalStore<NotificationSnapshot> {
+    private readonly store;
+    private readonly maximumItems;
+    constructor(enabled?: boolean, maximumItems?: number);
+    get status(): NotificationSnapshot["status"];
+    get items(): readonly UiNotification[];
+    get unreadCount(): number;
+    get error(): string | undefined;
+    getSnapshot(): NotificationSnapshot;
+    subscribe(listener: () => void): () => void;
+    apply(mutation: NotificationMutation): void;
+}
+/** A bounded, exactly-once transient alert queue for framework hosts. */
+declare class AlertController implements ExternalStore<AlertSnapshot> {
+    private readonly store;
+    get items(): readonly UiAlert[];
+    getSnapshot(): AlertSnapshot;
+    subscribe(listener: () => void): () => void;
+    enqueue(alert: UiAlert): void;
+    /** Removes and returns the next alert, ensuring hosts cannot deliver it twice. */
+    consume(): UiAlert | undefined;
 }
 interface LiveRuntime<TContext> {
     readonly context: () => TContext;
@@ -1167,11 +1287,12 @@ interface LiveRuntime<TContext> {
     readonly transport: Transport;
     readonly baseUrl: string;
     dispatchDefault(event: LiveEvent, payload: unknown, version: LiveVersion | undefined, scope: string): boolean;
-    dispatchMutation(mutation: LiveMutation, version: LiveVersion | undefined, scope: string): void;
+    dispatchEffects(effects: readonly (LiveMutation | LiveEffect)[], version: LiveVersion | undefined, scope: string): void;
 }
 declare class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
     private readonly source;
     private readonly runtime;
+    private readonly adapters;
     private readonly store;
     private controller?;
     private retryTimer?;
@@ -1182,7 +1303,7 @@ declare class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
     private serverRetryMs?;
     private readonly seenIds;
     private readonly seenOrder;
-    constructor(source: LiveSource<TContext> | undefined, runtime: LiveRuntime<TContext>);
+    constructor(source: LiveSource<TContext> | undefined, runtime: LiveRuntime<TContext>, adapters?: readonly LiveAdapter<TContext>[]);
     get status(): LiveStatus;
     get lastError(): LiveDiagnostic | undefined;
     get lastEventId(): string | undefined;
@@ -1196,6 +1317,7 @@ declare class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
     private connect;
     private handleEvent;
     private scheduleReconnect;
+    private mapEffects;
     private setTerminalError;
     private recordDiagnostic;
     private rememberId;
@@ -1203,6 +1325,26 @@ declare class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
     private stopCurrent;
     private isCurrent;
     private setState;
+}
+/** Aggregates independently reconnecting live sources without coupling their failure lifecycles. */
+declare class LiveHubController<TContext> implements ExternalStore<LiveHubSnapshot> {
+    private readonly store;
+    private readonly controllers;
+    private readonly sourceNames;
+    private readonly unsubscribes;
+    private disposed;
+    constructor(sources: readonly LiveSource<TContext>[], runtime: LiveRuntime<TContext>, adapters?: readonly LiveAdapter<TContext>[]);
+    get status(): LiveStatus;
+    get lastError(): LiveDiagnostic | undefined;
+    get lastEventId(): string | undefined;
+    get connectedAt(): number | undefined;
+    get retryAt(): number | undefined;
+    get sources(): readonly LiveSourceSnapshot[];
+    getSnapshot(): LiveHubSnapshot;
+    subscribe(listener: () => void): () => void;
+    reevaluate(): void;
+    dispose(): void;
+    private snapshot;
 }
 
 declare class RequestCoordinator {
@@ -1695,7 +1837,7 @@ interface UiCogsBaseOptions<TContext, TAuth extends AuthStrategyDefinition | und
     readonly adapter?: ControllerAdapter;
     readonly errorAdapters?: readonly ErrorAdapter[];
     readonly responseAdapter?: ResponseAdapter;
-    readonly live?: LiveSource<TContext>;
+    readonly live?: LiveConfiguration<TContext>;
     readonly relationDefaults?: {
         readonly byKeys?: RelationKeyFetchOptions<TContext>;
     };
@@ -1775,7 +1917,11 @@ declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIde
     readonly ready: Promise<void>;
     readonly cache: CacheStore;
     readonly requests: RequestCoordinator;
-    readonly live: LiveController<TContext>;
+    readonly live: LiveHubController<TContext>;
+    /** Framework-neutral, bounded inbox state fed exclusively by live notification effects. */
+    readonly notifications: NotificationController;
+    /** Framework-neutral, once-delivered alert queue fed exclusively by live alert effects. */
+    readonly alerts: AlertController;
     readonly auth?: RuntimeAuthController;
     protected readonly contextController: ContextStoreController<unknown, TContext>;
     private readonly definitions;
@@ -1808,6 +1954,7 @@ declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIde
     private validateRelations;
     private dispatchDefaultLiveEvent;
     private dispatchLiveMutation;
+    private dispatchLiveEffects;
     private updateLiveCollectionMembership;
     private applyRegisteredMembership;
     clearScope(scope?: string): void;
@@ -2269,5 +2416,5 @@ declare const struct: {
     toSchema: <T extends object>(constructor: Constructor<T>) => ClassSchema<T>;
 };
 
-export { ActionController, type ActionDefinition, type ActionRequest, type ActionSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, LiveController, type LiveDiagnostic, type LiveEvent, type LiveFrame, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type PartialParseResult, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, Resource, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type ResponseAdapter, type ResponseDecodeContext, type ResponseKind, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, UiCogs, type UiCogsContext, type UiCogsOptions, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isLoggedIn, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, responseAdapters, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
+export { ActionController, type ActionDefinition, type ActionRequest, type ActionSnapshot, AlertController, type AlertSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, type LiveAdapter, type LiveConfiguration, LiveController, type LiveDiagnostic, type LiveEffect, type LiveEffectResult, type LiveEvent, type LiveFrame, LiveHubController, type LiveHubSnapshot, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveOptions, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveSourceSnapshot, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, NotificationController, type NotificationMutation, type NotificationSnapshot, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type PartialParseResult, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, Resource, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type ResponseAdapter, type ResponseDecodeContext, type ResponseKind, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, type UiAlert, UiCogs, type UiCogsContext, type UiCogsOptions, type UiNotification, type UiNotificationAction, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isLoggedIn, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, responseAdapters, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
 ```

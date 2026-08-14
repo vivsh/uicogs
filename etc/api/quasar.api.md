@@ -1,14 +1,211 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `c8e05c7a7ddecffb1aa3cbf6bdc4c1a80e2386ab657b09d1813e68391163458b`
+Declaration SHA-256: `0b016fca97348d6c552709e3b70ff25a603f91ead307fbabc1e5f99f76c7b627`
 
 ```ts
 // index.d.ts
 import * as vue from 'vue';
 import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
-import { Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor } from '@uicogs/core';
+import { UiCogsNavigationNode } from '@uicogs/vue';
+import { UiNotification, UiNotificationAction, NotificationController, AlertController, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor } from '@uicogs/core';
 import { QDialogOptions, QNotifyCreateOptions } from 'quasar';
+import { RouteLocationRaw } from 'vue-router';
+
+/** A small, accessible indicator rendered beside a generated navigation node. */
+interface UcNavigationBadge {
+    readonly value: string | number;
+    readonly label: string;
+}
+/** Navigation badges keyed by UiCogs navigation node id. */
+type UcNavigationBadges = Readonly<Record<string, UcNavigationBadge | undefined>>;
+/** Renders a scoped UiCogs navigation tree with optional application-provided badges. */
+declare const UcNavigationTree: vue.DefineComponent<vue.ExtractPropTypes<{
+    nodes: {
+        type: PropType<readonly UiCogsNavigationNode[]>;
+        required: true;
+    };
+    badges: {
+        type: PropType<UcNavigationBadges>;
+        default: () => {};
+    };
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    nodes: {
+        type: PropType<readonly UiCogsNavigationNode[]>;
+        required: true;
+    };
+    badges: {
+        type: PropType<UcNavigationBadges>;
+        default: () => {};
+    };
+}>> & Readonly<{}>, {
+    badges: Readonly<Record<string, UcNavigationBadge | undefined>>;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+
+/** Semantic notification level. UiCogs supplies only class hooks; applications choose appearance. */
+type UcNotificationLevel = "info" | "positive" | "warning" | "negative";
+type UcNotificationDestination = Readonly<{
+    readonly to: RouteLocationRaw;
+    readonly href?: never;
+}> | Readonly<{
+    readonly href: string;
+    readonly to?: never;
+}> | Readonly<{
+    readonly to?: undefined;
+    readonly href?: undefined;
+}>;
+/** One native navigation or application-dispatched notification action. */
+type UcNotificationAction = UiNotificationAction & UcNotificationDestination;
+/** Presentation-ready notification data. Core live notifications are accepted unchanged. */
+type UcNotification = Omit<UiNotification, "actions" | "createdAt"> & Readonly<{
+    readonly createdAt?: string | Date;
+    readonly actions?: readonly UcNotificationAction[];
+}> & UcNotificationDestination;
+interface UcNotificationActionEvent {
+    readonly notification: UcNotification;
+    readonly action: UcNotificationAction;
+}
+/** Renders a core live inbox by default, or explicit controlled data for alternate inboxes and Storybook. */
+declare const UcNotificationList: vue.DefineComponent<vue.ExtractPropTypes<{
+    items: PropType<readonly UcNotification[]>;
+    source: PropType<NotificationController>;
+    loading: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    error: StringConstructor;
+    emptyLabel: {
+        type: StringConstructor;
+        default: string;
+    };
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}> | vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>[], {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("notification-open" | "notification-action" | "notification-mark-read" | "notification-dismiss" | "notifications-retry")[], "notification-open" | "notification-action" | "notification-mark-read" | "notification-dismiss" | "notifications-retry", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    items: PropType<readonly UcNotification[]>;
+    source: PropType<NotificationController>;
+    loading: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    error: StringConstructor;
+    emptyLabel: {
+        type: StringConstructor;
+        default: string;
+    };
+}>> & Readonly<{
+    "onNotification-open"?: ((...args: any[]) => any) | undefined;
+    "onNotification-action"?: ((...args: any[]) => any) | undefined;
+    "onNotification-mark-read"?: ((...args: any[]) => any) | undefined;
+    "onNotification-dismiss"?: ((...args: any[]) => any) | undefined;
+    "onNotifications-retry"?: ((...args: any[]) => any) | undefined;
+}>, {
+    loading: boolean;
+    emptyLabel: string;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+
+type UcAppBrandDestination = Readonly<{
+    readonly to: RouteLocationRaw;
+    readonly href?: never;
+}> | Readonly<{
+    readonly href: string;
+    readonly to?: never;
+}> | Readonly<{
+    readonly to?: undefined;
+    readonly href?: undefined;
+}>;
+/** The compact default brand rendered by UcAppLayout when no brand slot is supplied. */
+type UcAppBrand = Readonly<{
+    readonly label: string;
+    readonly icon?: string;
+}> & UcAppBrandDestination;
+/** A Quasar application shell composed from UiCogs navigation and its optional live inbox. */
+declare const UcAppLayout: vue.DefineComponent<vue.ExtractPropTypes<{
+    brand: PropType<UcAppBrand>;
+    sidebarPlacement: {
+        type: PropType<string | false>;
+        default: string;
+    };
+    topbarPlacement: {
+        type: PropType<string | false>;
+        default: string;
+    };
+    drawerFooterPlacement: PropType<string | false | undefined>;
+    navigationBadges: {
+        type: PropType<UcNavigationBadges>;
+        default: () => {};
+    };
+    navigationOpen: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    notificationsOpen: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    notifications: PropType<readonly UcNotification[]>;
+    notificationsLoading: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    notificationsError: StringConstructor;
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("notification-open" | "notification-action" | "notification-mark-read" | "notification-dismiss" | "notifications-retry" | "update:navigationOpen" | "update:notificationsOpen")[], "notification-open" | "notification-action" | "notification-mark-read" | "notification-dismiss" | "notifications-retry" | "update:navigationOpen" | "update:notificationsOpen", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    brand: PropType<UcAppBrand>;
+    sidebarPlacement: {
+        type: PropType<string | false>;
+        default: string;
+    };
+    topbarPlacement: {
+        type: PropType<string | false>;
+        default: string;
+    };
+    drawerFooterPlacement: PropType<string | false | undefined>;
+    navigationBadges: {
+        type: PropType<UcNavigationBadges>;
+        default: () => {};
+    };
+    navigationOpen: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    notificationsOpen: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    notifications: PropType<readonly UcNotification[]>;
+    notificationsLoading: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    notificationsError: StringConstructor;
+}>> & Readonly<{
+    "onNotification-open"?: ((...args: any[]) => any) | undefined;
+    "onNotification-action"?: ((...args: any[]) => any) | undefined;
+    "onNotification-mark-read"?: ((...args: any[]) => any) | undefined;
+    "onNotification-dismiss"?: ((...args: any[]) => any) | undefined;
+    "onNotifications-retry"?: ((...args: any[]) => any) | undefined;
+    "onUpdate:navigationOpen"?: ((...args: any[]) => any) | undefined;
+    "onUpdate:notificationsOpen"?: ((...args: any[]) => any) | undefined;
+}>, {
+    sidebarPlacement: string | false;
+    topbarPlacement: string | false;
+    navigationBadges: Readonly<Record<string, UcNavigationBadge | undefined>>;
+    navigationOpen: boolean;
+    notificationsOpen: boolean;
+    notificationsLoading: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+
+/** Delivers each core live alert once through Quasar Notify. Mount it once outside UcAppLayout. */
+declare const UcAlertHost: vue.DefineComponent<vue.ExtractPropTypes<{
+    source: PropType<AlertController>;
+}>, () => undefined, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    source: PropType<AlertController>;
+}>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
@@ -710,5 +907,5 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertSuccess, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
 ```

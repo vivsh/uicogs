@@ -86,6 +86,39 @@ A valid `Retry-After` value is respected only when it fits inside the remaining 
 
 SSE does not use ordinary request retry. The live controller owns reconnect behavior.
 
+## Live Effects
+
+Live sources all feed one core pipeline. An existing source mapper may continue to
+return a `LiveMutation`; it can also return a cache mutation, persistent inbox change,
+or transient alert as a `LiveEffect`. Configure more than one source when a backend
+uses separate feeds—each reconnects and reports diagnostics independently.
+
+```ts
+import { createUiCogs } from "@uicogs/core";
+import { poll, sse } from "@uicogs/http";
+
+const api = createUiCogs({
+  live: {
+    sources: [sse({ url: "events/" }), poll({ intervalMs: 60_000, request: syncInbox })],
+    adapters: [
+      {
+        map: ({ event, payload }) =>
+          event === "notification"
+            ? { kind: "notification", mutation: { action: "upsert", item: payload } }
+            : undefined,
+      },
+    ],
+    notifications: { maximumItems: 100 },
+  },
+});
+```
+
+`api.notifications` always exists. It is disabled and empty without live sources, and
+otherwise exposes reactive `items`, `unreadCount`, `status`, and `error`. It never
+fetches, persists, marks read, or dismisses through an assumed server endpoint. Wire
+those user intents to an application resource or service action. `api.alerts` is a
+bounded queue for ephemeral messages; an alert host consumes each entry once.
+
 ## URLs And Queries
 
 The transport preserves existing query parameters.

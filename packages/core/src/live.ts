@@ -23,6 +23,77 @@ export interface LiveMutation {
   readonly key?: string | number;
 }
 
+/** Persistent inbox data shared by live adapters and framework renderers. */
+export interface UiNotification {
+  readonly id: string | number;
+  readonly title: string;
+  readonly message?: string;
+  readonly level?: "info" | "positive" | "warning" | "negative";
+  readonly icon?: string;
+  readonly image?: { readonly src: string; readonly alt?: string };
+  readonly createdAt?: string;
+  readonly read?: boolean;
+  readonly actionUrl?: string;
+  readonly actions?: readonly UiNotificationAction[];
+}
+
+/** A declarative notification action. Applications decide how its intent reaches a backend. */
+export interface UiNotificationAction {
+  readonly id: string;
+  readonly label: string;
+  readonly icon?: string;
+  readonly actionUrl?: string;
+  readonly priority?: "primary" | "overflow";
+}
+
+/** A transient message delivered exactly once by a framework alert host. */
+export interface UiAlert {
+  readonly id?: string | number;
+  readonly message: string;
+  readonly caption?: string;
+  readonly level?: "info" | "positive" | "warning" | "negative";
+  readonly icon?: string;
+  readonly timeout?: number;
+}
+
+/** An atomic persistent-inbox change emitted by a live adapter. */
+export type NotificationMutation =
+  | {
+      readonly action: "replace";
+      readonly items: readonly UiNotification[];
+      readonly unreadCount?: number;
+    }
+  | { readonly action: "upsert"; readonly item: UiNotification }
+  | { readonly action: "remove"; readonly id: UiNotification["id"] }
+  | { readonly action: "mark-read"; readonly id: UiNotification["id"]; readonly read?: boolean };
+
+/** One normalized consequence of a live event. Plain LiveMutation values remain accepted for compatibility. */
+export type LiveEffect =
+  | { readonly kind: "mutation"; readonly mutation: LiveMutation }
+  | { readonly kind: "notification"; readonly mutation: NotificationMutation }
+  | { readonly kind: "alert"; readonly alert: UiAlert };
+
+export type LiveEffectResult =
+  LiveMutation | LiveEffect | readonly (LiveMutation | LiveEffect)[] | undefined;
+
+export interface LiveAdapter<TContext> {
+  map(options: {
+    readonly context: TContext;
+    readonly scope: string;
+    readonly event: string;
+    readonly payload: unknown;
+    readonly source: LiveEvent;
+  }): LiveEffectResult | Promise<LiveEffectResult>;
+}
+
+export interface LiveOptions<TContext> {
+  readonly sources: readonly LiveSource<TContext>[];
+  readonly adapters?: readonly LiveAdapter<TContext>[];
+  readonly notifications?: { readonly maximumItems?: number };
+}
+
+export type LiveConfiguration<TContext> = LiveSource<TContext> | LiveOptions<TContext>;
+
 export interface LiveRetryOptions {
   readonly initialMs?: number;
   readonly maximumMs?: number;
@@ -45,6 +116,8 @@ export interface LiveOpenResult {
 }
 
 export interface LiveSource<TContext> {
+  /** Stable diagnostic name. Defaults to its declaration index when omitted. */
+  readonly name?: string;
   readonly retry?: LiveRetryOptions;
   enabled?(options: { readonly context: TContext; readonly scope: string }): boolean;
   open(options: LiveOpenOptions<TContext>): Promise<LiveOpenResult>;
@@ -56,11 +129,7 @@ export interface LiveSource<TContext> {
     readonly event: string;
     readonly payload: unknown;
     readonly source: LiveEvent;
-  }):
-    | LiveMutation
-    | readonly LiveMutation[]
-    | undefined
-    | Promise<LiveMutation | readonly LiveMutation[] | undefined>;
+  }): LiveEffectResult | Promise<LiveEffectResult>;
   onUnhandled?(event: LiveEvent): void;
 }
 
@@ -81,6 +150,27 @@ export interface LiveSnapshot {
   readonly retryAt?: number;
 }
 
+export interface LiveSourceSnapshot extends LiveSnapshot {
+  readonly name: string;
+}
+
+export interface LiveHubSnapshot extends LiveSnapshot {
+  readonly sources: readonly LiveSourceSnapshot[];
+}
+
+export interface NotificationSnapshot {
+  readonly revision: number;
+  readonly status: "disabled" | "ready" | "error";
+  readonly items: readonly UiNotification[];
+  readonly unreadCount: number;
+  readonly error?: string;
+}
+
+export interface AlertSnapshot {
+  readonly revision: number;
+  readonly items: readonly UiAlert[];
+}
+
 export class LiveSourceError extends Error {
   constructor(
     message: string,
@@ -88,6 +178,95 @@ export class LiveSourceError extends Error {
   ) {
     super(message);
     this.name = "LiveSourceError";
+  }
+}
+
+/** Framework-neutral, bounded inbox state. It never performs persistence or network mutations. */
+export class NotificationController implements ExternalStore<NotificationSnapshot> {
+  private readonly store: Store<NotificationSnapshot>;
+  private readonly maximumItems: number;
+
+  constructor(enabled = false, maximumItems = 100) {
+    this.maximumItems = positiveInteger(maximumItems, "notifications.maximumItems");
+    this.store = new Store({
+      revision: 0,
+      status: enabled ? "ready" : "disabled",
+      items: Object.freeze([]),
+      unreadCount: 0,
+    });
+  }
+
+  get status(): NotificationSnapshot["status"] {
+    return this.store.getSnapshot().status;
+  }
+  get items(): readonly UiNotification[] {
+    return this.store.getSnapshot().items;
+  }
+  get unreadCount(): number {
+    return this.store.getSnapshot().unreadCount;
+  }
+  get error(): string | undefined {
+    return this.store.getSnapshot().error;
+  }
+  getSnapshot(): NotificationSnapshot {
+    return this.store.getSnapshot();
+  }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener);
+  }
+
+  apply(mutation: NotificationMutation): void {
+    const snapshot = this.store.getSnapshot();
+    if (snapshot.status === "disabled") return;
+    try {
+      const result = applyNotificationMutation(snapshot, mutation, this.maximumItems);
+      this.store.setSnapshot({
+        revision: snapshot.revision + 1,
+        status: "ready",
+        items: result.items,
+        unreadCount: result.unreadCount,
+      });
+    } catch (error) {
+      this.store.setSnapshot({
+        ...snapshot,
+        revision: snapshot.revision + 1,
+        status: "error",
+        error: errorMessage(error),
+      });
+    }
+  }
+}
+
+/** A bounded, exactly-once transient alert queue for framework hosts. */
+export class AlertController implements ExternalStore<AlertSnapshot> {
+  private readonly store = new Store<AlertSnapshot>({ revision: 0, items: Object.freeze([]) });
+
+  get items(): readonly UiAlert[] {
+    return this.store.getSnapshot().items;
+  }
+  getSnapshot(): AlertSnapshot {
+    return this.store.getSnapshot();
+  }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener);
+  }
+
+  enqueue(alert: UiAlert): void {
+    if (!alert.message.trim()) throw new Error("Live alert requires a message");
+    const snapshot = this.store.getSnapshot();
+    this.store.setSnapshot({
+      revision: snapshot.revision + 1,
+      items: Object.freeze([...snapshot.items, Object.freeze({ ...alert })].slice(-100)),
+    });
+  }
+
+  /** Removes and returns the next alert, ensuring hosts cannot deliver it twice. */
+  consume(): UiAlert | undefined {
+    const snapshot = this.store.getSnapshot();
+    const [next, ...remaining] = snapshot.items;
+    if (!next) return undefined;
+    this.store.setSnapshot({ revision: snapshot.revision + 1, items: Object.freeze(remaining) });
+    return next;
   }
 }
 
@@ -102,7 +281,11 @@ interface LiveRuntime<TContext> {
     version: LiveVersion | undefined,
     scope: string,
   ): boolean;
-  dispatchMutation(mutation: LiveMutation, version: LiveVersion | undefined, scope: string): void;
+  dispatchEffects(
+    effects: readonly (LiveMutation | LiveEffect)[],
+    version: LiveVersion | undefined,
+    scope: string,
+  ): void;
 }
 
 export class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
@@ -120,6 +303,7 @@ export class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
   constructor(
     private readonly source: LiveSource<TContext> | undefined,
     private readonly runtime: LiveRuntime<TContext>,
+    private readonly adapters: readonly LiveAdapter<TContext>[] = [],
   ) {
     this.store = new Store({
       revision: 0,
@@ -256,14 +440,14 @@ export class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
       version = this.source?.version?.({ event, payload });
       if (version !== undefined && typeof version !== "string" && typeof version !== "number")
         throw new Error("Live source version must be a string or number");
-      if (this.runtime.dispatchDefault(event, payload, version, scope)) {
+      const mapped = await this.mapEffects(event, payload, scope);
+      if (mapped.effects.length) {
+        this.runtime.dispatchEffects(mapped.effects, version, scope);
         this.retryAttempt = 0;
         return;
       }
-      const mapped = await this.source?.map?.({ event: event.type, payload, source: event });
-      if (mapped) {
-        for (const mutation of Array.isArray(mapped) ? mapped : [mapped])
-          this.runtime.dispatchMutation(mutation, version, scope);
+      if (mapped.failed) return;
+      if (this.runtime.dispatchDefault(event, payload, version, scope)) {
         this.retryAttempt = 0;
         return;
       }
@@ -293,6 +477,41 @@ export class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
       this.retryTimer = undefined;
       if (this.isCurrent(generation, scope)) this.evaluate();
     }, delay);
+  }
+
+  private async mapEffects(
+    event: LiveEvent,
+    payload: unknown,
+    scope: string,
+  ): Promise<{
+    readonly effects: readonly (LiveMutation | LiveEffect)[];
+    readonly failed: boolean;
+  }> {
+    const effects: (LiveMutation | LiveEffect)[] = [];
+    let failed = false;
+    for (const adapter of this.adapters) {
+      try {
+        const mapped = await adapter.map({
+          context: this.runtime.context(),
+          scope,
+          event: event.type,
+          payload,
+          source: event,
+        });
+        effects.push(...normalizeEffects(mapped));
+      } catch (error) {
+        failed = true;
+        this.recordDiagnostic(diagnostic("schema", errorMessage(error), false, event));
+      }
+    }
+    try {
+      const mapped = await this.source?.map?.({ event: event.type, payload, source: event });
+      effects.push(...normalizeEffects(mapped));
+    } catch (error) {
+      failed = true;
+      this.recordDiagnostic(diagnostic("schema", errorMessage(error), false, event));
+    }
+    return { effects, failed };
   }
 
   private setTerminalError(message: string): void {
@@ -345,6 +564,80 @@ export class LiveController<TContext> implements ExternalStore<LiveSnapshot> {
   }
 }
 
+/** Aggregates independently reconnecting live sources without coupling their failure lifecycles. */
+export class LiveHubController<TContext> implements ExternalStore<LiveHubSnapshot> {
+  private readonly store: Store<LiveHubSnapshot>;
+  private readonly controllers: readonly LiveController<TContext>[];
+  private readonly sourceNames: readonly string[];
+  private readonly unsubscribes: readonly (() => void)[];
+  private disposed = false;
+
+  constructor(
+    sources: readonly LiveSource<TContext>[],
+    runtime: LiveRuntime<TContext>,
+    adapters: readonly LiveAdapter<TContext>[] = [],
+  ) {
+    validateSourceNames(sources);
+    this.sourceNames = Object.freeze(
+      sources.map((source, index) => source.name ?? `source-${index + 1}`),
+    );
+    this.controllers = sources.map((source) => new LiveController(source, runtime, adapters));
+    this.store = new Store(this.snapshot());
+    this.unsubscribes = this.controllers.map((controller) =>
+      controller.subscribe(() => this.store.setSnapshot(this.snapshot())),
+    );
+  }
+
+  get status(): LiveStatus {
+    return this.store.getSnapshot().status;
+  }
+  get lastError(): LiveDiagnostic | undefined {
+    return this.store.getSnapshot().lastError;
+  }
+  get lastEventId(): string | undefined {
+    return this.store.getSnapshot().lastEventId;
+  }
+  get connectedAt(): number | undefined {
+    return this.store.getSnapshot().connectedAt;
+  }
+  get retryAt(): number | undefined {
+    return this.store.getSnapshot().retryAt;
+  }
+  get sources(): readonly LiveSourceSnapshot[] {
+    return this.store.getSnapshot().sources;
+  }
+  getSnapshot(): LiveHubSnapshot {
+    return this.store.getSnapshot();
+  }
+  subscribe(listener: () => void): () => void {
+    return this.store.subscribe(listener);
+  }
+
+  reevaluate(): void {
+    for (const controller of this.controllers) controller.reevaluate();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const unsubscribe of this.unsubscribes) unsubscribe();
+    for (const controller of this.controllers) controller.dispose();
+    this.store.setSnapshot(this.snapshot());
+  }
+
+  private snapshot(): LiveHubSnapshot {
+    const sources = Object.freeze(
+      this.controllers.map((controller, index) =>
+        Object.freeze({ name: this.sourceNames[index]!, ...controller.getSnapshot() }),
+      ),
+    );
+    const current = this.disposed
+      ? Object.freeze({ revision: 0, status: "closed" as const })
+      : aggregateLiveSnapshot(sources);
+    return Object.freeze({ ...current, sources });
+  }
+}
+
 function diagnostic(
   kind: LiveDiagnostic["kind"],
   message: string,
@@ -365,4 +658,112 @@ function isAbort(error: unknown): boolean {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function normalizeEffects(value: LiveEffectResult): readonly (LiveMutation | LiveEffect)[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value as LiveMutation | LiveEffect];
+}
+
+function positiveInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 1)
+    throw new Error(`${name} must be a positive integer`);
+  return value;
+}
+
+function applyNotificationMutation(
+  snapshot: NotificationSnapshot,
+  mutation: NotificationMutation,
+  maximumItems: number,
+): { readonly items: readonly UiNotification[]; readonly unreadCount: number } {
+  if (mutation.action === "replace") {
+    const items = notificationItems(mutation.items, maximumItems);
+    return {
+      items,
+      unreadCount: mutation.unreadCount ?? unreadItems(items),
+    };
+  }
+  if (mutation.action === "upsert") {
+    const item = notificationItem(mutation.item);
+    const items = notificationItems(
+      [item, ...snapshot.items.filter((current) => current.id !== item.id)],
+      maximumItems,
+    );
+    return { items, unreadCount: unreadItems(items) };
+  }
+  if (mutation.action === "remove") {
+    const items = Object.freeze(snapshot.items.filter((item) => item.id !== mutation.id));
+    return { items, unreadCount: unreadItems(items) };
+  }
+  const items = Object.freeze(
+    snapshot.items.map((item) =>
+      item.id === mutation.id ? Object.freeze({ ...item, read: mutation.read ?? true }) : item,
+    ),
+  );
+  return { items, unreadCount: unreadItems(items) };
+}
+
+function notificationItems(
+  items: readonly UiNotification[],
+  maximumItems: number,
+): readonly UiNotification[] {
+  const unique = new Map<UiNotification["id"], UiNotification>();
+  for (const item of items) {
+    const validated = notificationItem(item);
+    if (!unique.has(validated.id)) unique.set(validated.id, validated);
+  }
+  return Object.freeze([...unique.values()].slice(0, maximumItems));
+}
+
+function notificationItem(item: UiNotification): UiNotification {
+  if ((typeof item.id !== "string" && typeof item.id !== "number") || !item.title.trim())
+    throw new Error("Live notification requires an id and title");
+  return Object.freeze({
+    ...item,
+    ...(item.image ? { image: Object.freeze({ ...item.image }) } : {}),
+    ...(item.actions
+      ? { actions: Object.freeze(item.actions.map((action) => Object.freeze({ ...action }))) }
+      : {}),
+  });
+}
+
+function unreadItems(items: readonly UiNotification[]): number {
+  return items.reduce((count, item) => count + (item.read ? 0 : 1), 0);
+}
+
+function validateSourceNames<TContext>(sources: readonly LiveSource<TContext>[]): void {
+  const names = new Set<string>();
+  for (const [index, source] of sources.entries()) {
+    const name = source.name ?? `source-${index + 1}`;
+    if (names.has(name)) throw new Error(`Live source name ${name} is duplicated`);
+    names.add(name);
+  }
+}
+
+function aggregateLiveSnapshot(sources: readonly LiveSourceSnapshot[]): LiveSnapshot {
+  if (!sources.length) return Object.freeze({ revision: 0, status: "disabled" });
+  const revision = sources.reduce((total, source) => total + source.revision, 0);
+  const statuses = new Set(sources.map((source) => source.status));
+  const status = statuses.has("open")
+    ? "open"
+    : statuses.has("connecting")
+      ? "connecting"
+      : statuses.has("reconnecting")
+        ? "reconnecting"
+        : statuses.has("waiting")
+          ? "waiting"
+          : statuses.has("error")
+            ? "error"
+            : "closed";
+  const latest = [...sources].reverse().find((source) => source.lastError || source.lastEventId);
+  const connectedAt = Math.max(...sources.map((source) => source.connectedAt ?? 0)) || undefined;
+  const retryAt = Math.min(...sources.map((source) => source.retryAt ?? Infinity));
+  return Object.freeze({
+    revision,
+    status,
+    ...(latest?.lastError ? { lastError: latest.lastError } : {}),
+    ...(latest?.lastEventId ? { lastEventId: latest.lastEventId } : {}),
+    ...(connectedAt ? { connectedAt } : {}),
+    ...(Number.isFinite(retryAt) ? { retryAt } : {}),
+  });
 }
