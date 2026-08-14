@@ -198,6 +198,12 @@ and fallback adapters in that order.
 
 This preserves server field errors and operation-specific failure formats.
 
+The built-in fallback treats a safe plain-text `400` or `422` response as one
+non-field validation issue. It normalizes and limits that snippet to 280 characters
+and never displays HTML response bodies. `401`, `403`, `405`, and `5xx` responses
+receive safe status-specific messages, even when the server returned plain text or an
+HTML error page.
+
 GraphQL profiles also convert a successful HTTP response containing GraphQL `errors`
 into a request failure.
 

@@ -160,3 +160,8 @@ URL state. `useRouteForm()` writes submit-only canonical URLs. `useRouteCollecti
 owns standard `page`, `page_size`, and `ordering` URL state. `useRouteResource()` adds
 an active record plus `open()` and `close()`. Back/forward and pasted URLs restore all
 of them without feedback loops.
+
+Route-driven loads retain the collection's normal error state. To render a custom
+page-level notification as well, pass `onFailure` to `useRouteCollection()` or
+`onCollectionFailure` to `useRouteResource()`. The callback observes failures; it does
+not replace the collection's error state.

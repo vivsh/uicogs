@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `212c0cbf36f4e6ec7c1ae971d101b6714e40c4e2a5e49706eebfc221d61a2142`
+Declaration SHA-256: `c8e05c7a7ddecffb1aa3cbf6bdc4c1a80e2386ab657b09d1813e68391163458b`
 
 ```ts
 // index.d.ts
@@ -262,15 +262,20 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
         required: true;
     };
     collection: PropType<CollectionLike>;
+    failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("failure" | "load-failure")[], "failure" | "load-failure", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     form: {
         type: PropType<FormLike>;
         required: true;
     };
     collection: PropType<CollectionLike>;
-}>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+    failureMessage: StringConstructor;
+}>> & Readonly<{
+    onFailure?: ((...args: any[]) => any) | undefined;
+    "onLoad-failure"?: ((...args: any[]) => any) | undefined;
+}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     title: StringConstructor;
     aside: {
@@ -455,6 +460,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     createForm: ObjectConstructor;
     editForm: ObjectConstructor;
+    failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
@@ -496,6 +502,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     createForm: ObjectConstructor;
     editForm: ObjectConstructor;
+    failureMessage: StringConstructor;
 }>> & Readonly<{
     onFailure?: ((...args: any[]) => any) | undefined;
     onSelect?: ((...args: any[]) => any) | undefined;

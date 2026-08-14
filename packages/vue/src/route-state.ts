@@ -244,6 +244,8 @@ export function useRouteCollection<
   readonly collection: TCollection;
   readonly filters?: Schema<TFilters, TContext>;
   readonly pagination?: RoutePaginationCodec;
+  /** Observes a failed URL-driven load after the collection has updated its own error state. */
+  readonly onFailure?: (failure: unknown) => void;
 }): RouteCollection<TCollection> {
   const codec = options.pagination ?? standardRoutePagination;
   const collection = options.collection;
@@ -277,7 +279,11 @@ export function useRouteCollection<
   };
   const stop = watch(
     () => location.fullPath,
-    () => void apply(),
+    () => {
+      void apply().catch((failure: unknown) => {
+        options.onFailure?.(failure);
+      });
+    },
     { immediate: true },
   );
   onScopeDispose(stop);
@@ -343,6 +349,8 @@ export function useRouteResource<
   readonly filters: Schema<TFilters, TFilterContext>;
   readonly detail: RouteDetailOptions<RouteResourceKey<TResource>>;
   readonly pagination?: RoutePaginationCodec;
+  /** Observes a failed URL-driven list load after the resource has updated its error state. */
+  readonly onCollectionFailure?: (failure: unknown) => void;
 }) {
   const route = useRouteState({ route: options.route, query: options.filters });
   const filterForm = useRouteForm({ route, schema: options.filters });
@@ -351,6 +359,7 @@ export function useRouteResource<
     collection: options.resource,
     filters: options.filters,
     ...(options.pagination ? { pagination: options.pagination } : {}),
+    ...(options.onCollectionFailure ? { onFailure: options.onCollectionFailure } : {}),
   });
   const location = useRoute();
   const router = useRouter();

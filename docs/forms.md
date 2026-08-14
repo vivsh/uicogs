@@ -75,6 +75,10 @@ const filterForm = useRouteForm({ route, schema: TaskFilters });
 Do not pass `collection` in this case: `useRouteCollection()` or `useRouteResource()`
 watches the URL and performs the matching load. `UcFilter` still accepts `collection`
 for the direct, non-route-bound pattern and retains its existing load-on-success behavior.
+When that reload fails, `UcFilter` displays its normal failure notification and emits
+`load-failure`; use `failure-message` to provide a local fallback. A route-bound
+collection retains its error state and can also expose failures through
+`useRouteCollection({ onFailure })` (or `useRouteResource({ onCollectionFailure })`).
 
 ## Render A Form View
 
@@ -314,6 +318,11 @@ Adapters emit wire paths. Schema wire aliases map those paths back to form field
 Mapped issues appear in field state.
 
 Unknown paths remain in `unboundIssues` and should be shown in the form summary.
+
+A safe plain-text `400` or `422` response becomes an unbound issue automatically.
+UiCogs normalizes and limits that snippet to 280 characters; HTML response bodies are
+never surfaced. Authentication, permission, method, and server failures use safe
+status-specific messages instead.
 
 Editing one field clears only issues attached to that field.
 

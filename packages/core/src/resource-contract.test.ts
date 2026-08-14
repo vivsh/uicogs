@@ -252,7 +252,9 @@ describe("collections and queries", () => {
     });
     const resource = cogs.resource(definition);
     const collection = resource.query("search", {});
-    await expect(collection.load()).rejects.toThrow("Request failed");
+    await expect(collection.load()).rejects.toThrow(
+      "The server encountered an error. Please try again.",
+    );
     expect(collection.error).toMatchObject({ kind: "server", status: 503, retryable: true });
     collection.clearError();
     expect(collection.error).toBeUndefined();
@@ -324,7 +326,7 @@ describe("objects and cache policies", () => {
       },
     });
     const object = cogs.resource(definition).get(2);
-    await expect(object.load()).rejects.toThrow("Request failed");
+    await expect(object.load()).rejects.toThrow("The requested record could not be found.");
     expect(requests[0]).toMatchObject({ method: "POST", url: "tasks/find/2/" });
     expect(object.error).toMatchObject({ kind: "not-found", retryable: false });
     object.clearError();

@@ -251,6 +251,19 @@ descending). Filter form submission, sort changes, and pagination push locations
 back/forward re-applies the corresponding collection state. Use `useRouteResource()`
 when the same page also owns an optional `:id` detail route.
 
+If a route-driven load rejects, the collection remains its error-state owner and the
+optional `onFailure` callback receives the failure. This is useful for a page-level
+notification when the page uses custom list rendering:
+
+```ts
+const collection = useRouteCollection({
+  route,
+  collection: api.resource(Tasks),
+  filters: SearchTasks,
+  onFailure: (failure) => reportPageFailure(failure),
+});
+```
+
 ## Operations
 
 Built-in operation factories are:

@@ -4110,25 +4110,63 @@ function adaptFailure(
     const failure = adapter.adapt(response);
     if (failure) return failure;
   }
-  const kind =
-    response.status === 401
-      ? "authentication"
-      : response.status === 403
-        ? "permission"
-        : response.status === 404
-          ? "not-found"
-          : response.status === 409
-            ? "conflict"
-            : response.status === 429
-              ? "rate-limit"
-              : response.status >= 500
-                ? "server"
-                : "unknown";
+  const validation = response.status === 400 || response.status === 422;
+  const plainText = safePlainText(response);
+  const message = validation
+    ? (plainText ?? statusMessage(response.status))
+    : (statusMessage(response.status) ?? plainText);
   return {
-    kind,
+    kind: failureKind(response.status, validation),
     status: response.status,
-    issues: [],
+    ...(message === undefined ? {} : { message }),
+    issues: validation && plainText ? [serverIssue(plainText)] : [],
     retryable: response.status === 429 || response.status >= 500,
+  };
+}
+
+function failureKind(status: number, validation: boolean): NormalizedFailure["kind"] {
+  if (validation) return "validation";
+  if (status === 401) return "authentication";
+  if (status === 403) return "permission";
+  if (status === 404) return "not-found";
+  if (status === 409) return "conflict";
+  if (status === 429) return "rate-limit";
+  return status >= 500 ? "server" : "unknown";
+}
+
+function safePlainText(response: TransportResponse<unknown>): string | undefined {
+  if (typeof response.data !== "string" || contentType(response).includes("text/html"))
+    return undefined;
+  const value = response.data.trim().replace(/\s+/g, " ");
+  if (!value || /<\/?[a-z][^>]*>/i.test(value)) return undefined;
+  return value.length > 280 ? `${value.slice(0, 277)}…` : value;
+}
+
+function contentType(response: TransportResponse<unknown>): string {
+  const header = Object.entries(response.headers ?? {}).find(
+    ([name]) => name.toLowerCase() === "content-type",
+  )?.[1];
+  return header?.toLowerCase() ?? "";
+}
+
+function statusMessage(status: number): string | undefined {
+  if (status === 401) return "Your session has expired. Please sign in again.";
+  if (status === 403) return "You do not have permission to perform this action.";
+  if (status === 404) return "The requested record could not be found.";
+  if (status === 405) return "This action is not available.";
+  if (status === 409) return "This record has changed. Refresh and try again.";
+  if (status === 422) return "The submitted data could not be processed. Please check the errors.";
+  if (status === 429) return "Too many requests. Please try again shortly.";
+  return status >= 500 ? "The server encountered an error. Please try again." : undefined;
+}
+
+function serverIssue(message: string) {
+  return {
+    path: [],
+    message,
+    code: "server",
+    source: "server" as const,
+    severity: "error" as const,
   };
 }
 

@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `a9773aa53e4d0b480f18761b2c9e3623bd640731aca975fb209cad781171f600`
+Declaration SHA-256: `1c6c21f6037d16b2bd09c1540d66a76770ff4a49ea25a761bebf0b1283bab823`
 
 ```ts
 // index.d.ts
@@ -168,6 +168,8 @@ declare function useRouteCollection<TCollection extends RouteCollectionSource, T
     readonly collection: TCollection;
     readonly filters?: Schema<TFilters, TContext>;
     readonly pagination?: RoutePaginationCodec;
+    /** Observes a failed URL-driven load after the collection has updated its own error state. */
+    readonly onFailure?: (failure: unknown) => void;
 }): RouteCollection<TCollection>;
 /** Detail-key codecs are needed only when a resource key is calculated rather than a schema field. */
 interface RouteDetailOptions<TKey extends EntityKey> {
@@ -193,6 +195,8 @@ declare function useRouteResource<TResource extends RouteResourceSource, TFilter
     readonly filters: Schema<TFilters, TFilterContext>;
     readonly detail: RouteDetailOptions<RouteResourceKey<TResource>>;
     readonly pagination?: RoutePaginationCodec;
+    /** Observes a failed URL-driven list load after the resource has updated its error state. */
+    readonly onCollectionFailure?: (failure: unknown) => void;
 }): Readonly<{
     resource: TResource;
     collection: RouteCollection<TResource>;

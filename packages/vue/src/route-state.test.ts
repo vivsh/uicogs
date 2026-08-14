@@ -167,6 +167,26 @@ describe("Vue route state", () => {
     scope.stop();
   });
 
+  it("reports URL-driven collection load failures without an unhandled watcher rejection", async () => {
+    const { app } = routeHarness();
+    const source = new TestCollection();
+    const failure = new Error("Network request failed");
+    const onFailure = vi.fn();
+    vi.spyOn(source, "load").mockRejectedValue(failure);
+    const scope = effectScope();
+
+    app.runWithContext(() =>
+      scope.run(() => {
+        const route = useRouteState({ route: "tasks", query: TaskFilters });
+        useRouteCollection({ route, collection: source, filters: TaskFilters, onFailure });
+      }),
+    );
+    await settle();
+
+    expect(onFailure).toHaveBeenCalledWith(failure);
+    scope.stop();
+  });
+
   it("opens and closes a detail parameter without disturbing list query state", async () => {
     const { app, router } = routeHarness();
     await router.push({ name: "tasks", query: { state: "open", page: "2" } });

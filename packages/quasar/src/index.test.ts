@@ -177,6 +177,41 @@ describe("Quasar forms and fields", () => {
     );
   });
 
+  it("reports unexpected form and collection rejections instead of leaving them unhandled", async () => {
+    const schema = defineSchema({ title: fields.Str({ required: true }) });
+    const form = createFormController(schema.toForm(), { title: "Task" }, async () => ({}));
+    vi.spyOn(form, "submit").mockRejectedValue(new Error("Network request failed"));
+    const rejected = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+
+    await rejected.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(rejected.emitted("failure")?.[0]?.[0]).toBeInstanceOf(Error);
+    expect(notifyCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "negative", message: "Network request failed" }),
+    );
+
+    notifyCreate.mockClear();
+    const collection = externalCollection();
+    collection.load.mockRejectedValue(new Error("Network request failed"));
+    const filterForm = createFormController(schema.toForm(), { title: "Task" }, async () => ({}));
+    const filter = mount(UcFilter, {
+      props: { form: filterForm, collection },
+      global: { stubs: quasarStubs },
+    });
+
+    await filter.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(filter.emitted("load-failure")?.[0]?.[0]).toBeInstanceOf(Error);
+    expect(notifyCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "negative", message: "Network request failed" }),
+    );
+  });
+
   it("uses a status-specific message when a submission failure has no message", async () => {
     const schema = defineSchema({ title: fields.Str({ required: true }) });
     const failure: NormalizedFailure = {
@@ -939,6 +974,9 @@ describe("Quasar views and tables", () => {
     });
     await flushPromises();
     expect(wrapper.emitted("failure")?.[0]?.[0]).toBeInstanceOf(Error);
+    expect(notifyCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "negative", message: "Unavailable" }),
+    );
     await wrapper.find(".refresh").trigger("click");
     await flushPromises();
     expect(wrapper.emitted("failure")).toHaveLength(2);

@@ -362,17 +362,15 @@ export const UcForm = defineComponent({
           class: mergeClasses("uc-form", applicationSkin?.form?.class, props.skin?.form?.class),
           style: mergeStyles(applicationSkin?.form?.style, props.skin?.form?.style),
           onSubmit: async () => {
-            const result = await form.submit();
-            if (isSuccess(result)) emit("success", result.value);
-            else {
-              if (isFailureResult(result)) {
-                const message =
-                  result.failure.kind === "validation"
-                    ? props.failureMessage
-                    : failureMessage(result.failure);
-                if (message) UcAlertFailure(message);
+            try {
+              const result = await form.submit();
+              if (isSuccess(result)) {
+                emit("success", result.value);
+                return;
               }
-              emit("failure", result);
+              reportFormFailure(result, props.failureMessage, emit);
+            } catch (failure) {
+              reportFormFailure(failure, props.failureMessage, emit);
             }
           },
         },
@@ -534,14 +532,26 @@ export const UcFilter = defineComponent({
   props: {
     form: { type: Object as PropType<FormLike>, required: true },
     collection: Object as PropType<CollectionLike>,
+    failureMessage: String,
   },
-  setup(props, { slots }) {
+  emits: ["failure", "load-failure"],
+  setup(props, { slots, emit }) {
+    const reload = async (): Promise<void> => {
+      if (!props.collection) return;
+      try {
+        const result = await props.collection.load();
+        if (isFailureResult(result)) reportLoadFailure(result.failure, props.failureMessage, emit);
+      } catch (failure) {
+        reportLoadFailure(failure, props.failureMessage, emit);
+      }
+    };
     return () =>
       h(
         UcForm,
         {
           form: props.form,
-          ...(props.collection ? { onSuccess: () => props.collection!.load() } : {}),
+          ...(props.collection ? { onSuccess: reload } : {}),
+          onFailure: (failure: unknown) => emit("failure", failure),
         },
         slots,
       );
@@ -873,6 +883,7 @@ export const UcResourceView = defineComponent({
     emptyLabel: { type: String, default: "No records" },
     createForm: Object,
     editForm: Object,
+    failureMessage: String,
   },
   emits: [
     "update:modelValue",
@@ -902,9 +913,13 @@ export const UcResourceView = defineComponent({
     const run = async (operation: () => Promise<unknown>): Promise<void> => {
       try {
         const result = await operation();
+        if (isFailureResult(result)) {
+          reportFailure(result.failure, props.failureMessage, emit);
+          return;
+        }
         emit("loaded", result);
-      } catch (error) {
-        emit("failure", error);
+      } catch (failure) {
+        reportFailure(failure, props.failureMessage, emit);
       }
     };
     const bind = (key: EntityKey | undefined): void => {
@@ -971,6 +986,7 @@ export const UcResourceView = defineComponent({
         selectedKeys: props.selectedKeys,
         "onUpdate:selectedKeys": (keys: readonly EntityKey[]) => emit("update:selectedKeys", keys),
         onSelect: open,
+        onFailure: (failure: unknown) => reportFailure(failure, props.failureMessage, emit),
       };
       return props.collection
         ? h(UcTable, { ...tableProps, collection: listCollection as TableCollectionLike })
@@ -1387,6 +1403,29 @@ function reportFailure(
   emit("failure", failure);
 }
 
+function reportFormFailure(
+  failure: unknown,
+  fallback: string,
+  emit: (event: "failure", value: unknown) => void,
+): void {
+  const message =
+    isFailureResult(failure) && failure.failure.kind === "validation"
+      ? fallback
+      : (failureMessage(failure) ?? fallback);
+  if (message) UcAlertFailure(message);
+  emit("failure", failure);
+}
+
+function reportLoadFailure(
+  failure: unknown,
+  fallback: string | undefined,
+  emit: (event: "load-failure", value: unknown) => void,
+): void {
+  const message = failureMessage(failure) ?? fallback;
+  if (message) UcAlertFailure(message);
+  emit("load-failure", failure);
+}
+
 function failureMessage(failure: unknown): string | undefined {
   if (typeof failure === "object" && failure !== null && "failure" in failure)
     return failureMessage(failure.failure);
@@ -1410,6 +1449,7 @@ function statusFailureMessage(status: number): string | undefined {
   if (status === 401) return "Your session has expired. Please sign in again.";
   if (status === 403) return "You do not have permission to perform this action.";
   if (status === 404) return "The requested record could not be found.";
+  if (status === 405) return "This action is not available.";
   if (status === 409) return "This record has changed. Refresh and try again.";
   if (status === 422) return "The submitted data could not be processed. Please check the errors.";
   if (status === 429) return "Too many requests. Please try again shortly.";
