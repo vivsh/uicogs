@@ -302,7 +302,9 @@ targeting Quasar internals. See [Frameworks](docs/frameworks.md#quasar-applicati
 
 Generated Quasar forms can stay stacked while filters use responsive native Quasar
 grid columns. Declare separate field `layout.form` and `layout.filter` metadata,
-configure app-wide defaults through `defineSkin({ layout: ... })`, and use
+configure app-wide defaults through `defineSkin({ layout: ... })`. Set a generated
+control `size` (`"sm"` or `"md"`) to keep filter inputs and UiCogs action buttons at
+the same explicit height, and use
 `UcFilter #actions` for Apply, Reset, and optional-filter controls. See
 [Forms](docs/forms.md#responsive-form-and-filter-layout).
 

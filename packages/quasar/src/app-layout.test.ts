@@ -55,6 +55,7 @@ describe("Quasar application shell", () => {
     expect(wrapper.text()).toContain("Administration");
     expect(wrapper.find(".uc-navigation-tree__item--active").text()).toContain("Notifications");
     expect(wrapper.find(".uc-navigation-tree__badge").text()).toBe("3");
+    expect(wrapper.find("[data-q-item]").attributes("data-clickable")).toBe("true");
     expect(wrapper.find("[data-q-icon]").exists()).toBe(false);
   });
 
@@ -258,8 +259,14 @@ const buttonStub = defineComponent({
 
 const itemStub = defineComponent({
   name: "QItemStub",
-  setup(_props, { attrs, slots }) {
-    return () => h("div", { ...attrs, "data-q-item": true }, slots.default?.());
+  props: { clickable: Boolean },
+  setup(props, { attrs, slots }) {
+    return () =>
+      h(
+        "div",
+        { ...attrs, "data-clickable": String(props.clickable), "data-q-item": true },
+        slots.default?.(),
+      );
   },
 });
 

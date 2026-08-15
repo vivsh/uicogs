@@ -93,9 +93,16 @@ export interface FormSkin {
 export interface UcSurfaceLayout {
   readonly mode?: "stack" | "grid";
   readonly gutter?: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  /** Uses Quasar's compact field geometry; inline actions receive the matching height. */
+  readonly dense?: boolean;
+  /** Applies UiCogs' generated-control typography scale. */
+  readonly size?: UcControlSize;
   readonly default?: ResponsiveFieldLayout;
   readonly kinds?: Readonly<Record<string, ResponsiveFieldLayout>>;
 }
+
+/** Supported visual scales for generated UiCogs Quasar controls. */
+export type UcControlSize = "sm" | "md";
 
 /** Application-wide layout defaults for generated forms and filters. */
 export interface UiCogsQuasarLayout {
@@ -110,6 +117,8 @@ export interface FieldSkin {
   readonly standout?: boolean;
   readonly borderless?: boolean;
   readonly dense?: boolean;
+  /** Removes Quasar's empty hint/error reservation; validation messages may grow the field. */
+  readonly hideBottomSpace?: boolean;
   readonly color?: string;
   readonly bgColor?: string;
   readonly labelColor?: string;
@@ -311,6 +320,9 @@ const skinKey: InjectionKey<UiCogsQuasarSkin> = Symbol("uicogs-quasar-skin");
 const formSkinKey: InjectionKey<() => UiCogsQuasarFormSkin | undefined> =
   Symbol("uicogs-quasar-form-skin");
 const formLayoutKey: InjectionKey<() => ResolvedSurfaceLayout> = Symbol("uicogs-quasar-layout");
+const controlMetricsKey: InjectionKey<() => ResolvedControlMetrics | undefined> = Symbol(
+  "uicogs-quasar-control-metrics",
+);
 const paletteRoles: Readonly<Record<keyof QuasarPalette, string>> = Object.freeze({
   primary: "--q-primary",
   secondary: "--q-secondary",
@@ -411,6 +423,8 @@ export const UcForm = defineComponent({
       type: String as PropType<UcFormActionLayout>,
       default: "footer",
     },
+    dense: { type: Boolean as PropType<boolean | undefined>, default: undefined },
+    size: String as PropType<UcControlSize>,
     surface: {
       type: String as PropType<"form" | "filter">,
       default: "form",
@@ -433,7 +447,14 @@ export const UcForm = defineComponent({
         props.layout,
       ),
     );
+    const inlineActions = computed(
+      () => layout.value.mode === "grid" && props.actionLayout === "inline",
+    );
+    const controlMetrics = computed(() =>
+      resolveControlMetrics(layout.value, props.dense, props.size, inlineActions.value),
+    );
     provide(formLayoutKey, () => layout.value);
+    provide(controlMetricsKey, () => controlMetrics.value);
     return () => {
       const summary = [...form.unboundIssues, ...form.issues.filter((issue) => !issue.path.length)];
       const fields = slots.default?.() ?? [
@@ -447,15 +468,14 @@ export const UcForm = defineComponent({
       const actions =
         slots.actions?.(actionContext) ??
         (slots.default ? undefined : h(UcSubmit, { key: "$submit" }));
-      const inlineActions = layout.value.mode === "grid" && props.actionLayout === "inline";
       const actionRegion = actions
         ? h(
             UcActions,
             {
-              inline: inlineActions,
+              inline: inlineActions.value,
               class:
                 layout.value.mode === "grid"
-                  ? inlineActions
+                  ? inlineActions.value
                     ? "uc-form__actions col-12 col-sm-auto"
                     : "uc-form__actions col-12"
                   : "uc-form__actions",
@@ -525,6 +545,7 @@ export const UcField = defineComponent({
     const applicationSkin = inject(skinKey, undefined);
     const currentFormSkin = inject(formSkinKey, undefined);
     const currentFormLayout = inject(formLayoutKey, undefined);
+    const currentControlMetrics = inject(controlMetricsKey, undefined);
     return () => {
       const field = form.schema.fields.shape[props.name];
       if (!field) throw new Error(`Field ${props.name} is not present in the form schema`);
@@ -546,6 +567,7 @@ export const UcField = defineComponent({
         formAppearance,
         descriptorOptions,
       );
+      const controlMetrics = currentControlMetrics?.();
       const component = quasarRenderers.editor(descriptor) ?? QInput;
       const issues = form.issues.filter((issue) => issue.path[0] === props.name);
       const value = form.values[props.name];
@@ -565,6 +587,7 @@ export const UcField = defineComponent({
                 : undefined;
       const control = h(component as never, {
         ...appearance,
+        ...(controlMetrics === undefined ? {} : { dense: controlMetrics.dense }),
         modelValue,
         "onUpdate:modelValue": (next: unknown) =>
           form.set(props.name, fileKind ? toFileValue(next, Boolean(multiple)) : next),
@@ -594,7 +617,10 @@ export const UcField = defineComponent({
           `uc-field-${cssPart(kind)}`,
           `uc-field-${cssPart(props.name)}`,
         ),
-        style: styleValue(appearance.style),
+        style: mergeStyles(
+          controlMetrics === undefined ? undefined : { fontSize: controlMetrics.fontSize },
+          styleValue(appearance.style),
+        ),
       });
       const rendered = !fileKind
         ? control
@@ -672,7 +698,7 @@ export const UcButton = defineComponent({
     round: Boolean,
     rounded: Boolean,
     square: Boolean,
-    dense: Boolean,
+    dense: { type: Boolean as PropType<boolean | undefined>, default: undefined },
     size: String,
     padding: String,
     fab: Boolean,
@@ -684,14 +710,33 @@ export const UcButton = defineComponent({
     noWrap: Boolean,
   },
   setup(props, { attrs, slots }) {
+    const currentControlMetrics = inject(controlMetricsKey, undefined);
     return () => {
-      const { class: className, ...buttonAttrs } = attrs;
+      const { class: className, style, ...buttonAttrs } = attrs;
+      const controlMetrics = currentControlMetrics?.();
       return h(
         QBtn,
         {
           ...buttonAttrs,
           ...props,
+          ...(props.size === undefined && controlMetrics
+            ? { size: controlMetrics.buttonSize }
+            : {}),
           class: ["uc-button", className],
+          style: mergeStyles(
+            controlMetrics === undefined
+              ? undefined
+              : {
+                  fontSize: controlMetrics.fontSize,
+                  ...(controlMetrics.matchingActionHeight
+                    ? {
+                        height: controlMetrics.matchingActionHeight,
+                        minHeight: controlMetrics.matchingActionHeight,
+                      }
+                    : {}),
+                },
+            styleValue(style),
+          ),
         },
         slots,
       );
@@ -715,6 +760,7 @@ export const UcActions = defineComponent({
             "uc-actions",
             props.inline ? "uc-actions--inline" : undefined,
             "row",
+            "items-start",
             "q-gutter-sm",
             className,
           ],
@@ -731,6 +777,8 @@ export const UcFilter = defineComponent({
     form: { type: Object as PropType<FormLike>, required: true },
     collection: Object as PropType<CollectionLike>,
     layout: Object as PropType<UcSurfaceLayout>,
+    dense: { type: Boolean as PropType<boolean | undefined>, default: undefined },
+    size: String as PropType<UcControlSize>,
     expanded: { type: Boolean as PropType<boolean | undefined>, default: undefined },
     defaultExpanded: { type: Boolean, default: false },
     failureMessage: String,
@@ -825,6 +873,8 @@ export const UcFilter = defineComponent({
           form: props.form,
           surface: "filter",
           layout: props.layout,
+          dense: props.dense,
+          size: props.size,
           actionLayout: layout.value.mode === "grid" ? "inline" : "footer",
           ...(props.collection ? { onSuccess: reload } : {}),
           onFailure: (failure: unknown) => emit("failure", failure),
@@ -1573,8 +1623,17 @@ interface ResolvedSurfaceLayout {
   readonly surface: "form" | "filter";
   readonly mode: "stack" | "grid";
   readonly gutter: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  readonly dense?: boolean;
+  readonly size?: UcControlSize;
   readonly default: ResponsiveFieldLayout;
   readonly kinds: Readonly<Record<string, ResponsiveFieldLayout>>;
+}
+
+interface ResolvedControlMetrics {
+  readonly dense: boolean;
+  readonly buttonSize: UcControlSize;
+  readonly matchingActionHeight?: "40px" | "56px";
+  readonly fontSize: "12px" | "14px";
 }
 
 const defaultFormLayout: UcSurfaceLayout = Object.freeze({ mode: "stack", gutter: "md" });
@@ -1599,6 +1658,8 @@ function freezeSurfaceLayout(layout: UcSurfaceLayout): UcSurfaceLayout {
   return Object.freeze({
     ...(layout.mode === undefined ? {} : { mode: layout.mode }),
     ...(layout.gutter === undefined ? {} : { gutter: layout.gutter }),
+    ...(layout.dense === undefined ? {} : { dense: layout.dense }),
+    ...(layout.size === undefined ? {} : { size: layout.size }),
     ...(layout.default ? { default: Object.freeze({ ...layout.default }) } : {}),
     ...(layout.kinds
       ? {
@@ -1622,6 +1683,8 @@ function resolveSurfaceLayout(
   surface: "form" | "filter" = fallback === defaultFilterLayout ? "filter" : "form",
 ): ResolvedSurfaceLayout {
   const definitions = [fallback, application, local];
+  const dense = lastDefined(definitions.map((definition) => definition?.dense));
+  const size = lastDefined(definitions.map((definition) => definition?.size));
   const kinds = definitions.reduce<Readonly<Record<string, ResponsiveFieldLayout>>>(
     (current, definition) => ({ ...current, ...definition?.kinds }),
     {},
@@ -1630,6 +1693,8 @@ function resolveSurfaceLayout(
     surface,
     mode: lastDefined(definitions.map((definition) => definition?.mode)) ?? "stack",
     gutter: lastDefined(definitions.map((definition) => definition?.gutter)) ?? "none",
+    ...(dense === undefined ? {} : { dense }),
+    ...(size === undefined ? {} : { size }),
     default: mergeResponsiveLayouts(...definitions.map((definition) => definition?.default)),
     kinds: Object.freeze(
       Object.fromEntries(
@@ -1639,6 +1704,25 @@ function resolveSurfaceLayout(
         ]),
       ),
     ),
+  });
+}
+
+/** Resolves the generated field and button metrics for one form or filter surface. */
+function resolveControlMetrics(
+  layout: ResolvedSurfaceLayout,
+  dense: boolean | undefined,
+  size: UcControlSize | undefined,
+  matchInlineActionHeight: boolean,
+): ResolvedControlMetrics | undefined {
+  const resolvedSize = size ?? layout.size;
+  const configuredDense = dense ?? layout.dense;
+  if (resolvedSize === undefined && configuredDense === undefined) return undefined;
+  const resolvedDense = configuredDense ?? resolvedSize === "sm";
+  return Object.freeze({
+    dense: resolvedDense,
+    buttonSize: resolvedSize ?? "md",
+    ...(matchInlineActionHeight ? { matchingActionHeight: resolvedDense ? "40px" : "56px" } : {}),
+    fontSize: resolvedSize === "sm" ? "12px" : "14px",
   });
 }
 
@@ -1695,6 +1779,7 @@ function freezeFieldSkin(skin: FieldSkin): FieldSkin {
     ...(skin.standout === undefined ? {} : { standout: skin.standout }),
     ...(skin.borderless === undefined ? {} : { borderless: skin.borderless }),
     ...(skin.dense === undefined ? {} : { dense: skin.dense }),
+    ...(skin.hideBottomSpace === undefined ? {} : { hideBottomSpace: skin.hideBottomSpace }),
     ...(skin.color === undefined ? {} : { color: skin.color }),
     ...(skin.bgColor === undefined ? {} : { bgColor: skin.bgColor }),
     ...(skin.labelColor === undefined ? {} : { labelColor: skin.labelColor }),

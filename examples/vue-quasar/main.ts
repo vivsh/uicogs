@@ -447,7 +447,7 @@ const app = defineComponent({
                 h("section", { "data-testid": "generated-filter" }, [
                   h(
                     UcFilter,
-                    { form: filterForm },
+                    { form: filterForm, size: "sm" },
                     { actions: () => h(UcSubmit, { label: "Apply filter" }) },
                   ),
                 ]),

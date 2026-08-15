@@ -326,7 +326,9 @@ their numeric spans and `auto`/`grow`/`shrink` values to native `col-*` classes.
 filter fields, and exposes `v-model:expanded`. Both components expose `#actions`;
 filter actions render inline while form actions render after fields by default. Set
 `UcForm action-layout="inline"` when a form action row deliberately shares a grid row
-with fields. See
+with fields. Use `size="sm"` or `size="md"` to give generated fields and UiCogs action
+buttons one explicit shared height; `dense` overrides the inferred compact geometry.
+See
 [Forms](forms.md#responsive-form-and-filter-layout) for the complete contract.
 
 File and image fields use the form's typed file values and progress state.
@@ -343,7 +345,7 @@ injectSkin(
   app,
   defineSkin({
     palette: { primary: "#5b4bdb" },
-    layout: { filter: { gutter: "md", default: { xs: 12, md: 4 } } },
+    layout: { filter: { gutter: "md", size: "sm", default: { xs: 12, md: 4 } } },
     form: { class: "app-form" },
     field: { outlined: true, bgColor: "grey-2" },
   }),
@@ -357,10 +359,12 @@ create `--uc-*` variables.
 
 `UcForm` accepts a local `skin` prop for form and field overrides. Field skins allow
 common Quasar appearance props (`outlined`, `filled`, `standout`, `borderless`,
-`dense`, `color`, `bgColor`, and `labelColor`) plus `class` and `style`. A static
-object or one `{ name, field, form }` resolver is supported. Skin classes and styles
-merge with editor configuration; UiCogs-required model, choice, readonly, and error
-bindings take precedence.
+`dense`, `hideBottomSpace`, `color`, `bgColor`, and `labelColor`) plus `class` and
+`style`. `hideBottomSpace` removes Quasar's empty hint/error reservation; use it for
+compact layouts only when a validation message expanding the field is acceptable. A
+static object or one `{ name, field, form }` resolver is supported. Skin classes and
+styles merge with editor configuration; UiCogs-required model, choice, readonly, and
+error bindings take precedence.
 
 Stable CSS hooks are present without a skin: `uc-form`, `uc-form__stack`, `uc-form__grid`,
 `uc-form__field`, `uc-form__actions`, `uc-filter__static`, `uc-filter__collapsible`,

@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `b20b12d203b61bc1b7732bda01c8ea35f08cd515129427eaa37f4aa44180ade8`
+Declaration SHA-256: `cb429671afb27e7fa9846e365b96bd14890cec717f4e73091a4bb4469eb6f7ea`
 
 ```ts
 // index.d.ts
@@ -247,9 +247,15 @@ interface FormSkin {
 interface UcSurfaceLayout {
     readonly mode?: "stack" | "grid";
     readonly gutter?: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+    /** Uses Quasar's compact field geometry and the matching UiCogs action height. */
+    readonly dense?: boolean;
+    /** Applies UiCogs' generated-control typography scale. */
+    readonly size?: UcControlSize;
     readonly default?: ResponsiveFieldLayout;
     readonly kinds?: Readonly<Record<string, ResponsiveFieldLayout>>;
 }
+/** Supported visual scales for generated UiCogs Quasar controls. */
+type UcControlSize = "sm" | "md";
 /** Application-wide layout defaults for generated forms and filters. */
 interface UiCogsQuasarLayout {
     readonly form?: UcSurfaceLayout;
@@ -262,6 +268,8 @@ interface FieldSkin {
     readonly standout?: boolean;
     readonly borderless?: boolean;
     readonly dense?: boolean;
+    /** Removes Quasar's empty hint/error reservation; validation messages may grow the field. */
+    readonly hideBottomSpace?: boolean;
     readonly color?: string;
     readonly bgColor?: string;
     readonly labelColor?: string;
@@ -442,6 +450,11 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<UcFormActionLayout>;
         default: string;
     };
+    dense: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
+    size: PropType<UcControlSize>;
     surface: {
         type: PropType<"form" | "filter">;
         default: string;
@@ -464,6 +477,11 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
         type: PropType<UcFormActionLayout>;
         default: string;
     };
+    dense: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
+    size: PropType<UcControlSize>;
     surface: {
         type: PropType<"form" | "filter">;
         default: string;
@@ -476,6 +494,7 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     onSuccess?: ((...args: any[]) => any) | undefined;
     onFailure?: ((...args: any[]) => any) | undefined;
 }>, {
+    dense: boolean | undefined;
     actionLayout: UcFormActionLayout;
     surface: "form" | "filter";
     failureMessage: string;
@@ -536,7 +555,10 @@ declare const UcButton: vue.DefineComponent<vue.ExtractPropTypes<{
     round: BooleanConstructor;
     rounded: BooleanConstructor;
     square: BooleanConstructor;
-    dense: BooleanConstructor;
+    dense: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
     size: StringConstructor;
     padding: StringConstructor;
     fab: BooleanConstructor;
@@ -560,7 +582,10 @@ declare const UcButton: vue.DefineComponent<vue.ExtractPropTypes<{
     round: BooleanConstructor;
     rounded: BooleanConstructor;
     square: BooleanConstructor;
-    dense: BooleanConstructor;
+    dense: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
     size: StringConstructor;
     padding: StringConstructor;
     fab: BooleanConstructor;
@@ -577,7 +602,7 @@ declare const UcButton: vue.DefineComponent<vue.ExtractPropTypes<{
     round: boolean;
     rounded: boolean;
     square: boolean;
-    dense: boolean;
+    dense: boolean | undefined;
     fab: boolean;
     fabMini: boolean;
     loading: boolean;
@@ -608,6 +633,11 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     collection: PropType<CollectionLike>;
     layout: PropType<UcSurfaceLayout>;
+    dense: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
+    size: PropType<UcControlSize>;
     expanded: {
         type: PropType<boolean | undefined>;
         default: undefined;
@@ -626,6 +656,11 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     collection: PropType<CollectionLike>;
     layout: PropType<UcSurfaceLayout>;
+    dense: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
+    size: PropType<UcControlSize>;
     expanded: {
         type: PropType<boolean | undefined>;
         default: undefined;
@@ -640,6 +675,7 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
     "onLoad-failure"?: ((...args: any[]) => any) | undefined;
     "onUpdate:expanded"?: ((...args: any[]) => any) | undefined;
 }>, {
+    dense: boolean | undefined;
     expanded: boolean | undefined;
     defaultExpanded: boolean;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
@@ -1118,5 +1154,5 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
 ```

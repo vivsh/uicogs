@@ -25,7 +25,7 @@ test("matches generated filter actions to fields only in a shared desktop row", 
 }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   const filter = page.getByTestId("generated-filter");
-  const field = filter.locator(".uc-field");
+  const field = filter.locator(".uc-field .q-field__control");
   const action = filter.getByRole("button", { name: "Apply filter" });
   await expect(field).toBeVisible();
   await expect(action).toBeVisible();

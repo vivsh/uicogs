@@ -372,10 +372,11 @@ injectSkin(
   app,
   defineSkin({
     layout: {
-      form: { mode: "stack", gutter: "md", default: { xs: 12 } },
+      form: { mode: "stack", gutter: "md", size: "md", default: { xs: 12 } },
       filter: {
         mode: "grid",
         gutter: "md",
+        size: "sm",
         default: { xs: 12, md: 4 },
         kinds: { boolean: { xs: "auto" }, textarea: { xs: 12 } },
       },
@@ -392,6 +393,32 @@ injectSkin(
 `q-gutter-y-*` utility between members; grid layouts use matching `q-col-gutter-*`
 and `q-row-gutter-*` utilities. Set `gutter: "none"` when a custom layout owns all
 spacing.
+
+### Generated control density and size
+
+`UcForm` and `UcFilter` accept `dense` and `size` directly, and the same defaults can
+be declared in `layout.form` and `layout.filter`. `size` is intentionally limited to
+`"sm"` and `"md"`: small controls use Quasar's 40px dense field geometry with 12px
+text, while medium controls use 56px regular geometry with 14px text. A small size
+defaults to dense; an explicit `dense` prop can override that geometry while retaining
+the chosen text scale.
+
+```vue
+<UcForm :form="editor" size="md" />
+<UcFilter :form="filters" size="sm" />
+<UcFilter :form="filters" size="md" dense />
+```
+
+When a surface has a size or dense setting, generated `UcField` editors and UiCogs
+buttons share one resolved density and typography scale. Only actions that share an
+inline grid row with fields receive an explicit matching control height. Raw `QBtn`
+and application-provided custom editors remain application-owned. `"lg"` is deliberately
+unsupported because Quasar has no public per-instance large-field geometry contract.
+
+Field density does not make generated buttons dense: Quasar's `QBtn dense` also removes
+most horizontal padding. UiCogs instead preserves normal button padding and uses an
+explicit height only for inline action rows. Set `dense` directly on `UcButton` when a
+compact application button is genuinely wanted.
 
 ```vue
 <UcFilter v-model:expanded="moreFilters" :form="filterForm">
@@ -425,10 +452,11 @@ create it automatically, so custom action slots normally contain only buttons. U
 ```
 
 `action-layout` defaults to `"footer"`. Set it to `"inline"` only when actions share a
-horizontal grid row with fields. On desktop and tablet widths, direct buttons in that
-shared row match the field-row height through Quasar's native flex layout. At `xs`, the
-action region becomes a full row and its naturally sized buttons wrap safely. Stacked
-forms, form footers, table tools, and detail actions keep their normal Quasar sizing.
+horizontal grid row with fields. Those actions receive the same explicit visible-control
+height as generated fields and align to the row start; they never stretch to a field's
+hint or validation-message area. At `xs`, the action region becomes a full row and its
+buttons wrap safely. Stacked forms, form footers, table tools, and detail actions retain
+Quasar's natural button height, even when their containing form has a UiCogs size.
 
 ### Quasar skin and CSS hooks
 
@@ -451,7 +479,9 @@ injectSkin(
 
 Use `skin` on a form for local form and field overrides. A field skin may instead be
 one callback receiving `{ name, field, form }`, which is useful for state such as
-`form.field(name).dirty`. Field appearance merges application skin, form skin,
+`form.field(name).dirty`. Set `hideBottomSpace: true` when compact fields should not
+reserve Quasar's empty hint/error area; errors then expand the field only when shown.
+Field appearance merges application skin, form skin,
 editor configuration, then UiCogs-required bindings. Model values, validation errors,
 choices, and readonly behavior therefore cannot be replaced by a skin.
 

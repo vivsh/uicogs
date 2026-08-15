@@ -56,6 +56,37 @@ describe("withVue route binding", () => {
     core.dispose();
   });
 
+  /** Verifies optional detail routes link to their list location while required detail routes stay inert. */
+  it("generates destinations only for routes that resolve without parameter values", async () => {
+    const routes = [
+      {
+        name: "tasks",
+        path: "/tasks/:id?",
+        component: Page,
+        meta: { uicogs: { navigation: { side: { label: "Tasks" } } } },
+      },
+      {
+        name: "task-detail",
+        path: "/task-detail/:id",
+        component: Page,
+        meta: { uicogs: { navigation: { side: { label: "Task detail" } } } },
+      },
+    ] satisfies RouteRecordRaw[];
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const router = createRouter({ history: createMemoryHistory(), routes });
+    const core = createUiCogs();
+    const binding = await withVue(core, { navigation: { side: {} } });
+    app.use(router).use(binding.uiCogs);
+    const cogs = app.runWithContext(() => binding.useUiCogs());
+    const side = app.runWithContext(() => cogs.navigation("side"));
+
+    expect(side.value.find((node) => node.id === "tasks")).toMatchObject({
+      to: { name: "tasks" },
+    });
+    expect(side.value.find((node) => node.id === "task-detail")).not.toHaveProperty("to");
+    core.dispose();
+  });
+
   /** Verifies that the native guard receives native Vue Router target data on denial. */
   it("denies scoped routes through the native Vue Router guard", async () => {
     const routes = [

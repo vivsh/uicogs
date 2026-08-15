@@ -4,6 +4,7 @@ import {
   type UcAppLayoutActionProps,
   type UcActionsProps,
   type UcButtonProps,
+  type UcControlSize,
   type UcFormActionLayout,
   type UcNavigationBadge,
   type UcNotification,
@@ -30,10 +31,13 @@ expectAssignable<UiCogsQuasarSkin>(skin);
 expectAssignable<UcSurfaceLayout>({
   mode: "grid",
   gutter: "sm",
+  dense: true,
+  size: "sm",
   default: { xs: 12, md: 4 },
   kinds: { boolean: { xs: "auto" } },
 });
 expectAssignable<FieldSkin>({ dense: true, style: "max-width: 24rem" });
+expectAssignable<UcControlSize>("sm");
 expectType<FieldSkinContext>(undefined as unknown as FieldSkinContext);
 expectAssignable<UcButtonProps>({
   label: "Save",
@@ -51,6 +55,7 @@ expectError(defineSkin({ palette: { "--q-primary": "#5b4bdb" } }));
 expectError(defineSkin({ field: { clearable: true } }));
 expectError(defineSkin({ field: { outlined: () => true } }));
 expectError(defineSkin({ layout: { filter: { gutter: "huge" } } }));
+expectError(defineSkin({ layout: { filter: { size: "lg" } } }));
 expectError(defineSkin({ layout: { form: { default: { xs: 13 } } } }));
 expectError<UcButtonProps>({ compact: true });
 expectError<UcActionsProps>({ inline: "yes" });

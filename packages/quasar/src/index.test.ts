@@ -182,6 +182,7 @@ describe("Quasar forms and fields", () => {
             layout: {
               form: {
                 mode: "grid",
+                size: "sm",
                 default: { xs: 12, md: 4 },
                 kinds: { text: { md: 5 } },
               },
@@ -198,6 +199,8 @@ describe("Quasar forms and fields", () => {
     const cells = wrapper.findAll(".uc-form__field");
     expect(cells[0]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-5"]));
     expect(cells[1]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-8"]));
+    expect(wrapper.findComponent(controlStub).props("dense")).toBe(true);
+    expect(wrapper.findComponent(buttonStub).props("size")).toBe("sm");
   });
 
   it("lays out generated filters horizontally and controls optional filter disclosure", async () => {
@@ -230,7 +233,13 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.find(".uc-filter__static").exists()).toBe(true);
     expect(wrapper.find(".uc-filter__collapsible").exists()).toBe(false);
     expect(wrapper.find(".uc-filter__actions").classes()).toEqual(
-      expect.arrayContaining(["uc-actions", "uc-actions--inline", "col-12", "col-sm-auto"]),
+      expect.arrayContaining([
+        "uc-actions",
+        "uc-actions--inline",
+        "items-start",
+        "col-12",
+        "col-sm-auto",
+      ]),
     );
     expect(wrapper.find(".uc-form__grid").classes()).toEqual(
       expect.arrayContaining(["q-col-gutter-md", "q-row-gutter-md"]),
@@ -240,6 +249,72 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([true]);
     expect(wrapper.find(".uc-filter__collapsible").exists()).toBe(true);
     expect(wrapper.findAll(".uc-form__field")).toHaveLength(2);
+  });
+
+  it("applies shared size metrics to generated fields and actions", () => {
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "Task" });
+    const wrapper = mount(UcForm, {
+      props: {
+        form,
+        size: "sm",
+        layout: { mode: "grid", default: { xs: 12, md: 6 } },
+        actionLayout: "inline",
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    const field = wrapper.findComponent(controlStub);
+    const submit = wrapper.findComponent(buttonStub);
+    expect(field.props("dense")).toBe(true);
+    expect(field.props("style")).toMatchObject({ fontSize: "12px" });
+    expect(submit.props("dense")).toBeUndefined();
+    expect(submit.props("size")).toBe("sm");
+    expect(submit.props("style")).toMatchObject({
+      fontSize: "12px",
+      height: "40px",
+      minHeight: "40px",
+    });
+  });
+
+  it("lets dense compact a medium-size generated control row", () => {
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "Task" });
+    const wrapper = mount(UcForm, {
+      props: {
+        form,
+        size: "md",
+        dense: true,
+        layout: { mode: "grid" },
+        actionLayout: "inline",
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.findComponent(controlStub).props("dense")).toBe(true);
+    expect(wrapper.findComponent(buttonStub).props("dense")).toBeUndefined();
+    expect(wrapper.findComponent(buttonStub).props("style")).toMatchObject({
+      fontSize: "14px",
+      height: "40px",
+      minHeight: "40px",
+    });
+  });
+
+  it("keeps sized footer actions at Quasar's natural button height", () => {
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "Task" });
+    const wrapper = mount(UcForm, {
+      props: { form, size: "md" },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.findComponent(controlStub).props("dense")).toBe(false);
+    expect(wrapper.findComponent(buttonStub).props("size")).toBe("md");
+    expect(wrapper.findComponent(buttonStub).props("style")).toMatchObject({
+      fontSize: "14px",
+    });
+    expect(wrapper.findComponent(buttonStub).props("style")).not.toHaveProperty("height");
+    expect(wrapper.findComponent(buttonStub).props("style")).not.toHaveProperty("minHeight");
   });
 
   it("renders field errors, summaries, progress, submit state, and success", async () => {
@@ -515,7 +590,12 @@ describe("Quasar forms and fields", () => {
         plugins: [
           skinPlugin({
             form: { class: "application-form" },
-            field: { outlined: true, bgColor: "grey-2", class: "application-field" },
+            field: {
+              outlined: true,
+              bgColor: "grey-2",
+              class: "application-field",
+              hideBottomSpace: true,
+            },
           }),
         ],
         stubs: quasarStubs,
@@ -528,6 +608,7 @@ describe("Quasar forms and fields", () => {
     );
     expect(control.props("outlined")).toBe(false);
     expect(control.props("dense")).toBe(true);
+    expect(control.props("hideBottomSpace")).toBe(true);
     expect(control.props("bgColor")).toBe("blue-1");
     expect(control.find("input").classes()).toEqual(
       expect.arrayContaining(["application-field", "schema-title", "uc-field-title"]),
@@ -1603,6 +1684,9 @@ const controlStub = defineComponent({
     standout: Boolean,
     borderless: Boolean,
     dense: Boolean,
+    size: String,
+    style: [String, Object],
+    hideBottomSpace: Boolean,
     color: String,
     bgColor: String,
     labelColor: String,
@@ -1644,6 +1728,9 @@ const buttonStub = defineComponent({
     type: String,
     color: String,
     disable: Boolean,
+    dense: Boolean,
+    size: String,
+    style: [String, Object],
   },
   emits: ["click"],
   setup(props, { attrs, emit, slots }) {

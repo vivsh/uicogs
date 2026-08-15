@@ -148,7 +148,7 @@ function resolveNavigation(
     if (presentation.parent && !knownGroups.has(presentation.parent))
       throw new Error(`Unknown UiCogs navigation parent: ${presentation.parent}`);
     append(children, presentation.parent, {
-      node: routeNode(candidate, presentation, router.currentRoute.value),
+      node: routeNode(candidate, presentation, router.currentRoute.value, router),
       order: presentation.order ?? 0,
       index: candidate.index,
     });
@@ -207,7 +207,7 @@ function resolveBreadcrumbs(
   if (!candidate) return Object.freeze([]);
   const presentation = candidate.record.meta.uicogs!.navigation![placement]!;
   const groups = new Map((navigation[placement]?.groups ?? []).map((group) => [group.id, group]));
-  const link = routeNode(candidate, presentation, current);
+  const link = routeNode(candidate, presentation, current, router);
   return Object.freeze([
     ...groupTrail(presentation.parent, groups).map((group) =>
       Object.freeze({
@@ -299,19 +299,36 @@ function routeNode(
   candidate: RouteCandidate,
   presentation: UiCogsNavigationLink,
   current: RouteLocationNormalizedLoaded,
+  router: Router,
 ): UiCogsNavigationRoute {
   const name = candidate.record.name;
   const id = typeof name === "string" ? name : candidate.record.path;
+  const to = routeDestination(candidate.record, router);
   return Object.freeze({
     kind: "route",
     id,
     label: presentation.label ? labelOf(presentation.label, current) : defaultLabel(id),
     ...(presentation.icon === undefined ? {} : { icon: iconOf(presentation.icon, current) }),
-    ...(isNavigable(candidate.record.path)
-      ? { to: name === undefined ? { path: candidate.record.path } : { name } }
-      : {}),
+    ...(to === undefined ? {} : { to }),
     current: isCurrent(candidate.record, current),
   });
+}
+
+/** Returns a safe generated destination only when Vue Router can resolve the record without values. */
+function routeDestination(
+  record: RouteRecordNormalized,
+  router: Router,
+): RouteLocationRaw | undefined {
+  if (record.name === undefined) {
+    return record.path.includes(":") ? undefined : { path: record.path };
+  }
+  try {
+    const location = { name: record.name };
+    const resolved = router.resolve(location);
+    return resolved.matched.includes(record) ? location : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function groupTrail(
@@ -346,10 +363,6 @@ function defaultLabel(value: string): string {
     .replace(/^\//, "")
     .replace(/[_/-]+/g, " ")
     .replace(/^./, (part) => part.toUpperCase());
-}
-
-function isNavigable(path: string): boolean {
-  return !/:[^/]+/.test(path);
 }
 
 function isCurrent(record: RouteRecordNormalized, current: RouteLocationNormalizedLoaded): boolean {

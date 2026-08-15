@@ -79,7 +79,10 @@ A route can appear in several placements with different labels, icons, parents, 
 orders. `label` and `icon` may be callbacks receiving the current route. Group ids are
 unique per placement. Invalid parents and cycles fail while the plugin installs.
 Inaccessible links disappear, followed by empty groups. Parameterized route records
-have no generated destination because a concrete parameter value is application state.
+with required parameters have no generated destination because a concrete parameter value
+is application state. A named route whose parameters are all optional, such as
+`/tasks/:id?`, receives a generated destination with those parameters omitted, so its
+navigation link opens the list location.
 
 Within a component, navigation and breadcrumbs are reactive computed values:
 
