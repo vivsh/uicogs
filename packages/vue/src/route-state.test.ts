@@ -41,7 +41,7 @@ async function settle(): Promise<void> {
 }
 
 class TestCollection implements RouteCollectionSource {
-  readonly resource = { key: "id", schema: Task };
+  readonly resource = { name: "tasks", key: "id", schema: Task };
   readonly store = new Store({ revision: 0 });
   readonly calls: Array<readonly [string, unknown]> = [];
   loading = false;
@@ -192,7 +192,7 @@ describe("Vue route state", () => {
     await router.push({ name: "tasks", query: { state: "open", page: "2" } });
     const source = new TestCollection();
     const resource = Object.assign(source, {
-      definition: { key: "id", schema: Task },
+      definition: { name: "tasks", key: "id", schema: Task },
       get: (key: number) => ({
         key,
         loading: false,
@@ -229,7 +229,7 @@ describe("Vue route state", () => {
     await router.push({ name: "tasks", query: { state: "open" } });
     const source = new TestCollection();
     const resource = Object.assign(source, {
-      definition: { key: "id", schema: Task },
+      definition: { name: "tasks", key: "id", schema: Task },
       get: (key: number) => ({
         key,
         loading: false,
@@ -267,7 +267,7 @@ describe("Vue route state", () => {
     const { app } = routeHarness();
     const source = new TestCollection();
     const resource = Object.assign(source, {
-      definition: { key: () => 1, schema: Task },
+      definition: { name: "tasks", key: () => 1, schema: Task },
       get: (key: number) => ({
         key,
         loading: false,

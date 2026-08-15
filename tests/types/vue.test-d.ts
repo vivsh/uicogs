@@ -1,5 +1,6 @@
 import { expectAssignable, expectError, expectType } from "tsd";
 import { createUiCogs, fields, resource, schema } from "@uicogs/core";
+import { UcResourceView } from "@uicogs/quasar";
 import { createNavigation } from "@uicogs/routes";
 import {
   standardRoutePagination,
@@ -50,8 +51,10 @@ const form = useRouteForm({ route, schema: TaskFilters });
 expectType<string | undefined>(form.values.status);
 
 declare const collection: {
-  readonly resource: { readonly key: "id"; readonly schema: typeof Task };
+  readonly resource: { readonly name: "tasks"; readonly key: "id"; readonly schema: typeof Task };
   readonly loading: boolean;
+  getSnapshot(): object;
+  subscribe(listener: () => void): () => void;
   all(): readonly Readonly<Record<string, unknown>>[];
   load(): Promise<unknown>;
   refresh(): Promise<unknown>;
@@ -65,6 +68,10 @@ const routeCollection = useRouteCollection({ route, collection, filters: TaskFil
 expectType<Promise<void>>(routeCollection.sort("title", true));
 expectType<Promise<void>>(routeCollection.page(2, 50));
 expectType<Promise<void>>(routeCollection.nextPage());
+type ResourceViewCollection = NonNullable<
+  InstanceType<typeof UcResourceView>["$props"]["collection"]
+>;
+expectAssignable<ResourceViewCollection>(routeCollection);
 
 const customPagination: RoutePaginationCodec = {
   keys: ["offset", "limit"],
@@ -75,9 +82,11 @@ expectType<RoutePaginationCodec>(standardRoutePagination);
 useRouteCollection({ route, collection, filters: TaskFilters, pagination: customPagination });
 
 declare const taskResource: {
-  readonly definition: { readonly key: "id"; readonly schema: typeof Task };
-  readonly resource: { readonly key: "id"; readonly schema: typeof Task };
+  readonly definition: { readonly name: "tasks"; readonly key: "id"; readonly schema: typeof Task };
+  readonly resource: { readonly name: "tasks"; readonly key: "id"; readonly schema: typeof Task };
   readonly loading: boolean;
+  getSnapshot(): object;
+  subscribe(listener: () => void): () => void;
   all(): readonly Readonly<Record<string, unknown>>[];
   load(): Promise<unknown>;
   refresh(): Promise<unknown>;

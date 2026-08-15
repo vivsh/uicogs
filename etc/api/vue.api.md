@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `4158ba1096984030fc9f7798ef4a874df2d6225e443ce35d351cd6b741e356b4`
+Declaration SHA-256: `000575d362cbea6d4e9c383493677f831fe89ab4df6629b43f8c91e584682937`
 
 ```ts
 // index.d.ts
@@ -137,6 +137,7 @@ type RouteCollection<TCollection extends RouteCollectionSource> = Omit<TCollecti
 };
 /** Immutable metadata shared by resources and named query collections. */
 interface RouteCollectionMetadata {
+    readonly name: string;
     readonly key: string | ((value: Readonly<Record<string, unknown>>) => EntityKey);
     readonly schema: {
         readonly shape: Readonly<Record<string, {

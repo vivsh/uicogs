@@ -202,6 +202,7 @@ export type RouteCollection<TCollection extends RouteCollectionSource> = Omit<
 
 /** Immutable metadata shared by resources and named query collections. */
 export interface RouteCollectionMetadata {
+  readonly name: string;
   readonly key: string | ((value: Readonly<Record<string, unknown>>) => EntityKey);
   readonly schema: {
     readonly shape: Readonly<
