@@ -1,5 +1,11 @@
 import { expectError, expectType } from "tsd";
-import { bindChart, chart, type ChartBinding, type EChartsOption } from "@uicogs/echarts";
+import {
+  bindChart,
+  chart,
+  type ChartBinding,
+  type EChartsOption,
+  useUcChart,
+} from "@uicogs/echarts";
 import { createUiCogs, fields, local, resource, schema, type Infer } from "@uicogs/core";
 
 const Candle = schema({
@@ -41,6 +47,7 @@ const CandlestickChart = chart.collection(CandleView, (rows) => {
 const collectionBinding = bindChart(CandlestickChart, api.resource(Candles));
 expectType<ChartBinding>(collectionBinding);
 expectType<EChartsOption>(collectionBinding.option);
+expectType<ChartBinding>(useUcChart(CandlestickChart, api.resource(Candles)));
 expectError(bindChart(CandlestickChart, api.resource(Other)));
 
 const CloseGauge = chart.entity(CandleView, (candle) => ({
@@ -56,4 +63,11 @@ const ContextualMetric = schema.withContext<{ readonly locale: string }>()({
 });
 chart.collection(ContextualMetric, (rows) => ({
   series: [{ type: "bar", data: rows.map((row) => row.value) }],
+}));
+
+declare const StructuralProjection: {
+  readonly _output: { readonly category: string; readonly count: number };
+};
+chart.collection(StructuralProjection, (rows) => ({
+  series: [{ type: "bar", data: rows.map((row) => [row.category, row.count]) }],
 }));

@@ -18,7 +18,15 @@ import {
 } from "@uicogs/core";
 import { sse } from "@uicogs/http";
 import { storage } from "@uicogs/storage";
-import { UcAction, UcDelete, UcFilter, UcResourceView, UcSubmit } from "@uicogs/quasar";
+import {
+  UcAction,
+  UcDelete,
+  UcField,
+  UcFilter,
+  UcForm,
+  UcResourceView,
+  UcSubmit,
+} from "@uicogs/quasar";
 import { UcEChart, chart, useUcChart } from "@uicogs/echarts";
 import * as echarts from "echarts/core";
 import { BarChart } from "echarts/charts";
@@ -196,6 +204,16 @@ const TaskFilters = schema({
     label: "Search tasks",
     layout: { filter: { xs: 12, md: 5 } },
   }),
+});
+const EditorShowcase = schema({
+  body: fields.Markdown({ label: "Markdown body", editor: editor.Markdown({ rows: 4 }) }),
+  published: fields.Date({ label: "Published" }),
+  publishingTime: fields.Time({
+    label: "Publishing time",
+    editor: editor.Time({ minuteStep: 15 }),
+  }),
+  publishingWindow: fields.DateRange({ label: "Publishing window" }),
+  featured: fields.Bool({ label: "Featured", nullable: true }),
 });
 const TaskCreate = Task.drop("id", "project").toForm({ mode: "create", encoding: "auto" });
 const TaskEdit = Task.keep("title", "status", "attachment").toForm({
@@ -386,6 +404,16 @@ const app = defineComponent({
         return {};
       },
     );
+    const editorForm = createFormController(EditorShowcase.toForm(), {
+      body: "# Markdown preview\n\nSafe **content**.",
+      published: new Date("2026-07-21T00:00:00.000Z"),
+      publishingTime: "10:30",
+      publishingWindow: [
+        new Date("2026-07-21T00:00:00.000Z"),
+        new Date("2026-07-31T00:00:00.000Z"),
+      ],
+      featured: null,
+    } as never);
     const completeSelected = async (): Promise<void> => {
       await tasks.bulk.action("complete", selectedKeys.value, { status: "done" });
       await tasks.refresh();
@@ -532,6 +560,19 @@ const app = defineComponent({
                       remoteTeamMembers.values.map((person) => person.name).join(","),
                     ),
                   ]),
+                  h(
+                    "section",
+                    { "data-testid": "editor-showcase", "aria-label": "Editor showcase" },
+                    [
+                      h(UcForm, { form: editorForm }, () => [
+                        h(UcField, { name: "body" }),
+                        h(UcField, { name: "published" }),
+                        h(UcField, { name: "publishingTime" }),
+                        h(UcField, { name: "publishingWindow" }),
+                        h(UcField, { name: "featured" }),
+                      ]),
+                    ],
+                  ),
                 ]),
             },
           ),

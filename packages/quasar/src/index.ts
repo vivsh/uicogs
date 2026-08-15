@@ -21,9 +21,9 @@ import {
   QBtn,
   QCheckbox,
   QColor,
-  QDate,
   QDialog,
   QEditor,
+  QField,
   QFile,
   QForm,
   QInnerLoading,
@@ -37,7 +37,6 @@ import {
   QSelect,
   QTable,
   QTd,
-  QTime,
   QToggle,
   QTr,
   Dialog,
@@ -67,6 +66,10 @@ export * from "./app-layout.js";
 export * from "./alert-host.js";
 export * from "./navigation.js";
 export * from "./notifications.js";
+export { UcMarkdown, renderMarkdown } from "./markdown.js";
+
+import { UcDateEditor, UcDateRangeEditor, UcDateTimeEditor, UcTimeEditor } from "./editors.js";
+import { UcMarkdown, UcMarkdownEditor } from "./markdown.js";
 
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
@@ -233,6 +236,7 @@ interface FieldLike {
       | (() => readonly Readonly<{ label: string; value: unknown; disabled?: boolean }>[]);
     readonly multiple?: boolean;
     readonly readonly?: boolean;
+    readonly nullable?: boolean;
     readonly writeonly?: boolean;
     readonly layout?: FieldLayout;
   }>;
@@ -374,11 +378,68 @@ export function injectSkin(app: App, skin: UiCogsQuasarSkin): () => void {
   };
 }
 
+/** Wraps Quasar's rich-text editor in its native field validation and help surface. */
+const UcRichTextEditor = defineComponent({
+  name: "UcRichTextEditor",
+  inheritAttrs: false,
+  props: {
+    modelValue: { type: String, default: "" },
+    label: String,
+    hint: String,
+    error: Boolean,
+    errorMessage: String,
+    readonly: Boolean,
+    disable: Boolean,
+    toolbar: Array as PropType<readonly string[]>,
+    rows: Number,
+    resize: {
+      type: [String, Boolean] as PropType<"vertical" | "both" | false>,
+      default: "vertical",
+    },
+  },
+  emits: ["update:modelValue"],
+  setup(props, { attrs, emit }) {
+    return () => {
+      const { class: className, ...fieldAttrs } = attrs;
+      return h(
+        QField,
+        {
+          ...fieldAttrs,
+          class: ["uc-rich-text", className],
+          modelValue: props.modelValue,
+          label: props.label,
+          hint: props.hint,
+          error: props.error,
+          errorMessage: props.errorMessage,
+          readonly: props.readonly,
+          disable: props.disable,
+        },
+        {
+          control: () =>
+            h("div", { class: "full-width" }, [
+              h(QEditor, {
+                class: "full-width",
+                modelValue: props.modelValue,
+                readonly: props.readonly,
+                disable: props.disable,
+                toolbar: props.toolbar,
+                minHeight: richTextMinHeight(props.rows),
+                contentStyle: resizeStyle(props.resize),
+                "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
+              }),
+            ]),
+        },
+      );
+    };
+  },
+});
+
 export const quasarRenderers = createRendererRegistry<unknown, unknown>();
 quasarRenderers
   .registerEditor("text", QInput)
   .registerEditor("textarea", QInput)
-  .registerEditor("rich-text", QEditor)
+  .registerEditor("rich-text", UcRichTextEditor)
+  .registerEditor("markdown", UcMarkdownEditor)
   .registerEditor("email", QInput)
   .registerEditor("password", QInput)
   .registerEditor("number", QInput)
@@ -386,10 +447,10 @@ quasarRenderers
   .registerEditor("switch", QToggle)
   .registerEditor("select", QSelect)
   .registerEditor("autocomplete", QSelect)
-  .registerEditor("date", QDate)
-  .registerEditor("time", QTime)
-  .registerEditor("datetime", QInput)
-  .registerEditor("date-range", QDate)
+  .registerEditor("date", UcDateEditor)
+  .registerEditor("time", UcTimeEditor)
+  .registerEditor("datetime", UcDateTimeEditor)
+  .registerEditor("date-range", UcDateRangeEditor)
   .registerEditor("reference", QSelect)
   .registerEditor("reference-list", QSelect)
   .registerEditor("file", QFile)
@@ -406,6 +467,7 @@ quasarRenderers
   .registerFormatter("time", formatDate)
   .registerFormatter("datetime", formatDate)
   .registerFormatter("date-range", formatDateRange)
+  .registerFormatter("markdown", formatMarkdown)
   .registerFormatter("reference", formatReference)
   .registerFormatter("reference-list", formatChoices)
   .registerFormatter("image", formatImage)
@@ -600,10 +662,46 @@ export const UcField = defineComponent({
         multiple,
         ...(field.options?.readonly ? { readonly: true } : {}),
         ...(inputType ? { type: inputType } : {}),
-        ...(kind === "textarea" && descriptorOptions.autogrow !== undefined
-          ? { autogrow: descriptorOptions.autogrow }
+        ...(kind === "textarea"
+          ? {
+              autogrow: booleanOption(descriptorOptions.autogrow),
+              inputStyle: multilineInputStyle(
+                resizeOption(descriptorOptions.resize, descriptorOptions.autogrow),
+              ),
+            }
           : {}),
+        ...(kind === "rich-text"
+          ? {
+              toolbar: stringArrayOption(descriptorOptions.toolbar),
+              rows: numberOption(descriptorOptions.rows),
+              resize: resizeOption(descriptorOptions.resize),
+            }
+          : {}),
+        ...(kind === "markdown"
+          ? {
+              rows: numberOption(descriptorOptions.rows),
+              autogrow: booleanOption(descriptorOptions.autogrow),
+              defaultView: markdownViewOption(descriptorOptions.defaultView),
+              resize: resizeOption(descriptorOptions.resize, descriptorOptions.autogrow),
+            }
+          : {}),
+        ...(kind === "date" || kind === "date-range"
+          ? { min: stringOption(descriptorOptions.min), max: stringOption(descriptorOptions.max) }
+          : {}),
+        ...(kind === "time" || kind === "datetime"
+          ? { minuteStep: numberOption(descriptorOptions.minuteStep) }
+          : {}),
+        ...(kind === "datetime" ? { separate: booleanOption(descriptorOptions.separate) } : {}),
         ...(kind === "date-range" ? { range: true } : {}),
+        ...(kind === "checkbox" || kind === "switch"
+          ? {
+              leftLabel: descriptorOptions.labelPosition === "before",
+              indeterminateValue: null,
+              toggleIndeterminate:
+                booleanOption(descriptorOptions.toggleIndeterminate) ??
+                field.options?.nullable === true,
+            }
+          : {}),
         ...(kind === "image"
           ? { accept: "image/*" }
           : descriptorOptions.accept
@@ -2245,6 +2343,47 @@ function optionsFor(descriptor: Descriptor | undefined): Readonly<Record<string,
     : {};
 }
 
+function stringOption(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function numberOption(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function booleanOption(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringArrayOption(value: unknown): readonly string[] | undefined {
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? Object.freeze([...value])
+    : undefined;
+}
+
+function markdownViewOption(value: unknown): "edit" | "preview" | undefined {
+  return value === "edit" || value === "preview" ? value : undefined;
+}
+
+function resizeOption(value: unknown, autogrow: unknown = false): "vertical" | "both" | false {
+  if (autogrow === true || value === false) return false;
+  return value === "both" ? "both" : "vertical";
+}
+
+function resizeStyle(resize: "vertical" | "both" | false): UiStyle | undefined {
+  return resize === false ? undefined : { overflow: "auto", resize };
+}
+
+function multilineInputStyle(resize: "vertical" | "both" | false): UiStyle | undefined {
+  return resizeStyle(resize);
+}
+
+function richTextMinHeight(rows: number | undefined): string | undefined {
+  return rows === undefined || !Number.isInteger(rows) || rows < 1
+    ? undefined
+    : `calc(${rows} * 1.5em)`;
+}
+
 function fieldChoices(field: FieldLike): readonly unknown[] | undefined {
   const choices = field.options?.choices;
   if (!choices) return undefined;
@@ -2369,6 +2508,11 @@ function formatDateRange(value: unknown, options: Readonly<Record<string, unknow
   return Array.isArray(value)
     ? value.map((item) => formatDate(item, options)).join(String(options.separator ?? " - "))
     : "";
+}
+
+function formatMarkdown(value: unknown, options: Readonly<Record<string, unknown>>): RenderedField {
+  if (typeof value !== "string" || value === "") return String(options.empty ?? "");
+  return h(UcMarkdown, { source: value });
 }
 
 function formatReference(value: unknown): string {

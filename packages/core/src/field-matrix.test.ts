@@ -12,6 +12,7 @@ describe("field catalog", () => {
     expect(fields.Str().parse("value", path)).toBe("value");
     expect(fields.Text().parse("long", path)).toBe("long");
     expect(fields.RichText().parse("<p>text</p>", path)).toBe("<p>text</p>");
+    expect(fields.Markdown().parse("## Heading", path)).toBe("## Heading");
     expect(fields.Email().parse("person@example.test", path)).toBe("person@example.test");
     expect(fields.Password().parse("secret", path)).toBe("secret");
     expect(fields.Phone().parse("+12025550123", path)).toBe("+12025550123");
@@ -20,6 +21,11 @@ describe("field catalog", () => {
     expect(fields.Float().parse("8.5", path)).toBe(8.5);
     expect(fields.Bool().parse("yes", path)).toBe(true);
     expect(fields.Bool().parse("off", path)).toBe(false);
+    expect(fields.Bool({ nullable: true }).parse(null, path)).toBeNull();
+    const nullableBoolean = defineSchema({ featured: fields.Bool({ nullable: true }) });
+    const nullableValue = nullableBoolean.parse({ featured: null });
+    expect(nullableBoolean.write(nullableValue)).toEqual({ featured: null });
+    expect(nullableBoolean.toQuery(nullableValue)).toEqual({});
 
     const date = fields.Date().parse("2026-01-02", path);
     const dateTime = fields.DateTime().parse("2026-01-02T03:04:05Z", path);
@@ -124,6 +130,7 @@ describe("field catalog", () => {
       editor.Text(),
       editor.Textarea(),
       editor.RichText(),
+      editor.Markdown({ defaultView: "preview" }),
       editor.Email(),
       editor.Password(),
       editor.Number(),
@@ -151,6 +158,7 @@ describe("field catalog", () => {
       format.Time(),
       format.DateTime(),
       format.DateRange(),
+      format.Markdown(),
       format.Reference(),
       format.ReferenceList(),
       format.Image(),

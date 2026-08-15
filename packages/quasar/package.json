@@ -29,7 +29,9 @@
   },
   "dependencies": {
     "@uicogs/core": "workspace:^",
-    "@uicogs/vue": "workspace:^"
+    "@uicogs/vue": "workspace:^",
+    "dompurify": "^3.4.13",
+    "markdown-it": "^15.0.0"
   },
   "engines": {
     "node": ">=22"
@@ -41,5 +43,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2"
   }
 }

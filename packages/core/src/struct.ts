@@ -65,6 +65,8 @@ export const struct = {
     decorate(fields.Text(config) as never),
   RichText: <TContext = unknown>(config: StringConfig<TContext> = {}) =>
     decorate(fields.RichText(config) as never),
+  Markdown: <TContext = unknown>(config: StringConfig<TContext> = {}) =>
+    decorate(fields.Markdown(config) as never),
   Email: <TContext = unknown>(config: StringConfig<TContext> = {}) =>
     decorate(fields.Email(config) as never),
   Password: <TContext = unknown>(config: StringConfig<TContext> = {}) =>

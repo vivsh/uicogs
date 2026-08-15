@@ -2,11 +2,12 @@ import {
   bindChart,
   type ChartCollection,
   type ChartBinding,
+  type ChartSchema,
   type CollectionChartDefinition,
   type EntityChartDefinition,
 } from "./chart.js";
 import type { EChartsEngine, EChartsInitOptions, EChartsTheme } from "./types.js";
-import type { EntityKey, Infer, ResourceObject, Schema, Shape } from "@uicogs/core";
+import type { EntityKey, Infer, ResourceObject } from "@uicogs/core";
 import {
   defineComponent,
   getCurrentScope,
@@ -21,14 +22,14 @@ import {
 
 /** Binds a chart to a UiCogs controller and disposes the binding with the current Vue scope. */
 export function useUcChart<
-  TSchema extends Schema<Shape, unknown>,
+  TSchema extends ChartSchema,
   TValue extends Infer<TSchema>,
   TSource extends ChartCollection<TValue>,
 >(definition: CollectionChartDefinition<TSchema>, source: TSource): ChartBinding;
 
 /** Binds an entity chart to a Vue scope. */
 export function useUcChart<
-  TSchema extends Schema<Shape, unknown>,
+  TSchema extends ChartSchema,
   TValue extends Infer<TSchema>,
   TKey extends EntityKey,
   TContext,
@@ -38,9 +39,7 @@ export function useUcChart<
 ): ChartBinding;
 
 export function useUcChart(
-  definition:
-    | CollectionChartDefinition<Schema<Shape, unknown>>
-    | EntityChartDefinition<Schema<Shape, unknown>>,
+  definition: CollectionChartDefinition<ChartSchema> | EntityChartDefinition<ChartSchema>,
   source:
     | ChartCollection<Readonly<Record<string, unknown>>>
     | ResourceObject<Readonly<Record<string, unknown>>, EntityKey, unknown>,

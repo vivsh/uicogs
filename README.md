@@ -308,6 +308,10 @@ the same explicit height, and use
 `UcFilter #actions` for Apply, Reset, and optional-filter controls. See
 [Forms](docs/forms.md#responsive-form-and-filter-layout).
 
+Core schemas also include Markdown, date/time, date-range, rich-text, and nullable
+Boolean semantics. The Quasar adapter supplies safe Markdown preview, popup temporal
+pickers, and three-state nullable Boolean controls.
+
 ## Installation
 
 Install only the runtime and adapters your application uses once packages are published:

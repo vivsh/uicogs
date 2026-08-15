@@ -63,6 +63,27 @@ test("keeps generated filter actions naturally sized and reachable on mobile", a
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
 });
 
+test("renders Markdown preview and cycles a nullable generated Boolean", async ({ page }) => {
+  const showcase = page.getByTestId("editor-showcase");
+  await expect(showcase.getByRole("button", { name: "Preview" })).toBeVisible();
+  await showcase.getByRole("button", { name: "Preview" }).click();
+  await expect(showcase.locator(".uc-markdown__preview").getByRole("heading")).toHaveText(
+    "Markdown preview",
+  );
+
+  const featured = showcase.getByRole("checkbox", { name: "Featured" });
+  await expect(featured).toHaveAttribute("aria-checked", "mixed");
+  await featured.click();
+  await expect(featured).toBeChecked();
+  await featured.click();
+  await expect(featured).not.toBeChecked();
+  await featured.click();
+  await expect(featured).toHaveAttribute("aria-checked", "mixed");
+
+  await showcase.locator(".uc-field-published .cursor-pointer").click();
+  await expect(page.locator(".q-date")).toBeVisible();
+});
+
 test("creates, edits and uploads through schema-driven forms", async ({ page }) => {
   await page.getByRole("button", { name: "Create task" }).click();
   await page.getByRole("textbox", { name: "Task title" }).fill("Ship release");

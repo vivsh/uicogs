@@ -1,7 +1,9 @@
 import { expectAssignable, expectError, expectType } from "tsd";
 import {
   createUiCogs,
+  editor,
   fields,
+  format,
   local,
   memoryCache,
   operation,
@@ -55,6 +57,23 @@ const PureUser = schema({
   name: fields.Str({ required: true }),
 });
 const PureInput = schema({ notify: fields.Bool({ required: true }) });
+const NullableBoolean = schema({ featured: fields.Bool({ nullable: true }) });
+const MarkdownDocument = schema({ body: fields.Markdown() });
+void NullableBoolean;
+void MarkdownDocument;
+expectType<boolean | null | undefined>({} as Infer<typeof NullableBoolean>["featured"]);
+expectType<string | undefined>({} as Infer<typeof MarkdownDocument>["body"]);
+expectAssignable(editor.Markdown({ rows: 8, defaultView: "preview" }));
+expectAssignable(editor.Textarea({ resize: "vertical" }));
+expectAssignable(editor.RichText({ resize: "both" }));
+expectAssignable(editor.Markdown({ resize: false }));
+expectAssignable(editor.RichText({ rows: 8 }));
+expectAssignable(format.Markdown({ empty: "No content" }));
+expectError(editor.Markdown({ defaultView: "split" }));
+expectError(editor.Textarea({ resize: "horizontal" }));
+expectError(editor.RichText({ resize: true }));
+expectError(editor.RichText({ rows: "eight" }));
+expectError(editor.Checkbox({ toggleIndeterminate: "yes" }));
 const PureInputForm = PureInput.toForm();
 const PureUsers = resource({
   name: "pure-users",

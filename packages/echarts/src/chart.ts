@@ -5,12 +5,15 @@ import {
   type ExternalStore,
   type Infer,
   type ResourceObject,
-  type Schema,
-  type Shape,
 } from "@uicogs/core";
 import type { EChartsOption, SetOptionOpts } from "echarts";
 
 export type ChartKind = "collection" | "entity";
+
+/** Structural schema projection required to infer values passed to a chart option factory. */
+export interface ChartSchema {
+  readonly _output: unknown;
+}
 
 export interface ChartRenderOptions {
   readonly setOption?: SetOptionOpts;
@@ -26,7 +29,7 @@ export interface ChartCollection<TValue> extends ExternalStore<object> {
 }
 
 /** An immutable ECharts option definition bound to one UiCogs schema projection. */
-export class ChartDefinition<TKind extends ChartKind, TSchema extends Schema<Shape, unknown>> {
+export class ChartDefinition<TKind extends ChartKind, TSchema extends ChartSchema> {
   readonly renderOptions: Readonly<ChartRenderOptions>;
 
   constructor(
@@ -42,18 +45,15 @@ export class ChartDefinition<TKind extends ChartKind, TSchema extends Schema<Sha
   }
 }
 
-export type CollectionChartDefinition<TSchema extends Schema<Shape, unknown>> = ChartDefinition<
+export type CollectionChartDefinition<TSchema extends ChartSchema> = ChartDefinition<
   "collection",
   TSchema
 >;
 
-export type EntityChartDefinition<TSchema extends Schema<Shape, unknown>> = ChartDefinition<
-  "entity",
-  TSchema
->;
+export type EntityChartDefinition<TSchema extends ChartSchema> = ChartDefinition<"entity", TSchema>;
 
 /** Builds an immutable chart definition that receives collection rows. */
-function collection<TSchema extends Schema<Shape, unknown>>(
+function collection<TSchema extends ChartSchema>(
   schema: TSchema,
   option: CollectionOption<Infer<TSchema>>,
   renderOptions?: ChartRenderOptions,
@@ -62,7 +62,7 @@ function collection<TSchema extends Schema<Shape, unknown>>(
 }
 
 /** Builds an immutable chart definition that receives one resource entity. */
-function entity<TSchema extends Schema<Shape, unknown>>(
+function entity<TSchema extends ChartSchema>(
   schema: TSchema,
   option: EntityOption<Infer<TSchema>>,
   renderOptions?: ChartRenderOptions,
@@ -129,14 +129,14 @@ class ChartBindingController<TValue> implements ChartBinding {
 
 /** Binds a collection chart to a compatible UiCogs collection controller. */
 export function bindChart<
-  TSchema extends Schema<Shape, unknown>,
+  TSchema extends ChartSchema,
   TValue extends Infer<TSchema>,
   TSource extends ChartCollection<TValue>,
 >(definition: CollectionChartDefinition<TSchema>, source: TSource): ChartBinding;
 
 /** Binds an entity chart to a compatible UiCogs object controller. */
 export function bindChart<
-  TSchema extends Schema<Shape, unknown>,
+  TSchema extends ChartSchema,
   TValue extends Infer<TSchema>,
   TKey extends EntityKey,
   TContext,
@@ -146,7 +146,7 @@ export function bindChart<
 ): ChartBinding;
 
 export function bindChart(
-  definition: ChartDefinition<ChartKind, Schema<Shape, unknown>>,
+  definition: ChartDefinition<ChartKind, ChartSchema>,
   source:
     | ChartCollection<Readonly<Record<string, unknown>>>
     | ResourceObject<Readonly<Record<string, unknown>>, EntityKey, unknown>,

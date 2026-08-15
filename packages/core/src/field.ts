@@ -430,6 +430,7 @@ function stringField<
   kind: string,
   config?: TConfig,
   defaultEditor: Descriptor = editor.Text(),
+  defaultFormat: Descriptor = format.Text(),
 ): Field<
   string,
   NullableOf<TConfig, string>,
@@ -459,7 +460,7 @@ function stringField<
     ...options,
     kind,
     editor: options.editor ?? defaultEditor,
-    format: options.format ?? format.Text(),
+    format: options.format ?? defaultFormat,
     validate: validators,
     parse:
       options.parse ??
@@ -656,6 +657,12 @@ export const fields = {
   >(
     config?: TConfig,
   ) => stringField("rich-text", config, editor.RichText()),
+  Markdown: <
+    TContext = unknown,
+    const TConfig extends StringConfig<TContext> = StringConfig<TContext>,
+  >(
+    config?: TConfig,
+  ) => stringField("markdown", config, editor.Markdown(), format.Markdown()),
   Email: <
     TContext = unknown,
     const TConfig extends StringConfig<TContext> = StringConfig<TContext>,

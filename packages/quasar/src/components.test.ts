@@ -29,6 +29,7 @@ import {
   UcField,
   UcFilter,
   UcForm,
+  UcMarkdown,
   UcResourceView,
   UcSubmit,
   UcTable,
@@ -88,6 +89,117 @@ describe("Quasar forms and fields", () => {
       global: { stubs: quasarStubs },
     });
     expect(wrapper.findAll("input")).toHaveLength(1);
+  });
+
+  it("renders Markdown safely and provides a generated edit and preview field", async () => {
+    const markdown = mount(UcMarkdown, {
+      props: { source: "# Heading\n\n<script>alert('unsafe')</script>" },
+    });
+    expect(markdown.html()).toContain("<h1>Heading</h1>");
+    expect(markdown.html()).not.toContain("<script");
+
+    const schema = defineSchema({ body: fields.Markdown({ editor: editor.Markdown() }) });
+    const form = createFormController(schema.toForm(), { body: "# Draft" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.find(".uc-markdown__editor").exists()).toBe(true);
+    await wrapper.find(".uc-markdown__toggle").trigger("click");
+    expect(wrapper.find(".uc-markdown__preview").exists()).toBe(true);
+  });
+
+  it("configures nullable generated booleans as tri-state controls", () => {
+    const schema = defineSchema({
+      visible: fields.Bool({ nullable: true, editor: editor.Checkbox() }),
+      featured: fields.Bool({
+        nullable: true,
+        editor: editor.Switch({ toggleIndeterminate: false }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), {
+      visible: null,
+      featured: null,
+    } as never);
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    const controls = wrapper.findAllComponents(controlStub);
+    expect(controls[0]?.props("indeterminateValue")).toBeNull();
+    expect(controls[0]?.props("toggleIndeterminate")).toBe(true);
+    expect(controls[1]?.props("toggleIndeterminate")).toBe(false);
+  });
+
+  it("binds generated popup temporal editors and rich-text field validation", async () => {
+    const schema = defineSchema({
+      published: fields.Date({ editor: editor.Date({ min: "2026-07-01", max: "2026-07-31" }) }),
+      window: fields.DateRange({ editor: editor.DateRange() }),
+      body: fields.RichText({ editor: editor.RichText({ toolbar: ["bold"] }) }),
+    });
+    const form = createFormController(schema.toForm(), {
+      published: new Date("2026-07-10T00:00:00.000Z"),
+      window: [new Date("2026-07-11T00:00:00.000Z"), new Date("2026-07-12T00:00:00.000Z")],
+      body: "<p>Draft</p>",
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: {
+        stubs: quasarStubs,
+        config: {
+          globalProperties: {
+            $q: { iconSet: { datetime: { now: "clock-icon", today: "calendar-icon" } } },
+          } as never,
+        },
+      },
+    });
+    const popups = wrapper.findAll(".q-popup-proxy");
+    expect(popups).toHaveLength(2);
+    await popups[0]!.findComponent(controlStub).vm.$emit("update:modelValue", "2026-07-21");
+    const published = form.values.published;
+    expect(published).toBeInstanceOf(Date);
+    expect((published as Date).toISOString()).toBe("2026-07-21T00:00:00.000Z");
+    expect(
+      wrapper
+        .findAllComponents(controlStub)
+        .some((control) => control.props("toolbar")?.[0] === "bold"),
+    ).toBe(true);
+    const richText = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => control.props("toolbar")?.[0] === "bold");
+    expect(richText?.find("input").classes()).toContain("full-width");
+    expect(richText?.props("contentStyle")).toEqual({ overflow: "auto", resize: "vertical" });
+    expect(wrapper.findComponent({ name: "QIconStub" }).props("name")).toBe("calendar-icon");
+  });
+
+  it("provides native resizing for multiline editors and keeps autogrowing fields automatic", () => {
+    const schema = defineSchema({
+      description: fields.Text({ editor: editor.Textarea() }),
+      growing: fields.Text({ editor: editor.Textarea({ autogrow: true }) }),
+      body: fields.RichText({ editor: editor.RichText({ rows: 8, resize: "both" }) }),
+      markdown: fields.Markdown({ editor: editor.Markdown({ resize: false }) }),
+    });
+    const form = createFormController(schema.toForm(), {
+      description: "Text",
+      growing: "Growing text",
+      body: "<p>Text</p>",
+      markdown: "# Text",
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    const controls = wrapper.findAllComponents(controlStub);
+    const textarea = controls.find((control) => control.props("modelValue") === "Text");
+    const autogrowing = controls.find((control) => control.props("modelValue") === "Growing text");
+    const richText = controls.find((control) => control.props("modelValue") === "<p>Text</p>");
+    const markdown = controls.find((control) => control.props("modelValue") === "# Text");
+
+    expect(textarea?.props("inputStyle")).toEqual({ overflow: "auto", resize: "vertical" });
+    expect(autogrowing?.props("inputStyle")).toBeUndefined();
+    expect(richText?.props("contentStyle")).toEqual({ overflow: "auto", resize: "both" });
+    expect(richText?.props("minHeight")).toBe("calc(8 * 1.5em)");
+    expect(markdown?.props("inputStyle")).toBeUndefined();
   });
 
   it("renders field errors, summaries, progress, submit state, and success", async () => {
@@ -219,8 +331,9 @@ describe("Quasar forms and fields", () => {
     expect(inputs[0]?.attributes("type")).toBe("email");
     expect(inputs[1]?.attributes("type")).toBe("password");
     expect(inputs[2]?.attributes("data-range")).toBe("true");
-    expect(inputs[3]?.attributes("aria-label")).toBe("State");
-    expect(inputs[3]?.attributes("data-options")).toBe("1");
+    const state = wrapper.find('input[aria-label="State"]');
+    expect(state.exists()).toBe(true);
+    expect(state.attributes("data-options")).toBe("1");
   });
 
   it("reports fields absent from the form schema", () => {
@@ -742,6 +855,8 @@ describe("Quasar formatter registry", () => {
     expect(render("date", new Date("2026-07-21T00:00:00Z"))).not.toBe("");
     expect(render("date-range", ["2026-07-01", "2026-07-31"])).toContain("-");
     expect(render("date-range", "invalid")).toBe("");
+    expect(render("markdown", "## Heading")).toMatchObject({ type: UcMarkdown });
+    expect(render("markdown", "", { empty: "No content" })).toBe("No content");
     expect(render("reference", { title: "Task" })).toBe("Task");
     expect(render("reference", { label: "Label" })).toBe("Label");
     expect(render("reference", { name: "Name" })).toBe("Name");
@@ -776,7 +891,7 @@ const controlStub = defineComponent({
     type: String,
     error: Boolean,
     range: Boolean,
-    options: Array,
+    options: [Array, Function],
     multiple: Boolean,
     readonly: Boolean,
     accept: String,
@@ -785,12 +900,27 @@ const controlStub = defineComponent({
     standout: Boolean,
     borderless: Boolean,
     dense: Boolean,
+    toolbar: Array,
+    rows: Number,
+    minHeight: String,
+    autogrow: Boolean,
+    inputStyle: [String, Array, Object],
+    contentStyle: [String, Array, Object],
+    resize: [String, Boolean],
+    defaultView: String,
+    min: String,
+    max: String,
+    minuteStep: Number,
+    separate: Boolean,
+    leftLabel: Boolean,
+    indeterminateValue: null,
+    toggleIndeterminate: Boolean,
     color: String,
     bgColor: String,
     labelColor: String,
   },
   emits: ["update:modelValue"],
-  setup(props, { attrs, emit }) {
+  setup(props, { attrs, emit, slots }) {
     return () =>
       h("label", [
         props.label,
@@ -812,6 +942,7 @@ const controlStub = defineComponent({
           },
         }),
         props.hint ? h("small", props.hint) : undefined,
+        slots.append?.(),
       ]);
   },
 });
@@ -918,11 +1049,37 @@ const quasarStubs = {
   QForm: formStub,
   QInput: controlStub,
   QEditor: controlStub,
+  QField: defineComponent({
+    name: "QFieldStub",
+    props: { label: String, hint: String, error: Boolean, errorMessage: String },
+    setup(props, { slots }) {
+      return () =>
+        h("label", [
+          props.label,
+          slots.control?.(),
+          props.hint ? h("small", props.hint) : undefined,
+          props.error ? h("small", props.errorMessage) : undefined,
+        ]);
+    },
+  }),
   QCheckbox: controlStub,
   QToggle: controlStub,
   QSelect: controlStub,
   QDate: controlStub,
   QTime: controlStub,
+  QPopupProxy: defineComponent({
+    name: "QPopupProxyStub",
+    setup(_props, { slots }) {
+      return () => h("div", { class: "q-popup-proxy" }, slots.default?.());
+    },
+  }),
+  QIcon: defineComponent({
+    name: "QIconStub",
+    props: { name: String },
+    setup(_props, { slots }) {
+      return () => h("span", slots.default?.());
+    },
+  }),
   QColor: controlStub,
   QFile: defineComponent({
     name: "QFileStub",

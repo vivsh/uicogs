@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `cb429671afb27e7fa9846e365b96bd14890cec717f4e73091a4bb4469eb6f7ea`
+Declaration SHA-256: `238254234aa066d11ce752888ee31c2753fa45f697e560a8c79b829c39456a77`
 
 ```ts
 // index.d.ts
@@ -225,6 +225,23 @@ declare const UcAlertHost: vue.DefineComponent<vue.ExtractPropTypes<{
     source: PropType<AlertController>;
 }>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
+/** Renders Markdown through UiCogs' safe parser and sanitizer. */
+declare function renderMarkdown(source: string): string;
+/** Renders a safe Markdown document without introducing a UiCogs visual skin. */
+declare const UcMarkdown: vue.DefineComponent<vue.ExtractPropTypes<{
+    source: {
+        type: StringConstructor;
+        required: true;
+    };
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    source: {
+        type: StringConstructor;
+        required: true;
+    };
+}>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
 /** The supported Quasar palette roles that UiCogs can scope to one Vue application. */
@@ -247,7 +264,7 @@ interface FormSkin {
 interface UcSurfaceLayout {
     readonly mode?: "stack" | "grid";
     readonly gutter?: "none" | "xs" | "sm" | "md" | "lg" | "xl";
-    /** Uses Quasar's compact field geometry and the matching UiCogs action height. */
+    /** Uses Quasar's compact field geometry; inline actions receive the matching height. */
     readonly dense?: boolean;
     /** Applies UiCogs' generated-control typography scale. */
     readonly size?: UcControlSize;
@@ -354,6 +371,7 @@ interface FieldLike {
         }>[]);
         readonly multiple?: boolean;
         readonly readonly?: boolean;
+        readonly nullable?: boolean;
         readonly writeonly?: boolean;
         readonly layout?: FieldLayout;
     }>;
@@ -811,8 +829,8 @@ declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
     rowClass: PropType<(row: Readonly<Record<string, unknown>>) => string | readonly string[] | undefined>;
     aggregate: PropType<(rows: readonly Readonly<Record<string, unknown>>[]) => readonly Readonly<Record<string, unknown>>[]>;
 }>> & Readonly<{
-    onFailure?: ((...args: any[]) => any) | undefined;
     onSelect?: ((...args: any[]) => any) | undefined;
+    onFailure?: ((...args: any[]) => any) | undefined;
     "onUpdate:selectedKeys"?: ((...args: any[]) => any) | undefined;
     onLoaded?: ((...args: any[]) => any) | undefined;
 }>, {
@@ -878,7 +896,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "update:modelValue" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel")[], "create" | "update:modelValue" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     resource: {
         type: PropType<ResourceLike>;
         required: true;
@@ -931,9 +949,9 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     failureMessage: StringConstructor;
 }>> & Readonly<{
-    onFailure?: ((...args: any[]) => any) | undefined;
-    onSelect?: ((...args: any[]) => any) | undefined;
     "onUpdate:modelValue"?: ((...args: any[]) => any) | undefined;
+    onSelect?: ((...args: any[]) => any) | undefined;
+    onFailure?: ((...args: any[]) => any) | undefined;
     "onUpdate:selectedKeys"?: ((...args: any[]) => any) | undefined;
     onLoaded?: ((...args: any[]) => any) | undefined;
     onCreate?: ((...args: any[]) => any) | undefined;
@@ -1058,7 +1076,7 @@ declare const UcAction: vue.DefineComponent<vue.ExtractPropTypes<{
     failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("success" | "failure" | "cancel" | "start")[], "success" | "failure" | "cancel" | "start", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("cancel" | "success" | "failure" | "start")[], "cancel" | "success" | "failure" | "start", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     action: {
         type: PropType<(() => unknown | Promise<unknown>) | ActionLike>;
         required: true;
@@ -1086,9 +1104,9 @@ declare const UcAction: vue.DefineComponent<vue.ExtractPropTypes<{
     successMessage: StringConstructor;
     failureMessage: StringConstructor;
 }>> & Readonly<{
+    onCancel?: ((...args: any[]) => any) | undefined;
     onSuccess?: ((...args: any[]) => any) | undefined;
     onFailure?: ((...args: any[]) => any) | undefined;
-    onCancel?: ((...args: any[]) => any) | undefined;
     onStart?: ((...args: any[]) => any) | undefined;
 }>, {
     color: string;
@@ -1120,7 +1138,7 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     };
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("success" | "failure" | "cancel")[], "success" | "failure" | "cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("cancel" | "success" | "failure")[], "cancel" | "success" | "failure", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     action: {
         type: PropType<(() => unknown | Promise<unknown>) | ActionLike>;
         required: true;
@@ -1144,9 +1162,9 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
         default: boolean;
     };
 }>> & Readonly<{
+    onCancel?: ((...args: any[]) => any) | undefined;
     onSuccess?: ((...args: any[]) => any) | undefined;
     onFailure?: ((...args: any[]) => any) | undefined;
-    onCancel?: ((...args: any[]) => any) | undefined;
 }>, {
     label: string;
     flat: boolean;
@@ -1154,5 +1172,5 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, UcMarkdown, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers, renderMarkdown };
 ```

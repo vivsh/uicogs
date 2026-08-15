@@ -1,10 +1,10 @@
 # @uicogs/echarts API
 
-Declaration SHA-256: `5de6cef5a7ae00905386fcc7bb58584f3fd6db42267bcf614692626092274e7e`
+Declaration SHA-256: `3f2ed4cb14299539d064885173356d953f5c74cb7f2a0e8d43e0785a4cbdeebb`
 
 ```ts
 // index.d.ts
-import { ExternalStore, Schema, Shape, Infer, EntityKey, ResourceObject } from '@uicogs/core';
+import { ExternalStore, Infer, EntityKey, ResourceObject } from '@uicogs/core';
 import * as EChartsModule from 'echarts';
 import { EChartsOption, SetOptionOpts } from 'echarts';
 export { EChartsOption, SetOptionOpts } from 'echarts';
@@ -12,6 +12,10 @@ import * as vue from 'vue';
 import { PropType } from 'vue';
 
 type ChartKind = "collection" | "entity";
+/** Structural schema projection required to infer values passed to a chart option factory. */
+interface ChartSchema {
+    readonly _output: unknown;
+}
 interface ChartRenderOptions {
     readonly setOption?: SetOptionOpts;
 }
@@ -22,19 +26,19 @@ interface ChartCollection<TValue> extends ExternalStore<object> {
     all(): readonly Readonly<TValue>[];
 }
 /** An immutable ECharts option definition bound to one UiCogs schema projection. */
-declare class ChartDefinition<TKind extends ChartKind, TSchema extends Schema<Shape, unknown>> {
+declare class ChartDefinition<TKind extends ChartKind, TSchema extends ChartSchema> {
     readonly kind: TKind;
     readonly schema: TSchema;
     readonly option: TKind extends "collection" ? CollectionOption<Infer<TSchema>> : EntityOption<Infer<TSchema>>;
     readonly renderOptions: Readonly<ChartRenderOptions>;
     constructor(kind: TKind, schema: TSchema, option: TKind extends "collection" ? CollectionOption<Infer<TSchema>> : EntityOption<Infer<TSchema>>, renderOptions?: ChartRenderOptions);
 }
-type CollectionChartDefinition<TSchema extends Schema<Shape, unknown>> = ChartDefinition<"collection", TSchema>;
-type EntityChartDefinition<TSchema extends Schema<Shape, unknown>> = ChartDefinition<"entity", TSchema>;
+type CollectionChartDefinition<TSchema extends ChartSchema> = ChartDefinition<"collection", TSchema>;
+type EntityChartDefinition<TSchema extends ChartSchema> = ChartDefinition<"entity", TSchema>;
 /** Builds an immutable chart definition that receives collection rows. */
-declare function collection<TSchema extends Schema<Shape, unknown>>(schema: TSchema, option: CollectionOption<Infer<TSchema>>, renderOptions?: ChartRenderOptions): CollectionChartDefinition<TSchema>;
+declare function collection<TSchema extends ChartSchema>(schema: TSchema, option: CollectionOption<Infer<TSchema>>, renderOptions?: ChartRenderOptions): CollectionChartDefinition<TSchema>;
 /** Builds an immutable chart definition that receives one resource entity. */
-declare function entity<TSchema extends Schema<Shape, unknown>>(schema: TSchema, option: EntityOption<Infer<TSchema>>, renderOptions?: ChartRenderOptions): EntityChartDefinition<TSchema>;
+declare function entity<TSchema extends ChartSchema>(schema: TSchema, option: EntityOption<Infer<TSchema>>, renderOptions?: ChartRenderOptions): EntityChartDefinition<TSchema>;
 declare const chart: Readonly<{
     collection: typeof collection;
     entity: typeof entity;
@@ -50,9 +54,9 @@ interface ChartBinding extends ExternalStore<ChartSnapshot> {
     dispose(): void;
 }
 /** Binds a collection chart to a compatible UiCogs collection controller. */
-declare function bindChart<TSchema extends Schema<Shape, unknown>, TValue extends Infer<TSchema>, TSource extends ChartCollection<TValue>>(definition: CollectionChartDefinition<TSchema>, source: TSource): ChartBinding;
+declare function bindChart<TSchema extends ChartSchema, TValue extends Infer<TSchema>, TSource extends ChartCollection<TValue>>(definition: CollectionChartDefinition<TSchema>, source: TSource): ChartBinding;
 /** Binds an entity chart to a compatible UiCogs object controller. */
-declare function bindChart<TSchema extends Schema<Shape, unknown>, TValue extends Infer<TSchema>, TKey extends EntityKey, TContext>(definition: EntityChartDefinition<TSchema>, source: ResourceObject<TValue, TKey, TContext>): ChartBinding;
+declare function bindChart<TSchema extends ChartSchema, TValue extends Infer<TSchema>, TKey extends EntityKey, TContext>(definition: EntityChartDefinition<TSchema>, source: ResourceObject<TValue, TKey, TContext>): ChartBinding;
 
 /** The caller-provided ECharts module or configured `echarts/core` instance. */
 interface EChartsEngine {
@@ -68,9 +72,9 @@ type EChartsTheme = Parameters<typeof EChartsModule.init>[1];
 type EChartsInitOptions = Parameters<typeof EChartsModule.init>[2];
 
 /** Binds a chart to a UiCogs controller and disposes the binding with the current Vue scope. */
-declare function useUcChart<TSchema extends Schema<Shape, unknown>, TValue extends Infer<TSchema>, TSource extends ChartCollection<TValue>>(definition: CollectionChartDefinition<TSchema>, source: TSource): ChartBinding;
+declare function useUcChart<TSchema extends ChartSchema, TValue extends Infer<TSchema>, TSource extends ChartCollection<TValue>>(definition: CollectionChartDefinition<TSchema>, source: TSource): ChartBinding;
 /** Binds an entity chart to a Vue scope. */
-declare function useUcChart<TSchema extends Schema<Shape, unknown>, TValue extends Infer<TSchema>, TKey extends EntityKey, TContext>(definition: EntityChartDefinition<TSchema>, source: ResourceObject<TValue, TKey, TContext>): ChartBinding;
+declare function useUcChart<TSchema extends ChartSchema, TValue extends Infer<TSchema>, TKey extends EntityKey, TContext>(definition: EntityChartDefinition<TSchema>, source: ResourceObject<TValue, TKey, TContext>): ChartBinding;
 /** Renders one reactive chart binding through an injected ECharts engine. */
 declare const UcEChart: vue.DefineComponent<vue.ExtractPropTypes<{
     chart: {
@@ -116,5 +120,5 @@ declare const UcEChart: vue.DefineComponent<vue.ExtractPropTypes<{
     autoresize: boolean;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type ChartBinding, type ChartCollection, ChartDefinition, type ChartKind, type ChartRenderOptions, type ChartSnapshot, type CollectionChartDefinition, type CollectionOption, type EChartsEngine, type EChartsInitOptions, type EChartsInstance, type EChartsTheme, type EntityChartDefinition, type EntityOption, UcEChart, bindChart, chart, useUcChart };
+export { type ChartBinding, type ChartCollection, ChartDefinition, type ChartKind, type ChartRenderOptions, type ChartSchema, type ChartSnapshot, type CollectionChartDefinition, type CollectionOption, type EChartsEngine, type EChartsInitOptions, type EChartsInstance, type EChartsTheme, type EntityChartDefinition, type EntityOption, UcEChart, bindChart, chart, useUcChart };
 ```

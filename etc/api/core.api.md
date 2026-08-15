@@ -1,6 +1,6 @@
 # @uicogs/core API
 
-Declaration SHA-256: `b90dee4ce37eb5ba7496eb73266f9f004577bd94a55395f4ddc319dad758ec7b`
+Declaration SHA-256: `5c12e87a8025cb85a71fcd8262f6c1525d9127cd3256627beed1fbedea1263e1`
 
 ```ts
 // index.d.ts
@@ -537,9 +537,22 @@ interface EditorDescriptorMap {
     textarea: {
         readonly rows?: number;
         readonly autogrow?: boolean;
+        /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
+        readonly resize?: EditorResize;
     };
     "rich-text": {
         readonly toolbar?: readonly string[];
+        /** Approximate minimum number of editable text rows. */
+        readonly rows?: number;
+        /** Native drag direction for the editable content area. */
+        readonly resize?: EditorResize;
+    };
+    markdown: {
+        readonly rows?: number;
+        readonly autogrow?: boolean;
+        readonly defaultView?: "edit" | "preview";
+        /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
+        readonly resize?: EditorResize;
     };
     email: {
         readonly autocomplete?: string;
@@ -555,9 +568,11 @@ interface EditorDescriptorMap {
     };
     checkbox: {
         readonly labelPosition?: "before" | "after";
+        readonly toggleIndeterminate?: boolean;
     };
     switch: {
         readonly labelPosition?: "before" | "after";
+        readonly toggleIndeterminate?: boolean;
     };
     select: {
         readonly multiple?: boolean;
@@ -605,6 +620,8 @@ interface EditorDescriptorMap {
     };
     hidden: Readonly<Record<never, never>>;
 }
+/** Native resizing choices for generated multiline editors. */
+type EditorResize = "vertical" | "both" | false;
 interface FormatterDescriptorMap {
     text: {
         readonly empty?: string;
@@ -623,6 +640,9 @@ interface FormatterDescriptorMap {
     datetime: Intl.DateTimeFormatOptions;
     "date-range": Intl.DateTimeFormatOptions & {
         readonly separator?: string;
+    };
+    markdown: {
+        readonly empty?: string;
     };
     reference: Readonly<Record<never, never>>;
     "reference-list": {
@@ -686,9 +706,22 @@ declare const editor: {
     Textarea: (options?: EditorDescriptorMap["textarea"]) => Descriptor<"textarea", {
         readonly rows?: number;
         readonly autogrow?: boolean;
+        /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
+        readonly resize?: EditorResize;
     }>;
     RichText: (options?: EditorDescriptorMap["rich-text"]) => Descriptor<"rich-text", {
         readonly toolbar?: readonly string[];
+        /** Approximate minimum number of editable text rows. */
+        readonly rows?: number;
+        /** Native drag direction for the editable content area. */
+        readonly resize?: EditorResize;
+    }>;
+    Markdown: (options?: EditorDescriptorMap["markdown"]) => Descriptor<"markdown", {
+        readonly rows?: number;
+        readonly autogrow?: boolean;
+        readonly defaultView?: "edit" | "preview";
+        /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
+        readonly resize?: EditorResize;
     }>;
     Email: (options?: EditorDescriptorMap["email"]) => Descriptor<"email", {
         readonly autocomplete?: string;
@@ -704,9 +737,11 @@ declare const editor: {
     }>;
     Checkbox: (options?: EditorDescriptorMap["checkbox"]) => Descriptor<"checkbox", {
         readonly labelPosition?: "before" | "after";
+        readonly toggleIndeterminate?: boolean;
     }>;
     Switch: (options?: EditorDescriptorMap["switch"]) => Descriptor<"switch", {
         readonly labelPosition?: "before" | "after";
+        readonly toggleIndeterminate?: boolean;
     }>;
     Select: (options?: EditorDescriptorMap["select"]) => Descriptor<"select", {
         readonly multiple?: boolean;
@@ -772,6 +807,9 @@ declare const format: {
     DateTime: (options?: FormatterDescriptorMap["datetime"]) => Descriptor<"datetime", Intl.DateTimeFormatOptions>;
     DateRange: (options?: FormatterDescriptorMap["date-range"]) => Descriptor<"date-range", Intl.DateTimeFormatOptions & {
         readonly separator?: string;
+    }>;
+    Markdown: (options?: FormatterDescriptorMap["markdown"]) => Descriptor<"markdown", {
+        readonly empty?: string;
     }>;
     Reference: () => Descriptor<"reference", {}>;
     ReferenceList: (options?: FormatterDescriptorMap["reference-list"]) => Descriptor<"reference-list", {
@@ -1074,6 +1112,7 @@ declare const fields: {
     Str: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Text: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     RichText: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
+    Markdown: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Email: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Password: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Phone: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
@@ -2515,6 +2554,7 @@ declare const struct: {
     Str: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Text: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     RichText: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
+    Markdown: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Email: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Password: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Phone: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
@@ -2543,5 +2583,5 @@ declare const struct: {
     toSchema: <T extends object>(constructor: Constructor<T>) => ClassSchema<T>;
 };
 
-export { ActionController, type ActionDefinition, type ActionPlacement, type ActionPresentation, type ActionPresentationContext, type ActionRequest, type ActionSnapshot, type ActionTarget, AlertController, type AlertSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldLayout, type FieldLayoutCell, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FilterFieldLayout, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, type LiveAdapter, type LiveConfiguration, LiveController, type LiveDiagnostic, type LiveEffect, type LiveEffectResult, type LiveEvent, type LiveFrame, LiveHubController, type LiveHubSnapshot, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveOptions, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveSourceSnapshot, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, NotificationController, type NotificationMutation, type NotificationSnapshot, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type PartialParseResult, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, type ResolvedActionPresentation, Resource, type ResourceActionDescriptor, type ResourceActionResolveOptions, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type ResponseAdapter, type ResponseDecodeContext, type ResponseKind, type ResponsiveFieldLayout, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, type UiAlert, UiCogs, type UiCogsContext, type UiCogsOptions, type UiNotification, type UiNotificationAction, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isLoggedIn, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, responseAdapters, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
+export { ActionController, type ActionDefinition, type ActionPlacement, type ActionPresentation, type ActionPresentationContext, type ActionRequest, type ActionSnapshot, type ActionTarget, AlertController, type AlertSnapshot, type AnyField, type ApplicationContext, type AuthControllerOf, type AuthExecutionRole, type AuthResult, type AuthRuntimeBindings, type AuthSnapshotOf, type AuthStrategyDefinition, type BinaryPart, type BodyEncoding, type BooleanConfig, type BulkActionOptions, type BulkResult, type CacheAddress, CacheConflictError, type CacheDump, type CacheMembership, type CachePersistenceOptions, type CachePersistenceStatus, type CachePolicy, type CacheStore, type CacheWriteOptions, type Choice, type ClassSchema, Cogs, type CogsOptions, CollectionController, type CollectionEntry, type CollectionResourceMetadata, type CollectionSnapshot, type ComputedConfig, type ContextParser, type ContextPersistenceOptions, type ContextPersistenceStatus, type ContextStoreSnapshot, type ControllerAdapter, type ControllerState, type DateConfig, type DateRangeValue, type DeepReadonly, type DefaultHttpOptions, type Descriptor, type EditorDescriptor, type EditorDescriptorMap, type EditorResize, type EmptyValuePolicy, type Encoded, type EncodedFile, type EntityEntry, type EntityKey, type ErrorAdapter, EventBus, type ExternalStore, type FailureKind, Field, type FieldConfig, type FieldLayout, type FieldLayoutCell, type FieldModification, FieldParseFailure, type FieldRuntimeOptions, type FileInput, type FileValue, type FilterDescriptor, type FilterDescriptorMap, type FilterFieldLayout, type FormCompatibleSchema, FormController, type FormMode, type FormPayload, type FormProgress, FormSchema, type FormSchemaOptions, type FormSnapshot, type FormSubmitOptions, type FormValues, type FormattedValue, type FormatterDescriptor, type FormatterDescriptorMap, type HttpResourceSource, type HttpRetryOptions, type Infer, type Input, type IssuePath, type JsonPrimitive, type JsonValue, type LiveAdapter, type LiveConfiguration, LiveController, type LiveDiagnostic, type LiveEffect, type LiveEffectResult, type LiveEvent, type LiveFrame, LiveHubController, type LiveHubSnapshot, type LiveMutation, type LiveOpenOptions, type LiveOpenResult, type LiveOptions, type LiveRetryOptions, type LiveSnapshot, type LiveSource, LiveSourceError, type LiveSourceSnapshot, type LiveStatus, type LiveVersion, type LoadOptions, type LocalFileValue, type LocalResourceSource, MemoryCache, type MultipartAdapter, MultipartEncodingError, type MultipartPart, type MutationRequestOptions, type NamedBinaryPart, type NestedSchema, type NormalizedFailure, NotificationController, type NotificationMutation, type NotificationSnapshot, type NumberConfig, type ObjectSnapshot, type OperationAuth, type OperationInput, type OperationKind, type OperationOutput, type OperationReference, type OutputOfShape, type PageInfo, type PageState, type PaginationAdapter, type PaginationResult, ParseError, type PartialParseResult, type Patch, type PersistenceBackend, type PersistenceOptions, type PreparedBody, type QueryDefinition, type RelationConfig, type RelationEndpointMutation, type RelationEndpointPath, type RelationFieldConfig, type RelationKeyEncoding, type RelationKeyFetchOptions, type RelationMutation, type RelationMutationContext, type RelationParentMutation, type RemoteFileValue, type RemovedFileValue, RequestCoordinator, RequestError, type ResolvedActionPresentation, Resource, type ResourceActionDescriptor, type ResourceActionResolveOptions, ResourceCacheFacade, ResourceDefinition, type ResourceDefinitionIdentity, type ResourceDefinitionOptions, ResourceObject, type ResourceSource, type ResourceTarget, type ResponseAdapter, type ResponseDecodeContext, type ResponseKind, type ResponsiveFieldLayout, type RuntimeAuthController, type RuntimeContextStore, Schema, type SchemaDefinitionFactory, type SchemaOptions, type SchemaValidator, type SchemaValidatorInput, Service, ServiceDefinition, type ServiceDefinitionIdentity, type ServiceDefinitionOptions, type Shape, type Simplify, type SortDescriptor, type SortDescriptorMap, Store, type StreamResponse, type StringConfig, type SubmitFailure, type SubmitResult, type SubmitSuccess, type TargetEntity, type ThroughRelationConfig, type TimeConfig, ToManyRelationController, type ToManyRelationSnapshot, ToOneRelationController, type ToOneRelationSnapshot, type Transport, type TransportCapabilities, TransportExecutionError, type TransportMiddleware, type TransportRequest, type TransportResponse, type UiAlert, UiCogs, type UiCogsContext, type UiCogsOptions, type UiNotification, type UiNotificationAction, type UploadProgress, type ValidateOptions, type ValidationIssue, type ValidationResult, type Validator, type ValidatorInput, type ValidatorResult, type ViewOptions, ViewSchema, clientIssue, computed, createFormController, createFormSchema, createUiCogs, deepFreeze, editor, fields, filter, format, http, isBinaryPart, isFileValue, isLoggedIn, isRecord, joinUrl, local, localFile, memoryCache, mergeEntity, multipart, multipartAdapter, normalizeFailure, operation, pagination, parseIssue, prepareBody, relation, remoteFile, removedFile, resource, responseAdapters, schema, service, sort, stableSerialize, struct, tombstoneEntity, withQuery };
 ```

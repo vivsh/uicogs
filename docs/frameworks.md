@@ -315,6 +315,11 @@ the payload writer.
 
 `UcField` resolves the field's editor descriptor automatically.
 
+The Quasar package also provides `UcMarkdown` for safe Markdown presentation. Generated
+Markdown fields use a textarea with a toggleable preview; UiCogs disables raw HTML and
+sanitizes rendered output. This client rendering protection does not replace any
+application-owned server-side storage or rendering policy.
+
 Manual editor-kind selection is an override.
 
 `UcForm` displays bound and unbound issues. It does not decide which fields validate.

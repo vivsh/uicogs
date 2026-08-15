@@ -77,7 +77,7 @@ Client access rules do not replace server authorization.
 Text fields:
 
 ```text
-Str, Text, RichText, Email, Password, Phone
+Str, Text, RichText, Markdown, Email, Password, Phone
 ```
 
 Numeric and boolean fields:
@@ -109,6 +109,22 @@ Binary fields:
 ```text
 File, Image, FileList, ImageList
 ```
+
+## Markdown And Nullable Booleans
+
+`fields.Markdown()` stores and writes raw Markdown strings. It uses the typed Markdown
+editor and formatter descriptors without adding a parser or rendering dependency to core.
+
+```ts
+const Article = schema({
+  body: fields.Markdown({ editor: editor.Markdown({ rows: 12, defaultView: "edit" }) }),
+  featured: fields.Bool({ nullable: true }),
+});
+```
+
+`nullable: true` makes the parsed Boolean value `boolean | null`. A form writes an
+explicit null, while `schema.toQuery()` omits null so a nullable Boolean filter naturally
+means “any value”.
 
 Relation and derived fields:
 
