@@ -192,6 +192,29 @@ Resource create and edit forms stay concise with `.form(...)`. Bind a non-CRUD r
 action explicitly with `.actionForm("invite", InviteUser.toForm())`; use the identical
 method on services.
 
+Object and bulk actions can additionally opt into framework-neutral presentation without
+coupling a resource to a component library. `operation.object()` binds a path to one
+object URL; its optional `presentation` declares semantic label, icon, confirmation,
+scope requirements, visibility, disabled state, and one or more view placements.
+
+```ts
+archive: operation.object({
+  path: "archive/",
+  presentation: {
+    placement: ["aside", "edit"],
+    label: "Archive",
+    icon: "archive",
+    confirmation: "Archive this task?",
+    scopes: ["tasks.archive"],
+  },
+}),
+```
+
+The resolved action is client presentation only—the server remains the authorization
+authority. See [Resources](docs/resources.md#presented-resource-actions) and
+[framework integration](docs/frameworks.md#ucresourceview) for headless, Vue, React,
+and Quasar usage.
+
 ```ts
 const tasks = api.resource(Tasks);
 
@@ -276,6 +299,12 @@ navigation, an optional notification drawer, and page content while leaving all
 styling and notification persistence to the application. Its public drawer-width,
 header-control props, and `topbar-actions` slot support compact shells without
 targeting Quasar internals. See [Frameworks](docs/frameworks.md#quasar-application-layout).
+
+Generated Quasar forms can stay stacked while filters use responsive native Quasar
+grid columns. Declare separate field `layout.form` and `layout.filter` metadata,
+configure app-wide defaults through `defineSkin({ layout: ... })`, and use
+`UcFilter #actions` for Apply, Reset, and optional-filter controls. See
+[Forms](docs/forms.md#responsive-form-and-filter-layout).
 
 ## Installation
 

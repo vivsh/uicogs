@@ -1,15 +1,15 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `b58d255418003f60d9f20448654f0a007506add456d2f8121f12cbd6798af79d`
+Declaration SHA-256: `3e9d90dc70298d98364532d87f60edac254d8c32e10d9a4c4180efa2808b085a`
 
 ```ts
 // index.d.ts
 import * as _vue_reactivity from '@vue/reactivity';
 import * as _uicogs_core from '@uicogs/core';
-import { EntityKey, Shape, Infer, Schema, ValidationIssue, FormController, FormSchema, Descriptor, ExternalStore, NotificationController, AlertController, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
+import { EntityKey, Shape, Infer, Schema, ValidationIssue, FormController, FormSchema, Descriptor, ExternalStore, ActionPlacement, ResourceActionResolveOptions, ResourceActionDescriptor, NotificationController, AlertController, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
 export * from '@uicogs/core';
 import * as vue from 'vue';
-import { ComputedRef, Plugin, Ref, ShallowRef } from 'vue';
+import { ComputedRef, Ref, Plugin, ShallowRef } from 'vue';
 import { NavigationGroup, NavigationDefinition, ScopeAccess } from '@uicogs/routes';
 import { RouteLocationNormalizedLoaded, RouteLocationRaw, RouteRecordNormalized } from 'vue-router';
 
@@ -256,6 +256,27 @@ declare const useUcObject: typeof useUcController;
 declare const useUcCollection: typeof useUcController;
 declare const useUcForm: typeof useUcController;
 declare const useUcAction: typeof useUcController;
+/** Declarative narrowing for generated resource actions; access rules always remain enforced. */
+type UcResourceActionOverride = false | readonly string[] | ((names: readonly string[]) => readonly string[]);
+/** Options shared by the Vue resource-action composables. */
+interface UcResourceActionOptions<TKey extends EntityKey> {
+    readonly placement: ActionPlacement;
+    readonly selectedKeys?: Readonly<Ref<readonly TKey[]>> | readonly TKey[];
+    readonly actions?: UcResourceActionOverride;
+}
+/** The core resource surface consumed by framework action bindings. */
+interface UcResourceActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+    actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
+}
+/** The object surface consumed by object-bound Vue action bindings. */
+interface UcObjectActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+    readonly key: TKey;
+    readonly value?: Readonly<Record<string, unknown>>;
+}
+/** Resolves placement actions reactively while preserving core scope and visibility checks. */
+declare function useUcResourceActions<TKey extends EntityKey>(resource: UcResourceActionSource<TKey>, options: UcResourceActionOptions<TKey>): ComputedRef<readonly ResourceActionDescriptor<TKey>[]>;
+/** Resolves object-bound placement actions reactively for a current resource object. */
+declare function useUcObjectActions<TKey extends EntityKey>(resource: UcResourceActionSource<TKey>, object: UcObjectActionSource<TKey>, options: UcResourceActionOptions<TKey>): ComputedRef<readonly ResourceActionDescriptor<TKey>[]>;
 declare function useUcSnapshot<T extends object>(store: ExternalStore<T>): Readonly<ShallowRef<T>>;
 interface RendererRegistry<TEditor, TFormatter> {
     registerEditor(kind: string, renderer: TEditor): RendererRegistry<TEditor, TFormatter>;
@@ -309,11 +330,11 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     selectedKeys: Ref<readonly TKey[], readonly TKey[]> | Ref<readonly _vue_reactivity.UnwrapRefSimple<TKey>[], readonly TKey[] | readonly _vue_reactivity.UnwrapRefSimple<TKey>[]>;
     creating: Readonly<Ref<boolean, boolean>>;
     activeObject: ComputedRef<ExternalStore<object> | undefined>;
-    mode: ComputedRef<"list" | "detail" | "create">;
+    mode: ComputedRef<"list" | "create" | "detail">;
     open(key: TKey): void;
     create(): void;
     close(): void;
 }>;
 
-export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteDetailOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcResource, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
+export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteDetailOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
 ```

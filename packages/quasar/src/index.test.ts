@@ -94,6 +94,103 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.findAll("input")).toHaveLength(1);
   });
 
+  it("maps field-owned form layout and form actions to native Quasar grid cells", () => {
+    const schema = defineSchema({
+      title: fields.Str({ layout: { form: { xs: 12, md: 6 } } }),
+      notes: fields.Text(),
+    });
+    const form = createFormController(schema.toForm(), { title: "One", notes: "Two" });
+    const wrapper = mount(UcForm, {
+      props: {
+        form,
+        layout: { mode: "grid", gutter: "sm", default: { xs: 12, md: 4 } },
+      },
+      slots: {
+        actions: ({ submitting }: { submitting: boolean }) =>
+          h("span", { class: "custom-actions" }, String(submitting)),
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.find(".uc-form__grid").classes()).toEqual(
+      expect.arrayContaining(["row", "q-col-gutter-sm"]),
+    );
+    const cells = wrapper.findAll(".uc-form__field");
+    expect(cells[0]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-6"]));
+    expect(cells[1]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-4"]));
+    expect(wrapper.find(".uc-form__actions").classes()).toContain("col-12");
+    expect(wrapper.find(".custom-actions").text()).toBe("false");
+  });
+
+  it("applies installed layout defaults before field-specific overrides", () => {
+    const schema = defineSchema({
+      title: fields.Str(),
+      notes: fields.Text({ layout: { form: { md: 8 } } }),
+    });
+    const form = createFormController(schema.toForm(), { title: "One", notes: "Two" });
+    const layoutPlugin = {
+      install(app: App) {
+        injectSkin(
+          app,
+          defineSkin({
+            layout: {
+              form: {
+                mode: "grid",
+                default: { xs: 12, md: 4 },
+                kinds: { text: { md: 5 } },
+              },
+            },
+          }),
+        );
+      },
+    };
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { plugins: [layoutPlugin], stubs: quasarStubs },
+    });
+
+    const cells = wrapper.findAll(".uc-form__field");
+    expect(cells[0]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-5"]));
+    expect(cells[1]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-8"]));
+  });
+
+  it("lays out generated filters horizontally and controls optional filter disclosure", async () => {
+    const schema = defineSchema({
+      search: fields.Str({ layout: { filter: { xs: 12, md: 5 } } }),
+      after: fields.Date({ layout: { filter: { xs: 12, md: 3, placement: "collapsible" } } }),
+    });
+    const form = createFormController(schema.toForm(), {
+      search: "",
+      after: new Date("2026-01-01"),
+    });
+    let actionProps:
+      | { readonly expanded: boolean; readonly hasCollapsible: boolean; toggleExpanded(): void }
+      | undefined;
+    const wrapper = mount(UcFilter, {
+      props: { form },
+      slots: {
+        actions: (props: {
+          readonly expanded: boolean;
+          readonly hasCollapsible: boolean;
+          toggleExpanded(): void;
+        }) => {
+          actionProps = props;
+          return h("button", { class: "filter-toggle", onClick: props.toggleExpanded }, "Toggle");
+        },
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.find(".uc-filter__static").exists()).toBe(true);
+    expect(wrapper.find(".uc-filter__collapsible").exists()).toBe(false);
+    expect(wrapper.find(".uc-filter__actions").classes()).toContain("col-auto");
+    expect(actionProps).toMatchObject({ expanded: false, hasCollapsible: true });
+    await wrapper.find(".filter-toggle").trigger("click");
+    expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([true]);
+    expect(wrapper.find(".uc-filter__collapsible").exists()).toBe(true);
+    expect(wrapper.findAll(".uc-form__field")).toHaveLength(2);
+  });
+
   it("renders field errors, summaries, progress, submit state, and success", async () => {
     const schema = defineSchema({ title: fields.Str({ required: true }) });
     const form = createFormController(
@@ -769,6 +866,139 @@ describe("Quasar views and tables", () => {
     ]);
   });
 
+  it("keeps the resource header in the list pane beside a split detail aside", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const wrapper = mount(UcResourceView, {
+      props: {
+        resource,
+        title: "Tasks",
+        modelValue: 1,
+        mode: "split",
+        autoLoad: false,
+        create: false,
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    const listPane = wrapper.find(".uc-view__body");
+    const aside = wrapper.find(".uc-view__aside");
+    const header = listPane.find(".uc-resource-view__header");
+    expect(header.text()).toContain("Tasks");
+    expect(wrapper.find(".uc-view > .uc-view__header").exists()).toBe(false);
+    expect(header.element.parentElement).toBe(listPane.element);
+    expect(aside.element.parentElement).toBe(listPane.element.parentElement);
+  });
+
+  it("composes explicit caption, tools, filters, and list regions in order", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    let toolProps: Readonly<Record<string, unknown>> | undefined;
+    let filterProps: Readonly<Record<string, unknown>> | undefined;
+    const wrapper = mount(UcResourceView, {
+      props: { resource, title: "Fallback", autoLoad: false, create: false },
+      slots: {
+        caption: () => h("span", "Caption"),
+        tools: (props: Readonly<Record<string, unknown>>) => {
+          toolProps = props;
+          return h("span", "Tools");
+        },
+        filters: (props: Readonly<Record<string, unknown>>) => {
+          filterProps = props;
+          return h("span", "Filters");
+        },
+        "before-list": () => h("span", "Before"),
+        "list-body": () => h("span", "Body"),
+        "after-list": () => h("span", "After"),
+      },
+      global: { stubs: quasarStubs },
+    });
+    const content = wrapper.text();
+    expect(content.indexOf("Caption")).toBeLessThan(content.indexOf("Tools"));
+    expect(content.indexOf("Tools")).toBeLessThan(content.indexOf("Filters"));
+    expect(content.indexOf("Before")).toBeLessThan(content.indexOf("Body"));
+    expect(content.indexOf("Body")).toBeLessThan(content.indexOf("After"));
+    expect(content).not.toContain("Fallback");
+    expect(toolProps?.resource).toBeDefined();
+    expect(toolProps?.rows).toEqual([{ id: 1, title: "One" }]);
+    expect(toolProps?.selectedKeys).toEqual([]);
+    expect(toolProps?.create).toBeTypeOf("function");
+    expect(toolProps?.refresh).toBeTypeOf("function");
+    expect(filterProps?.resource).toBeDefined();
+    expect(filterProps?.rows).toEqual([{ id: 1, title: "One" }]);
+
+    const fallback = mount(UcResourceView, {
+      props: { resource, title: "Fallback", autoLoad: false, create: false },
+      global: { stubs: quasarStubs },
+    });
+    expect(fallback.text()).toContain("Fallback");
+  });
+
+  it("supports controlled compact list cards and custom table rows", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const list = mount(UcResourceView, {
+      props: {
+        resource,
+        display: "list",
+        autoLoad: false,
+        create: false,
+        selection: "multiple",
+        selectedKeys: [],
+      },
+      slots: {
+        "card-item": ({
+          row,
+          open,
+          toggleSelected,
+        }: {
+          row: Readonly<Record<string, unknown>>;
+          open: () => void;
+          toggleSelected: () => void;
+        }) => [
+          h("button", { class: "card-open", onClick: open }, String(row.title)),
+          h("button", { class: "card-select", onClick: toggleSelected }, "Select"),
+        ],
+      },
+      global: { stubs: quasarStubs },
+    });
+    expect(list.find("[data-q-list]").exists()).toBe(true);
+    await list.find(".card-select").trigger("click");
+    expect(list.emitted("update:selectedKeys")?.at(-1)).toEqual([[1]]);
+    await list.setProps({ selection: "single", selectedKeys: [1] });
+    await list.find(".card-select").trigger("click");
+    expect(list.emitted("update:selectedKeys")?.at(-1)).toEqual([[]]);
+    await list.find(".card-open").trigger("click");
+    expect(list.emitted("update:modelValue")?.at(-1)).toEqual([1]);
+
+    const table = mount(UcResourceView, {
+      props: { resource, autoLoad: false, create: false },
+      slots: {
+        "row-item": ({ row, open }: { row: Readonly<Record<string, unknown>>; open: () => void }) =>
+          h("button", { class: "table-open", onClick: open }, String(row.title)),
+      },
+      global: { stubs: quasarStubs },
+    });
+    expect(table.find(".table-open").exists()).toBe(true);
+    await table.find(".table-open").trigger("click");
+    expect(table.emitted("update:modelValue")?.at(-1)).toEqual([1]);
+  });
+
+  it("keeps legacy list slots authoritative and warns about their replacement", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const wrapper = mount(UcResourceView, {
+      props: { resource, autoLoad: false, create: false },
+      slots: {
+        header: () => h("span", "Legacy caption"),
+        actions: () => h("span", "Legacy tools"),
+        list: () => h("span", "Legacy list"),
+        "before-list": () => h("span", "Ignored before"),
+      },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.text()).toContain("Legacy list");
+    expect(wrapper.text()).not.toContain("Ignored before");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("deprecated"));
+  });
+
   it("accepts explicit selected-key prop and event bindings without a warning", () => {
     const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -931,6 +1161,60 @@ describe("Quasar views and tables", () => {
     await wrapper.find("form").trigger("submit");
     await flushPromises();
     expect(requests.some((request) => request.method === "PATCH")).toBe(true);
+  });
+
+  it("renders resolved object actions and emits input-action intent without executing it", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const object = objectController({ value: { id: 1, title: "One" } });
+    const executeArchive = vi.fn(async () => undefined);
+    Object.assign(resource, {
+      get: () => object,
+      actions: () => [
+        {
+          name: "archive",
+          target: "object",
+          placement: ["aside"],
+          label: "Archive",
+          icon: "archive",
+          disabled: false,
+          requiresInput: false,
+          selectedKeys: [],
+          execute: executeArchive,
+          operation: () => actionController(undefined),
+          form: () => undefined,
+        },
+        {
+          name: "assign",
+          target: "object",
+          placement: ["aside"],
+          label: "Assign",
+          disabled: false,
+          requiresInput: true,
+          selectedKeys: [],
+          execute: vi.fn(),
+          operation: () => actionController(undefined),
+          form: () => undefined,
+        },
+      ],
+    });
+    const wrapper = mount(UcResourceView, {
+      props: { resource, modelValue: 1, autoLoad: false, create: false },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.text()).toContain("Archive");
+    expect(wrapper.text()).toContain("Assign");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Archive")
+      ?.trigger("click");
+    await flushPromises();
+    expect(executeArchive).toHaveBeenCalledWith(undefined);
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Assign")
+      ?.trigger("click");
+    expect(wrapper.emitted("object-action")?.[0]?.[0]).toMatchObject({ name: "assign" });
   });
 
   it("forwards resource-view table and slot workflows", async () => {
@@ -1422,6 +1706,25 @@ const quasarStubs = {
     setup: () => () => h("progress"),
   }),
   QInnerLoading: defineComponent({ name: "QInnerLoadingStub", setup: () => () => h("div") }),
+  QList: defineComponent({
+    name: "QListStub",
+    setup(_props, { slots }) {
+      return () => h("div", { "data-q-list": true }, slots.default?.());
+    },
+  }),
+  QItem: defineComponent({
+    name: "QItemStub",
+    props: { active: Boolean, clickable: Boolean },
+    emits: ["click"],
+    setup(props, { emit, slots }) {
+      return () =>
+        h(
+          "button",
+          { type: "button", "data-active": props.active, onClick: () => emit("click") },
+          slots.default?.(),
+        );
+    },
+  }),
   QPage: defineComponent({
     name: "QPageStub",
     setup(_props, { slots }) {

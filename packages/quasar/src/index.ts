@@ -4,12 +4,16 @@ import {
   type Descriptor,
   type ExternalStore,
   type Field,
+  type FieldLayout,
   type FileValue,
   type FormCompatibleSchema,
   type FormController,
   type FormProgress,
   type FormSchema,
   type NormalizedFailure,
+  type ResourceActionDescriptor,
+  type ResourceActionResolveOptions,
+  type ResponsiveFieldLayout,
 } from "@uicogs/core";
 import { createRendererRegistry, vueReactive } from "@uicogs/vue";
 import {
@@ -24,6 +28,8 @@ import {
   QForm,
   QInnerLoading,
   QInput,
+  QItem,
+  QList,
   QLinearProgress,
   QPage,
   QPageSticky,
@@ -82,6 +88,20 @@ export interface FormSkin {
   readonly style?: UiStyle;
 }
 
+/** Responsive Quasar layout defaults for generated forms or filters. */
+export interface UcSurfaceLayout {
+  readonly mode?: "stack" | "grid";
+  readonly gutter?: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  readonly default?: ResponsiveFieldLayout;
+  readonly kinds?: Readonly<Record<string, ResponsiveFieldLayout>>;
+}
+
+/** Application-wide layout defaults for generated forms and filters. */
+export interface UiCogsQuasarLayout {
+  readonly form?: UcSurfaceLayout;
+  readonly filter?: UcSurfaceLayout;
+}
+
 /** The deliberately small set of common Quasar field appearance properties. */
 export interface FieldSkin {
   readonly outlined?: boolean;
@@ -115,6 +135,7 @@ export type FieldSkinResolver = (context: FieldSkinContext) => FieldSkin;
 /** Reusable application-level presentation defaults for UiCogs Quasar controls. */
 export interface UiCogsQuasarSkin {
   readonly palette?: QuasarPalette;
+  readonly layout?: UiCogsQuasarLayout;
   readonly form?: FormSkin;
   readonly field?: FieldSkin | FieldSkinResolver;
 }
@@ -169,6 +190,7 @@ interface FieldLike {
     readonly multiple?: boolean;
     readonly readonly?: boolean;
     readonly writeonly?: boolean;
+    readonly layout?: FieldLayout;
   }>;
 }
 
@@ -210,6 +232,9 @@ interface ResourceLike extends ExternalStore<object> {
   hasMore(): boolean;
   form?(schema: unknown, initial?: Readonly<Record<string, unknown>>): FormLike;
   get(...args: never[]): ResourceObjectLike;
+  actions?(
+    options: ResourceActionResolveOptions<EntityKey>,
+  ): readonly ResourceActionDescriptor<EntityKey>[];
 }
 
 interface TableCollectionLike extends ExternalStore<object> {
@@ -250,6 +275,7 @@ const formKey: InjectionKey<FormLike> = Symbol("uicogs-form");
 const skinKey: InjectionKey<UiCogsQuasarSkin> = Symbol("uicogs-quasar-skin");
 const formSkinKey: InjectionKey<() => UiCogsQuasarFormSkin | undefined> =
   Symbol("uicogs-quasar-form-skin");
+const formLayoutKey: InjectionKey<() => ResolvedSurfaceLayout> = Symbol("uicogs-quasar-layout");
 const paletteRoles: Readonly<Record<keyof QuasarPalette, string>> = Object.freeze({
   primary: "--q-primary",
   secondary: "--q-secondary",
@@ -265,6 +291,7 @@ const paletteRoles: Readonly<Record<keyof QuasarPalette, string>> = Object.freez
 export function defineSkin(skin: UiCogsQuasarSkin = {}): UiCogsQuasarSkin {
   return Object.freeze({
     ...(skin.palette ? { palette: Object.freeze({ ...skin.palette }) } : {}),
+    ...(skin.layout ? { layout: freezeQuasarLayout(skin.layout) } : {}),
     ...(skin.form ? { form: freezeFormSkin(skin.form) } : {}),
     ...(skin.field
       ? { field: typeof skin.field === "function" ? skin.field : freezeFieldSkin(skin.field) }
@@ -344,6 +371,11 @@ export const UcForm = defineComponent({
     form: { type: Object as PropType<FormLike>, required: true },
     view: Object as PropType<ViewLike>,
     skin: Object as PropType<UiCogsQuasarFormSkin>,
+    layout: Object as PropType<UcSurfaceLayout>,
+    surface: {
+      type: String as PropType<"form" | "filter">,
+      default: "form",
+    },
     failureMessage: {
       type: String,
       default: "Form validation failed. Please check the error messages.",
@@ -355,12 +387,34 @@ export const UcForm = defineComponent({
     const applicationSkin = inject(skinKey, undefined);
     provide(formKey, form);
     provide(formSkinKey, () => props.skin);
+    const layout = computed(() =>
+      resolveSurfaceLayout(
+        props.surface === "filter" ? defaultFilterLayout : defaultFormLayout,
+        applicationSkin?.layout?.[props.surface],
+        props.layout,
+      ),
+    );
+    provide(formLayoutKey, () => layout.value);
     return () => {
       const summary = [...form.unboundIssues, ...form.issues.filter((issue) => !issue.path.length)];
-      const children = slots.default?.() ?? [
+      const fields = slots.default?.() ?? [
         ...Object.keys(formView(form, props.view)).map((name) => h(UcField, { key: name, name })),
-        h(UcSubmit, { key: "$submit" }),
       ];
+      const actionContext = Object.freeze({
+        form,
+        submitting: form.submitting,
+        validating: form.validating,
+      });
+      const actions =
+        slots.actions?.(actionContext) ??
+        (slots.default ? undefined : h(UcSubmit, { key: "$submit" }));
+      const children =
+        layout.value.mode === "grid"
+          ? h("div", { class: gridContainerClasses("uc-form__grid", layout.value) }, [
+              ...fields,
+              actions ? h("div", { class: "uc-form__actions col-12" }, actions) : undefined,
+            ])
+          : [...fields, actions];
       return h(
         QForm,
         {
@@ -389,7 +443,7 @@ export const UcForm = defineComponent({
                 ),
               )
             : undefined,
-          ...children,
+          children,
           form.progress.active
             ? h(QLinearProgress, {
                 indeterminate: !form.progress.lengthComputable,
@@ -415,6 +469,7 @@ export const UcField = defineComponent({
     if (!form) throw new Error("UcField must be rendered inside UcForm");
     const applicationSkin = inject(skinKey, undefined);
     const currentFormSkin = inject(formSkinKey, undefined);
+    const currentFormLayout = inject(formLayoutKey, undefined);
     return () => {
       const field = form.schema.fields.shape[props.name];
       if (!field) throw new Error(`Field ${props.name} is not present in the form schema`);
@@ -486,31 +541,39 @@ export const UcField = defineComponent({
         ),
         style: styleValue(appearance.style),
       });
-      if (!fileKind) return control;
-      const remote = fileValues(value).filter((item) => item.kind === "remote");
-      return h("div", { class: "uc-file-field" }, [
-        control,
-        ...remote.map((item) =>
-          h("div", { class: "row items-center q-gutter-sm", key: item.url }, [
-            h("a", { href: item.url, target: "_blank" }, item.name),
-            h(QBtn, {
-              flat: true,
-              round: true,
-              dense: true,
-              icon: "close",
-              title: `Remove ${item.name}`,
-              onClick: () =>
-                form.set(
-                  props.name,
-                  multiple
-                    ? fileValues(value).map((current) =>
-                        current === item ? removedFile() : current,
-                      )
-                    : removedFile(),
-                ),
-            }),
-          ]),
-        ),
+      const rendered = !fileKind
+        ? control
+        : h("div", { class: "uc-file-field" }, [
+            control,
+            ...fileValues(value)
+              .filter((item) => item.kind === "remote")
+              .map((item) =>
+                h("div", { class: "row items-center q-gutter-sm", key: item.url }, [
+                  h("a", { href: item.url, target: "_blank" }, item.name),
+                  h(QBtn, {
+                    flat: true,
+                    round: true,
+                    dense: true,
+                    icon: "close",
+                    title: `Remove ${item.name}`,
+                    onClick: () =>
+                      form.set(
+                        props.name,
+                        multiple
+                          ? fileValues(value).map((current) =>
+                              current === item ? removedFile() : current,
+                            )
+                          : removedFile(),
+                      ),
+                  }),
+                ]),
+              ),
+          ]);
+      const formLayout = currentFormLayout?.();
+      if (!formLayout || formLayout.mode !== "grid") return rendered;
+      const fieldLayout = resolveFieldLayout(field, kind, formLayout);
+      return h("div", { class: mergeClasses("uc-form__field", gridCellClasses(fieldLayout)) }, [
+        rendered,
       ]);
     };
   },
@@ -537,10 +600,35 @@ export const UcFilter = defineComponent({
   props: {
     form: { type: Object as PropType<FormLike>, required: true },
     collection: Object as PropType<CollectionLike>,
+    layout: Object as PropType<UcSurfaceLayout>,
+    expanded: { type: Boolean as PropType<boolean | undefined>, default: undefined },
+    defaultExpanded: { type: Boolean, default: false },
     failureMessage: String,
   },
-  emits: ["failure", "load-failure"],
+  emits: ["failure", "load-failure", "update:expanded"],
   setup(props, { slots, emit }) {
+    const applicationSkin = inject(skinKey, undefined);
+    const localExpanded = ref(props.defaultExpanded);
+    const expanded = computed(() => props.expanded ?? localExpanded.value);
+    const layout = computed(() =>
+      resolveSurfaceLayout(defaultFilterLayout, applicationSkin?.layout?.filter, props.layout),
+    );
+    const entries = computed(() => Object.entries(props.form.schema.fields.shape));
+    const collapsible = computed(() =>
+      entries.value.filter(
+        ([, field]) => field.options?.layout?.filter?.placement === "collapsible",
+      ),
+    );
+    const staticFields = computed(() =>
+      entries.value.filter(
+        ([, field]) => field.options?.layout?.filter?.placement !== "collapsible",
+      ),
+    );
+    const toggleExpanded = (): void => {
+      const next = !expanded.value;
+      if (props.expanded === undefined) localExpanded.value = next;
+      emit("update:expanded", next);
+    };
     const reload = async (): Promise<void> => {
       if (!props.collection) return;
       try {
@@ -550,15 +638,68 @@ export const UcFilter = defineComponent({
         reportLoadFailure(failure, props.failureMessage, emit);
       }
     };
+    const actionContext = () =>
+      Object.freeze({
+        form: props.form,
+        submitting: props.form.submitting,
+        validating: props.form.validating,
+        expanded: expanded.value,
+        hasCollapsible: collapsible.value.length > 0,
+        toggleExpanded,
+      });
+    const generated = () => {
+      const actions = slots.actions?.(actionContext()) ?? [
+        h(UcSubmit, { label: "Apply" }),
+        collapsible.value.length
+          ? h(QBtn, {
+              flat: true,
+              label: expanded.value ? "Fewer filters" : "More filters",
+              onClick: toggleExpanded,
+            })
+          : undefined,
+      ];
+      if (layout.value.mode !== "grid")
+        return [
+          ...staticFields.value.map(([name]) => h(UcField, { key: name, name })),
+          ...(expanded.value
+            ? collapsible.value.map(([name]) => h(UcField, { key: name, name }))
+            : []),
+          h("div", { class: "uc-filter__actions" }, actions),
+        ];
+      return [
+        h("div", { class: mergeClasses("uc-filter__static", "col-12") }, [
+          h("div", { class: gridContainerClasses(undefined, layout.value) }, [
+            ...staticFields.value.map(([name]) => h(UcField, { key: name, name })),
+            h("div", { class: "uc-filter__actions col-auto" }, actions),
+          ]),
+        ]),
+        expanded.value && collapsible.value.length
+          ? h("div", { class: mergeClasses("uc-filter__collapsible", "col-12") }, [
+              h(
+                "div",
+                { class: gridContainerClasses(undefined, layout.value) },
+                collapsible.value.map(([name]) => h(UcField, { key: name, name })),
+              ),
+            ])
+          : undefined,
+      ];
+    };
     return () =>
       h(
         UcForm,
         {
           form: props.form,
+          surface: "filter",
+          layout: props.layout,
           ...(props.collection ? { onSuccess: reload } : {}),
           onFailure: (failure: unknown) => emit("failure", failure),
         },
-        slots,
+        slots.default
+          ? {
+              default: slots.default,
+              ...(slots.actions ? { actions: () => slots.actions?.(actionContext()) } : {}),
+            }
+          : { default: generated },
       );
   },
 });
@@ -879,6 +1020,7 @@ export const UcResourceView = defineComponent({
       default: "none",
     },
     columns: Array as PropType<readonly UcResourceColumn[]>,
+    display: { type: String as PropType<"table" | "list">, default: "table" },
     autoLoad: { type: Boolean, default: true },
     create: { type: Boolean, default: true },
     asideWidth: { type: String, default: "32rem" },
@@ -889,6 +1031,10 @@ export const UcResourceView = defineComponent({
     emptyLabel: { type: String, default: "No records" },
     createForm: Object,
     editForm: Object,
+    objectActions: {
+      type: [Boolean, Array] as PropType<boolean | readonly string[]>,
+      default: true,
+    },
     failureMessage: String,
   },
   emits: [
@@ -899,9 +1045,14 @@ export const UcResourceView = defineComponent({
     "create",
     "loaded",
     "failure",
+    "object-action",
+    "object-action-success",
+    "object-action-failure",
+    "object-action-cancel",
   ],
   setup(props, { slots, emit }) {
     useControlledSelectionWarning(() => props.selection);
+    warnLegacyResourceViewSlots(slots);
     const resource = vueReactive(props.resource);
     const listCollection = vueReactive(props.collection ?? resource);
     const listDefinition = props.collection ? props.collection.resource : resource.definition;
@@ -953,6 +1104,17 @@ export const UcResourceView = defineComponent({
       emit("update:modelValue", key);
       bind(key);
     };
+    const toggleSelected = (key: EntityKey): void => {
+      if (props.selection === "none") return;
+      const selected = new Set(props.selectedKeys);
+      if (props.selection === "single") {
+        emit("update:selectedKeys", selected.has(key) ? [] : [key]);
+        return;
+      }
+      if (selected.has(key)) selected.delete(key);
+      else selected.add(key);
+      emit("update:selectedKeys", Object.freeze([...selected]));
+    };
     const startCreate = (): void => {
       emit("create");
       if (!slots.create && (!props.createForm || !resource.form)) return;
@@ -969,7 +1131,19 @@ export const UcResourceView = defineComponent({
       if (props.autoLoad && !rows.value.length) void run(() => listCollection.load());
     });
 
-    const defaultList = () => {
+    const listSlotProps = () =>
+      Object.freeze({
+        resource,
+        collection: listCollection,
+        rows: rows.value,
+        open,
+        create: startCreate,
+        refresh: () => run(() => listCollection.refresh()),
+        selectedKeys: props.selectedKeys,
+        selectedRows: selectedRows.value,
+      });
+
+    const defaultListBody = () => {
       if (listCollection.error)
         return h(
           QBanner,
@@ -986,6 +1160,26 @@ export const UcResourceView = defineComponent({
         );
       if (!rows.value.length && !listCollection.loading)
         return h("div", { class: "uc-resource-view__empty q-pa-lg text-center" }, props.emptyLabel);
+      if (props.display === "list")
+        return h(QList, { class: "uc-resource-view__list" }, () =>
+          rows.value.map((row) => {
+            const key = keyFor(listDefinition, row);
+            const selected = props.selectedKeys.includes(key);
+            const item = slots["card-item"]?.({
+              row,
+              key,
+              selected,
+              open: () => open(row),
+              toggleSelected: () => toggleSelected(key),
+            });
+            return (
+              item ??
+              h(QItem, { key, clickable: true, active: selected, onClick: () => open(row) }, () =>
+                listLabel(row, key),
+              )
+            );
+          }),
+        );
       const tableProps = {
         columns: columns.value,
         selection: props.selection,
@@ -994,20 +1188,124 @@ export const UcResourceView = defineComponent({
         onSelect: open,
         onFailure: (failure: unknown) => reportFailure(failure, props.failureMessage, emit),
       };
+      const tableSlots = slots["row-item"]
+        ? {
+            body: (rowProps: unknown) => {
+              const item = rowProps as {
+                readonly row: Readonly<Record<string, unknown>>;
+                readonly selected: boolean;
+              };
+              const key = keyFor(listDefinition, item.row);
+              return slots["row-item"]?.({
+                row: item.row,
+                key,
+                columns: columns.value,
+                selected: item.selected,
+                open: () => open(item.row),
+                toggleSelected: () => toggleSelected(key),
+              });
+            },
+          }
+        : undefined;
       return props.collection
-        ? h(UcTable, { ...tableProps, collection: listCollection as TableCollectionLike })
-        : h(UcTable, { ...tableProps, resource });
+        ? h(
+            UcTable,
+            { ...tableProps, collection: listCollection as TableCollectionLike },
+            tableSlots,
+          )
+        : h(UcTable, { ...tableProps, resource }, tableSlots);
+    };
+
+    const resolvedObjectActions = (): readonly ResourceActionDescriptor<EntityKey>[] => {
+      if (!active.value || props.objectActions === false || !resource.actions) return [];
+      const actions = resource.actions({
+        placement: editController.value ? "edit" : "aside",
+        object: {
+          key: active.value.key,
+          ...(active.value.value ? { value: active.value.value } : {}),
+        },
+      });
+      if (!Array.isArray(props.objectActions)) return actions;
+      const selected = new Map(actions.map((action) => [action.name, action]));
+      return props.objectActions.flatMap((name) => {
+        const action = selected.get(name);
+        return action ? [action] : [];
+      });
+    };
+
+    const defaultObjectActions = (
+      actions: readonly ResourceActionDescriptor<EntityKey>[],
+    ): ReturnType<typeof h> | undefined => {
+      if (!actions.length) return undefined;
+      return h(
+        "div",
+        { class: "uc-resource-view__object-actions" },
+        actions.map((action) =>
+          action.requiresInput
+            ? h(QBtn, {
+                label: action.label,
+                ...(action.icon === undefined ? {} : { icon: action.icon }),
+                disable: action.disabled,
+                onClick: () => emit("object-action", action),
+              })
+            : h(UcAction, {
+                action: () => action.execute(undefined),
+                label: action.label,
+                ...(action.icon === undefined ? {} : { icon: action.icon }),
+                disable: action.disabled,
+                ...(action.confirmation === undefined
+                  ? {}
+                  : { confirmMessage: action.confirmation }),
+                onSuccess: (value: unknown) => emit("object-action-success", { action, value }),
+                onFailure: (failure: unknown) => emit("object-action-failure", { action, failure }),
+                onCancel: () => emit("object-action-cancel", action),
+              }),
+        ),
+      );
     };
 
     return () => {
       const aside = creating.value || Boolean(active.value);
-      const list = slots.list?.({
-        resource,
-        rows: rows.value,
-        open,
-        create: startCreate,
-        refresh: () => run(() => listCollection.refresh()),
-      }) ?? [slots["before-list"]?.(), defaultList(), slots["after-list"]?.()];
+      const list = slots.list?.(listSlotProps()) ?? [
+        slots["before-list"]?.(listSlotProps()),
+        slots["list-body"]?.(listSlotProps()) ?? defaultListBody(),
+        slots["after-list"]?.(listSlotProps()),
+      ];
+      const hasListHeader =
+        props.title ||
+        slots.caption ||
+        slots.tools ||
+        slots.filters ||
+        slots.header ||
+        slots.actions;
+      const listHeader = hasListHeader
+        ? h("header", { class: "uc-resource-view__header" }, [
+            slots.caption?.({ resource, rows: rows.value }) ??
+              slots.header?.({ resource, rows: rows.value }) ??
+              (props.title ? h("div", { class: "text-h5" }, props.title) : undefined),
+            slots.tools?.(listSlotProps()) ??
+              slots.actions?.({
+                resource,
+                rows: rows.value,
+                selectedKeys: props.selectedKeys,
+                selectedRows: selectedRows.value,
+                create: startCreate,
+                refresh: () => run(() => listCollection.refresh()),
+              }),
+            slots.filters?.({ resource, rows: rows.value }),
+          ])
+        : undefined;
+      const actions = active.value ? resolvedObjectActions() : [];
+      const detailActionSlot = active.value
+        ? slots["detail-actions"]?.({
+            resource,
+            object: active.value,
+            value: active.value.value,
+            actions,
+            close,
+            refresh: () => run(() => active.value!.refresh()),
+          })
+        : undefined;
       const detail = creating.value
         ? (slots.create?.({
             resource,
@@ -1043,19 +1341,12 @@ export const UcResourceView = defineComponent({
                       onFailure: (failure: unknown) => emit("failure", failure),
                     })
                   : defaultDetail(resource, active.value, columns.value, close)),
-              slots["detail-actions"]?.({
-                resource,
-                object: active.value,
-                value: active.value.value,
-                close,
-                refresh: () => run(() => active.value!.refresh()),
-              }),
+              detailActionSlot ?? defaultObjectActions(actions),
             ]
           : undefined;
       return h(
         UcView,
         {
-          title: props.title,
           aside,
           asideWidth: props.asideWidth,
           mode: props.mode,
@@ -1065,6 +1356,7 @@ export const UcResourceView = defineComponent({
         },
         {
           default: () => [
+            listHeader,
             list,
             props.create
               ? h(QPageSticky, { position: "bottom-right", offset: [18, 18] }, () =>
@@ -1077,22 +1369,6 @@ export const UcResourceView = defineComponent({
                 )
               : undefined,
           ],
-          header:
-            slots.header || slots.filters || slots.actions
-              ? () => [
-                  slots.header?.({ resource, rows: rows.value }) ??
-                    (props.title ? h("div", { class: "text-h5" }, props.title) : undefined),
-                  slots.filters?.({ resource, rows: rows.value }),
-                  slots.actions?.({
-                    resource,
-                    rows: rows.value,
-                    selectedKeys: props.selectedKeys,
-                    selectedRows: selectedRows.value,
-                    create: startCreate,
-                    refresh: () => run(() => listCollection.refresh()),
-                  }),
-                ]
-              : undefined,
           aside: () => detail,
         },
       );
@@ -1129,6 +1405,117 @@ function freezeFormSkin(skin: FormSkin): FormSkin {
     ...(skin.class === undefined ? {} : { class: freezeClass(skin.class) }),
     ...(skin.style === undefined ? {} : { style: freezeStyle(skin.style) }),
   });
+}
+
+interface ResolvedSurfaceLayout {
+  readonly surface: "form" | "filter";
+  readonly mode: "stack" | "grid";
+  readonly gutter: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  readonly default: ResponsiveFieldLayout;
+  readonly kinds: Readonly<Record<string, ResponsiveFieldLayout>>;
+}
+
+const defaultFormLayout: UcSurfaceLayout = Object.freeze({ mode: "stack" });
+const defaultFilterLayout: UcSurfaceLayout = Object.freeze({
+  mode: "grid",
+  gutter: "sm",
+  default: Object.freeze({ xs: 12, md: 4 }),
+  kinds: Object.freeze({
+    boolean: Object.freeze({ xs: "auto" }),
+    textarea: Object.freeze({ xs: 12 }),
+  }),
+});
+
+function freezeQuasarLayout(layout: UiCogsQuasarLayout): UiCogsQuasarLayout {
+  return Object.freeze({
+    ...(layout.form ? { form: freezeSurfaceLayout(layout.form) } : {}),
+    ...(layout.filter ? { filter: freezeSurfaceLayout(layout.filter) } : {}),
+  });
+}
+
+function freezeSurfaceLayout(layout: UcSurfaceLayout): UcSurfaceLayout {
+  return Object.freeze({
+    ...(layout.mode === undefined ? {} : { mode: layout.mode }),
+    ...(layout.gutter === undefined ? {} : { gutter: layout.gutter }),
+    ...(layout.default ? { default: Object.freeze({ ...layout.default }) } : {}),
+    ...(layout.kinds
+      ? {
+          kinds: Object.freeze(
+            Object.fromEntries(
+              Object.entries(layout.kinds).map(([kind, value]) => [
+                kind,
+                Object.freeze({ ...value }),
+              ]),
+            ),
+          ),
+        }
+      : {}),
+  });
+}
+
+function resolveSurfaceLayout(
+  fallback: UcSurfaceLayout,
+  application: UcSurfaceLayout | undefined,
+  local: UcSurfaceLayout | undefined,
+  surface: "form" | "filter" = fallback === defaultFilterLayout ? "filter" : "form",
+): ResolvedSurfaceLayout {
+  const definitions = [fallback, application, local];
+  const kinds = definitions.reduce<Readonly<Record<string, ResponsiveFieldLayout>>>(
+    (current, definition) => ({ ...current, ...definition?.kinds }),
+    {},
+  );
+  return Object.freeze({
+    surface,
+    mode: lastDefined(definitions.map((definition) => definition?.mode)) ?? "stack",
+    gutter: lastDefined(definitions.map((definition) => definition?.gutter)) ?? "none",
+    default: mergeResponsiveLayouts(...definitions.map((definition) => definition?.default)),
+    kinds: Object.freeze(
+      Object.fromEntries(
+        Object.entries(kinds).map(([kind]) => [
+          kind,
+          mergeResponsiveLayouts(...definitions.map((definition) => definition?.kinds?.[kind])),
+        ]),
+      ),
+    ),
+  });
+}
+
+function lastDefined<T>(values: readonly (T | undefined)[]): T | undefined {
+  return [...values].reverse().find((value) => value !== undefined);
+}
+
+function mergeResponsiveLayouts(
+  ...layouts: readonly (ResponsiveFieldLayout | undefined)[]
+): ResponsiveFieldLayout {
+  return Object.freeze(Object.assign({}, ...layouts.filter((layout) => layout !== undefined)));
+}
+
+function resolveFieldLayout(
+  field: FieldLike,
+  kind: string,
+  layout: ResolvedSurfaceLayout,
+): ResponsiveFieldLayout {
+  const fieldLayout = field.options?.layout?.[layout.surface];
+  return mergeResponsiveLayouts({ xs: 12 }, layout.default, layout.kinds[kind], fieldLayout);
+}
+
+function gridContainerClasses(
+  hook: string | undefined,
+  layout: ResolvedSurfaceLayout,
+): string | undefined {
+  return mergeClasses(
+    hook,
+    "row",
+    layout.gutter === "none" ? undefined : `q-col-gutter-${layout.gutter}`,
+  );
+}
+
+function gridCellClasses(layout: ResponsiveFieldLayout): string | undefined {
+  const columns = (["xs", "sm", "md", "lg", "xl"] as const).flatMap((breakpoint) => {
+    const value = layout[breakpoint];
+    return value === undefined ? [] : [`col-${breakpoint}-${value}`];
+  });
+  return mergeClasses(...columns);
 }
 
 function freezeFieldSkin(skin: FieldSkin): FieldSkin {
@@ -1252,6 +1639,20 @@ function isStyleHost(value: unknown): value is { readonly style: CSSStyleDeclara
 function cssPart(value: string): string {
   const normalized = value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
   return normalized || "value";
+}
+
+function listLabel(row: Readonly<Record<string, unknown>>, key: EntityKey): string {
+  const label = row.label ?? row.title ?? row.name ?? row.key ?? key;
+  return typeof label === "string" || typeof label === "number" ? String(label) : String(key);
+}
+
+function warnLegacyResourceViewSlots(slots: Readonly<Record<string, unknown>>): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+  const legacy = ["header", "actions", "list"].filter((name) => typeof slots[name] === "function");
+  if (!legacy.length) return;
+  console.warn(
+    `UcResourceView slots ${legacy.map((name) => `#${name}`).join(", ")} are deprecated; use #caption, #tools, and #list-body instead.`,
+  );
 }
 
 export const UcCancel = defineComponent({

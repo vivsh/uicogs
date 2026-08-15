@@ -26,6 +26,7 @@ import {
   type ResourceDefinition,
   type ResponseAdapter,
   type ServiceDefinition,
+  type FieldLayout,
 } from "@uicogs/core";
 import { responseAdapters as httpResponseAdapters } from "@uicogs/http";
 
@@ -33,6 +34,13 @@ const customResponse = responseAdapters.custom({
   name: "custom",
   decode: (response, context) => (context.kind === "entity" ? response.data : response.data),
 });
+expectAssignable<FieldLayout>({
+  form: { xs: 12, md: 6 },
+  filter: { xs: "auto", placement: "collapsible" },
+});
+expectError<FieldLayout>({ form: { xs: 13 } });
+expectError<FieldLayout>({ filter: { xs: "wide" } });
+expectError<FieldLayout>({ filter: { placement: "hidden" } });
 expectType<ResponseAdapter>(customResponse);
 expectType<ResponseAdapter>(httpResponseAdapters.vyuh());
 expectType<ResponseAdapter>(httpResponseAdapters.drf());
@@ -75,6 +83,43 @@ expectType<Infer<typeof PureUser>>({} as OperationOutput<typeof publishReference
 expectError(PureUsers.operation("missing"));
 expectType<FormController<typeof PureInputForm>>(
   pureApi.resource(PureUsers).actionForm("publish", PureInputForm),
+);
+
+const PresentedUsers = resource({
+  name: "presented-users",
+  url: "users/",
+  schema: PureUser,
+  key: "id",
+  operations: {
+    archive: operation.object({
+      input: PureInput,
+      output: PureUser,
+      presentation: {
+        placement: ["aside", "custom-detail"],
+        label: "Archive",
+        scopes: ["users.archive"],
+        visible: ({ value }) => value?.name !== "",
+      },
+    }),
+    export: operation.action({
+      presentation: { placement: ["list"], label: "Export" },
+    }),
+  },
+});
+const presentedApi = createUiCogs({ resources: [PresentedUsers] });
+const presentedUser = presentedApi.resource(PresentedUsers).get(1);
+expectType<Promise<Infer<typeof PureUser>>>(presentedUser.action("archive", { notify: true }));
+expectType<FormController<typeof PureInputForm>>(
+  presentedUser.actionForm("archive", PureInputForm),
+);
+expectAssignable<readonly string[]>(
+  presentedApi
+    .resource(PresentedUsers)
+    .actions({
+      placement: "aside",
+      object: { key: presentedUser.key, value: presentedUser.value },
+    })
+    .map((action) => action.name),
 );
 
 const StandardUsers = resource({

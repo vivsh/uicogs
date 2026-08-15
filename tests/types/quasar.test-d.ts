@@ -8,6 +8,7 @@ import {
   defineSkin,
   type FieldSkin,
   type FieldSkinContext,
+  type UcSurfaceLayout,
   type UiCogsQuasarSkin,
 } from "@uicogs/quasar";
 
@@ -23,6 +24,12 @@ const skin = defineSkin({
 });
 
 expectAssignable<UiCogsQuasarSkin>(skin);
+expectAssignable<UcSurfaceLayout>({
+  mode: "grid",
+  gutter: "sm",
+  default: { xs: 12, md: 4 },
+  kinds: { boolean: { xs: "auto" } },
+});
 expectAssignable<FieldSkin>({ dense: true, style: "max-width: 24rem" });
 expectType<FieldSkinContext>(undefined as unknown as FieldSkinContext);
 
@@ -30,6 +37,8 @@ expectError(defineSkin({ palette: { brand: "#5b4bdb" } }));
 expectError(defineSkin({ palette: { "--q-primary": "#5b4bdb" } }));
 expectError(defineSkin({ field: { clearable: true } }));
 expectError(defineSkin({ field: { outlined: () => true } }));
+expectError(defineSkin({ layout: { filter: { gutter: "huge" } } }));
+expectError(defineSkin({ layout: { form: { default: { xs: 13 } } } }));
 
 expectAssignable<UcAppBrand>({ label: "Example", to: { name: "home" } });
 expectAssignable<UcAppLayoutActionProps>({

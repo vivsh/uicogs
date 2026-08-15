@@ -94,6 +94,8 @@ useUcObject
 useUcCollection
 useUcForm
 useUcAction
+useUcResourceActions
+useUcObjectActions
 useUcSnapshot
 ```
 
@@ -315,6 +317,14 @@ Manual editor-kind selection is an override.
 
 `UcForm` displays bound and unbound issues. It does not decide which fields validate.
 
+`UcForm` and `UcFilter` share schema-owned responsive `layout` metadata. A field can
+declare separate `layout.form` and `layout.filter` widths; the Quasar adapter maps
+their numeric spans and `auto`/`grow`/`shrink` values to native `col-*` classes.
+`UcFilter` uses a horizontal grid by default, supports static and collapsible generated
+filter fields, and exposes `v-model:expanded`. Both components expose `#actions`;
+filter actions render inline while form actions render after fields. See
+[Forms](forms.md#responsive-form-and-filter-layout) for the complete contract.
+
 File and image fields use the form's typed file values and progress state.
 
 ### Quasar skin
@@ -329,6 +339,7 @@ injectSkin(
   app,
   defineSkin({
     palette: { primary: "#5b4bdb" },
+    layout: { filter: { default: { xs: 12, md: 4 } } },
     form: { class: "app-form" },
     field: { outlined: true, bgColor: "grey-2" },
   }),
@@ -347,8 +358,10 @@ object or one `{ name, field, form }` resolver is supported. Skin classes and st
 merge with editor configuration; UiCogs-required model, choice, readonly, and error
 bindings take precedence.
 
-Stable CSS hooks are present without a skin: `uc-form`, `uc-field`,
-`uc-field-<editor-kind>`, and `uc-field-<schema-name>`.
+Stable CSS hooks are present without a skin: `uc-form`, `uc-form__grid`,
+`uc-form__field`, `uc-form__actions`, `uc-filter__static`, `uc-filter__collapsible`,
+`uc-filter__actions`, `uc-field`, `uc-field-<editor-kind>`, and
+`uc-field-<schema-name>`.
 
 ## Quasar Table
 
@@ -414,7 +427,19 @@ It contains no router behavior.
 
 ## UcResourceView
 
-`UcResourceView` composes a resource controller with `UcView`, table state, filters, object state, create/edit forms, actions, and selection.
+`UcResourceView` composes a resource controller with `UcView`, list state, filters,
+object state, create/edit forms, actions, and controlled selection. Its regions are
+always rendered in this order:
+
+```text
+header: caption, tools, filters
+list: before-list, list-body, after-list
+aside: create or detail, detail-actions
+```
+
+In split mode, the header belongs to the list pane. The create/detail aside starts
+at the same top edge as that pane, rather than below the caption, tools, or filters.
+Stack and dialog modes retain the normal responsive aside behavior.
 
 ```vue
 <UcResourceView
@@ -426,12 +451,14 @@ It contains no router behavior.
   title="Tasks"
   selection="multiple"
 >
-  <template #actions="{ selectedKeys }">
+  <template #tools="{ selectedKeys, refresh, create }">
     <UcAction
       label="Archive"
       :disable="selectedKeys.length === 0"
       :action="() => archive(selectedKeys)"
     />
+    <QBtn label="Refresh" @click="refresh()" />
+    <QBtn label="New task" @click="create()" />
   </template>
 
   <template #detail-actions="{ object, close }">
@@ -448,7 +475,77 @@ Selection is opt-in and controlled. `v-model` controls the active detail record;
 
 Routing is controlled through model state or the optional router adapter.
 
+`caption` replaces only the generated title. `tools` is the stable place for refresh,
+create, export, and manually declared bulk controls. `filters` follows tools. Every
+list-region slot receives the resource, collection, rows, `open`, `create`, `refresh`,
+`selectedKeys`, and `selectedRows` bindings.
+
+By default, `display="table"` renders `UcTable`, preserving sorting, paging,
+route-aware collections, loading/error state, row activation, and controlled selection.
+Use `display="list"` for a compact native Quasar list. Its default is intentionally
+minimal; provide `card-item` for application-owned card markup:
+
+```vue
+<UcResourceView
+  :resource="tasks"
+  display="list"
+  v-model="activeTaskId"
+  v-model:selected-keys="selectedTaskIds"
+  selection="multiple"
+>
+  <template #card-item="{ row, selected, open, toggleSelected }">
+    <TaskCard :task="row" :selected="selected" @click="open()" />
+    <QBtn flat label="Select" @click.stop="toggleSelected()" />
+  </template>
+</UcResourceView>
+```
+
+`list-body` replaces only the table/list body, leaving `before-list` and `after-list`
+in place. It takes precedence over `display`, `row-item`, and `card-item`. `row-item`
+owns custom Quasar table-row markup in table mode; `card-item` owns item/card markup in
+list mode. Both receive `row`, `key`, `selected`, `open`, and `toggleSelected`.
+
+For one release cycle, the legacy `header`, `actions`, and `list` slots are retained.
+They warn in development: `header` acts as `caption`, `actions` as `tools`, and `list`
+remains a full-list replacement with precedence over the explicit list regions. Migrate
+to `caption`, `tools`, and `list-body` before the next breaking release.
+
 Object-specific actions belong in `detail-actions`. This keeps them inside the responsive detail surface.
+
+Declared object actions can also render automatically. Give an object operation a
+`presentation.placement` of `aside` for the normal detail surface or `edit` for an
+edit-form surface. `UcResourceView` renders inputless actions with `UcAction`; it
+forwards their semantic icon and confirmation and emits success, failure, and cancel
+events. Actions with an input schema never make a request automatically: they emit
+`object-action` so the application can open its own form or dialog.
+
+```vue
+<UcResourceView
+  v-model="activeTaskId"
+  :resource="tasks"
+  :edit-form="TaskEdit"
+  :object-actions="['archive', 'assign']"
+  @object-action="openActionDialog"
+/>
+```
+
+Set `:object-actions="false"` to disable generated object actions. An ordered name
+list both selects and orders them. The `detail-actions` slot remains the full escape
+hatch and replaces the generated region; it receives `actions` in addition to
+`resource`, `object`, `value`, `close`, and `refresh`.
+
+For custom Vue detail views, resolve the same presentation safely and reactively:
+
+```ts
+const actions = useUcObjectActions(tasks, task, {
+  placement: "aside",
+  actions: ["archive", "assign"],
+});
+```
+
+`@uicogs/react` supplies the matching `useResourceActions()` and
+`useObjectActions()` hooks. Overrides can remove or reorder declared names, but never
+restore actions hidden by scopes or `visible`.
 
 ## Actions And Feedback
 

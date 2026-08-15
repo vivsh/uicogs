@@ -38,6 +38,30 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
   JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
+/** A responsive grid cell understood by framework presentation adapters. */
+export type FieldLayoutCell =
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | "auto" | "grow" | "shrink";
+
+/** Responsive field placement shared by generated form adapters. */
+export interface ResponsiveFieldLayout {
+  readonly xs?: FieldLayoutCell;
+  readonly sm?: FieldLayoutCell;
+  readonly md?: FieldLayoutCell;
+  readonly lg?: FieldLayoutCell;
+  readonly xl?: FieldLayoutCell;
+}
+
+/** Responsive filter placement with optional-filter disclosure semantics. */
+export interface FilterFieldLayout extends ResponsiveFieldLayout {
+  readonly placement?: "static" | "collapsible";
+}
+
+/** Field-owned presentation intent for generated form and filter surfaces. */
+export interface FieldLayout {
+  readonly form?: ResponsiveFieldLayout;
+  readonly filter?: FilterFieldLayout;
+}
+
 export interface FieldConfig<TValue, TEncoded = TValue, TContext = unknown> {
   readonly required?: boolean;
   readonly nullable?: boolean;
@@ -52,6 +76,7 @@ export interface FieldConfig<TValue, TEncoded = TValue, TContext = unknown> {
   readonly filter?: FilterDescriptor | Descriptor;
   readonly sort?: string | SortDescriptor | Descriptor;
   readonly help?: string;
+  readonly layout?: FieldLayout;
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly validate?: readonly Validator<TValue, TContext>[];
   readonly parse?: (input: unknown) => TValue;

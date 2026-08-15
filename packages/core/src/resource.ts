@@ -15,9 +15,16 @@ import type {
   AuthStrategyDefinition,
   RuntimeAuthController,
 } from "./auth.js";
+import { isLoggedIn } from "./auth.js";
 import { ContextStoreController } from "./context.js";
 import type { PersistenceOptions } from "./persistence.js";
-import type { FormController, FormSchema, FormSubmitOptions, SubmitResult } from "./form.js";
+import type {
+  FormCompatibleSchema,
+  FormController,
+  FormSchema,
+  FormSubmitOptions,
+  SubmitResult,
+} from "./form.js";
 import { createFormController } from "./form.js";
 import { applyTransportMiddleware, createDefaultTransport } from "./default-http.js";
 import type { RelationConfig, RelationEndpointMutation, RelationKeyFetchOptions } from "./field.js";
@@ -228,11 +235,83 @@ export interface ActionRequest<TInput> {
   readonly input: TInput;
 }
 
+/** A standard resource-view region or an application-defined action placement. */
+export type ActionPlacement = "list" | "create" | "edit" | "aside" | (string & {});
+
+/** The runtime subject an action needs before it may execute. */
+export type ActionTarget = "resource" | "object" | "bulk";
+
+/** Context used only to resolve an action's client-side presentation. */
+export interface ActionPresentationContext<TValue, TKey extends EntityKey, TContext> {
+  readonly context: TContext;
+  readonly authenticated: boolean;
+  readonly scopes: ReadonlySet<string>;
+  readonly value?: Readonly<TValue>;
+  readonly key?: TKey;
+  readonly selectedKeys: readonly TKey[];
+}
+
+/** Immutable framework-neutral action presentation metadata. */
+export interface ActionPresentation<TValue, TKey extends EntityKey, TContext> {
+  readonly placement: readonly ActionPlacement[];
+  readonly label: string;
+  readonly icon?: string;
+  readonly confirmation?: string;
+  readonly order?: number;
+  readonly scopes?: readonly string[];
+  visible?(context: ActionPresentationContext<TValue, TKey, TContext>): boolean;
+  disabled?(context: ActionPresentationContext<TValue, TKey, TContext>): boolean;
+}
+
+/** Selects the declared actions that belong to one application-owned view region. */
+export interface ResourceActionResolveOptions<TKey extends EntityKey> {
+  readonly placement: ActionPlacement;
+  readonly object?: Readonly<{
+    readonly key: TKey;
+    readonly value?: Readonly<Record<string, unknown>>;
+  }>;
+  readonly selectedKeys?: readonly TKey[];
+  readonly names?: readonly string[];
+}
+
+/** The serializable presentation portion of a resolved action. */
+export interface ResolvedActionPresentation {
+  readonly placement: readonly ActionPlacement[];
+  readonly label: string;
+  readonly icon?: string;
+  readonly confirmation?: string;
+  readonly order?: number;
+}
+
+/** An immutable, presentation-safe action bound to its current target. */
+export interface ResourceActionDescriptor<TKey extends EntityKey> {
+  readonly name: string;
+  readonly target: ActionTarget;
+  readonly presentation: ResolvedActionPresentation;
+  readonly placement: readonly ActionPlacement[];
+  readonly label: string;
+  readonly icon?: string;
+  readonly confirmation?: string;
+  readonly order?: number;
+  readonly disabled: boolean;
+  readonly requiresInput: boolean;
+  readonly key?: TKey;
+  readonly selectedKeys: readonly TKey[];
+  execute(input: unknown): Promise<unknown>;
+  operation(input: unknown): ActionController<unknown>;
+  form<TFormSchema extends FormSchema<FormCompatibleSchema, unknown>>(
+    schema: TFormSchema,
+    initial?: Partial<import("./form.js").FormValues<TFormSchema>>,
+  ): FormController<TFormSchema>;
+}
+
 export interface ActionDefinition<
   TInputSchema extends SchemaLike<TContext> | undefined,
   TOutputSchema extends SchemaLike<TContext> | undefined,
   TView extends string | undefined,
   TContext,
+  TValue = unknown,
+  TKey extends EntityKey = EntityKey,
 > {
   readonly kind?: OperationKind;
   readonly input?: TInputSchema;
@@ -260,6 +339,8 @@ export interface ActionDefinition<
     context: TContext,
   ) => unknown | Promise<unknown>;
   readonly auth?: OperationAuth;
+  readonly target?: ActionTarget;
+  readonly presentation?: ActionPresentation<TValue, TKey, TContext>;
 }
 
 export type OperationKind =
@@ -274,6 +355,10 @@ export interface BulkActionOptions {
     keys: readonly EntityKey[],
   ) => BulkResult<EntityKey, unknown>;
 }
+
+type ActionOperationOptions = Readonly<Record<string, unknown>> & {
+  readonly presentation?: ActionPresentation<Readonly<Record<string, unknown>>, EntityKey, unknown>;
+};
 
 function defineOperation<
   TKind extends OperationKind,
@@ -322,24 +407,75 @@ export const operation = {
   remove: <const T extends Readonly<Record<string, unknown>> = Readonly<Record<never, never>>>(
     options: T = {} as T,
   ) => defineOperation("remove", "DELETE", options),
-  action: <const T extends Readonly<Record<string, unknown>>>(options: T) =>
+  action: <const T extends ActionOperationOptions>(options: T) =>
     defineOperation("action", "POST", options),
-  bulk: <const T extends Readonly<Record<string, unknown>>>(options: T) =>
-    defineOperation("action", "POST", options),
+  object: <const T extends ActionOperationOptions>(options: T) =>
+    defineOperation("action", "POST", { ...options, target: "object" as const }),
+  bulk: <const T extends ActionOperationOptions>(options: T) =>
+    defineOperation("action", "POST", { ...options, target: "bulk" as const }),
 };
+
+function actionTarget(
+  action: ActionDefinition<
+    SchemaLike<unknown> | undefined,
+    SchemaLike<unknown> | undefined,
+    string | undefined,
+    unknown
+  >,
+): ActionTarget {
+  return action.target ?? (action.bulk ? "bulk" : "resource");
+}
+
+function hasActionScopes(
+  required: readonly string[] | undefined,
+  access: Readonly<{ readonly authenticated: boolean; readonly scopes: ReadonlySet<string> }>,
+): boolean {
+  if (!required?.length) return true;
+  return access.authenticated && required.every((scope) => access.scopes.has(scope));
+}
+
+function freezeActionDefinitions<T extends Readonly<Record<string, unknown>>>(actions: T): T {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(actions).map(([name, definition]) => {
+        if (!isRecord(definition)) return [name, definition];
+        const presentation = isRecord(definition.presentation)
+          ? Object.freeze({
+              ...definition.presentation,
+              ...(Array.isArray(definition.presentation.placement)
+                ? { placement: Object.freeze([...definition.presentation.placement]) }
+                : {}),
+              ...(Array.isArray(definition.presentation.scopes)
+                ? { scopes: Object.freeze([...definition.presentation.scopes]) }
+                : {}),
+            })
+          : undefined;
+        return [
+          name,
+          Object.freeze({
+            ...definition,
+            ...(presentation === undefined ? {} : { presentation }),
+          }),
+        ];
+      }),
+    ),
+  ) as T;
+}
 
 type ViewMap<TContext> = Readonly<Record<string, ViewLike<TContext>>>;
 type QueryMap<TContext> = Readonly<
   Record<string, QueryDefinition<SchemaLike<TContext>, string | undefined, TContext>>
 >;
-type ActionMap<TContext> = Readonly<
+type ActionMap<TContext, TValue = unknown, TKey extends EntityKey = EntityKey> = Readonly<
   Record<
     string,
     ActionDefinition<
       SchemaLike<TContext> | undefined,
       SchemaLike<TContext> | undefined,
       string | undefined,
-      TContext
+      TContext,
+      TValue,
+      TKey
     >
   >
 >;
@@ -349,7 +485,7 @@ export interface ResourceDefinitionOptions<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext>,
   TQueries extends QueryMap<TContext>,
-  TActions extends ActionMap<TContext>,
+  TActions extends ActionMap<TContext, Infer<TSchema>, TKey>,
   TContext,
 > {
   readonly name: string;
@@ -374,7 +510,7 @@ export class ResourceDefinition<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext> = Readonly<Record<never, never>>,
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
-  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TActions extends ActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>,
   TContext = unknown,
 > {
   declare readonly _entity?: Infer<TSchema>;
@@ -415,7 +551,7 @@ export class ResourceDefinition<
     if (options.keyEncoder) this.keyEncoder = options.keyEncoder;
     this.views = Object.freeze({ ...(options.views ?? {}) }) as TViews;
     this.queries = Object.freeze({ ...(options.queries ?? {}) }) as TQueries;
-    this.operations = Object.freeze({
+    this.operations = freezeActionDefinitions({
       ...(options.actions ?? {}),
       ...(options.operations ?? {}),
     }) as TActions;
@@ -466,7 +602,7 @@ export class ServiceDefinition<
     this.url = options.url ?? "";
     if (this.source.kind === "http" && !this.url)
       throw new Error(`HTTP service ${options.name} requires a URL`);
-    this.operations = Object.freeze({
+    this.operations = freezeActionDefinitions({
       ...(options.actions ?? {}),
       ...(options.operations ?? {}),
     }) as TActions;
@@ -540,7 +676,11 @@ export function resource<
   TKeyName extends keyof Infer<TSchema> & string,
   TViews extends ViewMap<TContext> = Readonly<Record<never, never>>,
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
-  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TActions extends ActionMap<
+    TContext,
+    Infer<TSchema>,
+    Extract<Infer<TSchema>[TKeyName], EntityKey>
+  > = Readonly<Record<never, never>>,
   TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown,
 >(
   options: Omit<
@@ -571,7 +711,7 @@ export function resource<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext> = Readonly<Record<never, never>>,
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
-  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TActions extends ActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>,
   TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown,
 >(
   options: Omit<
@@ -744,6 +884,10 @@ export class ActionController<T> implements ExternalStore<ActionSnapshot<T>> {
 
 interface Runtime<TContext> {
   readonly context: () => TContext;
+  readonly access: () => Readonly<{
+    readonly authenticated: boolean;
+    readonly scopes: ReadonlySet<string>;
+  }>;
   readonly transport: Transport;
   readonly baseUrl: string;
   readonly cache: CacheStore;
@@ -893,6 +1037,11 @@ export class UiCogs<
     const context = () => this.contextController.value as TContext;
     const runtime: Runtime<TContext> = {
       context,
+      access: () =>
+        Object.freeze({
+          authenticated: isLoggedIn(this.auth),
+          scopes: this.auth?.scopes ?? new Set<string>(),
+        }),
       transport,
       baseUrl: options.baseUrl ?? "",
       cache: this.cache,
@@ -1350,7 +1499,7 @@ export class Resource<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext>,
   TQueries extends QueryMap<TContext>,
-  TActions extends ActionMap<TContext>,
+  TActions extends ActionMap<TContext, Infer<TSchema>, TKey>,
   TContext,
 > implements ExternalStore<ControllerState> {
   declare readonly _entity?: Infer<TSchema>;
@@ -1359,11 +1508,11 @@ export class Resource<
   private readonly defaultCollection: CollectionController<Infer<TSchema>, TKey, TContext>;
   private readonly keyedObjects = new Map<
     EntityKey,
-    ResourceObject<Infer<TSchema>, TKey, TContext>
+    ResourceObject<Infer<TSchema>, TKey, TContext, TActions>
   >();
   private readonly dynamicObjects = new WeakMap<
     () => TKey,
-    ResourceObject<Infer<TSchema>, TKey, TContext>
+    ResourceObject<Infer<TSchema>, TKey, TContext, TActions>
   >();
 
   constructor(
@@ -1473,14 +1622,19 @@ export class Resource<
     this.defaultCollection.cancel();
   }
 
-  get(key: TKey | (() => TKey)): ResourceObject<Infer<TSchema>, TKey, TContext> {
+  get(key: TKey | (() => TKey)): ResourceObject<Infer<TSchema>, TKey, TContext, TActions> {
     if (typeof key === "function") {
       const source = key as () => TKey;
       const existing = this.dynamicObjects.get(source);
       if (existing) return existing;
       const controller = this.runtime.adapter(
-        new ResourceObject(this.runtime, toRuntimeDefinition(this.definition), source),
-      ) as ResourceObject<Infer<TSchema>, TKey, TContext>;
+        new ResourceObject(
+          this.runtime,
+          toRuntimeDefinition(this.definition),
+          source,
+          this.objectActionExecutor(),
+        ),
+      ) as ResourceObject<Infer<TSchema>, TKey, TContext, TActions>;
       this.dynamicObjects.set(source, controller);
       return controller;
     }
@@ -1488,10 +1642,168 @@ export class Resource<
     const existing = this.keyedObjects.get(encoded);
     if (existing) return existing;
     const controller = this.runtime.adapter(
-      new ResourceObject(this.runtime, toRuntimeDefinition(this.definition), key),
-    ) as ResourceObject<Infer<TSchema>, TKey, TContext>;
+      new ResourceObject(
+        this.runtime,
+        toRuntimeDefinition(this.definition),
+        key,
+        this.objectActionExecutor(),
+      ),
+    ) as ResourceObject<Infer<TSchema>, TKey, TContext, TActions>;
     this.keyedObjects.set(encoded, controller);
     return controller;
+  }
+
+  private objectActionExecutor(): ObjectActionExecutor<TKey, TActions, TContext, Infer<TSchema>> {
+    return {
+      execute: (name, key, input, options) =>
+        this.executeAction(name, input, options, { kind: "object", key }) as Promise<unknown>,
+      operation: (name, key, input) =>
+        this.runtime.adapter(
+          new ActionController((options) =>
+            this.executeAction(name, input, options, { kind: "object", key }),
+          ),
+        ) as ActionController<unknown>,
+      form: (name, key, schema, initial = {}) => {
+        const bound = bindFormContext(schema, this.runtime.context);
+        return this.runtime.adapter(
+          createFormController(bound, initial, (payload, options) =>
+            this.executeAction(name, payload as ActionInput<TActions[typeof name]>, options, {
+              kind: "object",
+              key,
+            }),
+          ),
+        );
+      },
+    };
+  }
+
+  /** Resolves the declared, client-visible actions for one view placement. */
+  actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[] {
+    const selectedKeys = Object.freeze([...(options.selectedKeys ?? [])]) as readonly TKey[];
+    const access = this.runtime.access();
+    const requestedNames = options.names ? new Set(options.names) : undefined;
+    const descriptors: Array<{
+      readonly index: number;
+      readonly action: ResourceActionDescriptor<TKey>;
+    }> = [];
+    for (const [index, [name, definition]] of Object.entries(this.definition.actions).entries()) {
+      if (!definition.presentation || (requestedNames && !requestedNames.has(name))) continue;
+      const presentation = definition.presentation;
+      if (!presentation.placement.includes(options.placement)) continue;
+      const target = actionTarget(definition);
+      if (target === "object" && !options.object) continue;
+      const context = Object.freeze({
+        context: this.runtime.context(),
+        authenticated: access.authenticated,
+        scopes: access.scopes,
+        ...(options.object?.value ? { value: options.object.value } : {}),
+        ...(options.object ? { key: options.object.key } : {}),
+        selectedKeys,
+      });
+      if (
+        !hasActionScopes(presentation.scopes, access) ||
+        presentation.visible?.(context as never) === false
+      )
+        continue;
+      const disabled =
+        target === "bulk" && selectedKeys.length === 0
+          ? true
+          : (presentation.disabled?.(context as never) ?? false);
+      descriptors.push({
+        index,
+        action: Object.freeze({
+          name,
+          target,
+          presentation: Object.freeze({
+            placement: presentation.placement,
+            label: presentation.label,
+            ...(presentation.icon === undefined ? {} : { icon: presentation.icon }),
+            ...(presentation.confirmation === undefined
+              ? {}
+              : { confirmation: presentation.confirmation }),
+            ...(presentation.order === undefined ? {} : { order: presentation.order }),
+          }),
+          placement: presentation.placement,
+          label: presentation.label,
+          ...(presentation.icon === undefined ? {} : { icon: presentation.icon }),
+          ...(presentation.confirmation === undefined
+            ? {}
+            : { confirmation: presentation.confirmation }),
+          ...(presentation.order === undefined ? {} : { order: presentation.order }),
+          disabled,
+          requiresInput: definition.input !== undefined,
+          ...(options.object ? { key: options.object.key } : {}),
+          selectedKeys,
+          execute: (input: unknown) =>
+            this.executeResolvedAction(name, target, options.object, selectedKeys, input),
+          operation: (input: unknown) =>
+            this.runtime.adapter(
+              new ActionController((requestOptions) =>
+                this.executeResolvedAction(
+                  name,
+                  target,
+                  options.object,
+                  selectedKeys,
+                  input,
+                  requestOptions,
+                ),
+              ),
+            ) as ActionController<unknown>,
+          form: <TFormSchema extends FormSchema<FormCompatibleSchema, unknown>>(
+            schema: TFormSchema,
+            initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+          ) => this.resolvedActionForm(name, target, options.object, selectedKeys, schema, initial),
+        }),
+      });
+    }
+    return Object.freeze(
+      descriptors
+        .sort(
+          (left, right) =>
+            (left.action.order ?? 0) - (right.action.order ?? 0) || left.index - right.index,
+        )
+        .map(({ action }) => action),
+    );
+  }
+
+  private executeResolvedAction(
+    name: string,
+    target: ActionTarget,
+    object: ResourceActionResolveOptions<TKey>["object"],
+    selectedKeys: readonly TKey[],
+    input: unknown,
+    options: MutationRequestOptions = {},
+  ): Promise<unknown> {
+    if (target === "object") {
+      if (!object)
+        throw new Error(`Action ${name} requires an object key on ${this.definition.name}`);
+      return this.executeAction(name as keyof TActions & string, input as never, options, {
+        kind: "object",
+        key: object.key,
+      });
+    }
+    if (target === "bulk")
+      return this.bulk.action(name as keyof TActions & string, selectedKeys, input as never);
+    return this.runOperation(name as keyof TActions & string, input as never, options);
+  }
+
+  private resolvedActionForm<TFormSchema extends FormSchema<FormCompatibleSchema, unknown>>(
+    name: string,
+    target: ActionTarget,
+    object: ResourceActionResolveOptions<TKey>["object"],
+    selectedKeys: readonly TKey[],
+    schema: TFormSchema,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>>,
+  ): FormController<TFormSchema> {
+    const bound = bindFormContext(
+      schema as unknown as FormSchema<SchemaLike<TContext>, unknown>,
+      this.runtime.context,
+    );
+    return this.runtime.adapter(
+      createFormController(bound, initial, (payload, options) =>
+        this.executeResolvedAction(name, target, object, selectedKeys, payload, options),
+      ),
+    ) as unknown as FormController<TFormSchema>;
   }
 
   query<K extends keyof TQueries & string>(
@@ -1645,10 +1957,22 @@ export class Resource<
     name: K,
     input: ActionInput<TActions[K]>,
     options: MutationRequestOptions = {},
+    target: { readonly kind: "resource" } | { readonly kind: "object"; readonly key: TKey } = {
+      kind: "resource",
+    },
   ): Promise<ActionOutput<TSchema, TViews, TActions[K]>> {
     const action = this.definition.actions[name];
     if (!action)
       throw new Error(`Action ${name} is not defined on resource ${this.definition.name}`);
+    const declaredTarget = actionTarget(action);
+    if (declaredTarget !== target.kind)
+      throw new Error(
+        declaredTarget === "object"
+          ? `Action ${name} requires an object key on resource ${this.definition.name}`
+          : declaredTarget === "bulk"
+            ? `Action ${name} must be executed through resource.bulk on ${this.definition.name}`
+            : `Action ${name} is resource-bound and cannot execute from an object on ${this.definition.name}`,
+      );
     if (this.definition.source.kind === "local") {
       if (!action.local) throw new Error(`Local action ${name} requires a local handler`);
       const localOutput = await action.local(input, this.runtime.context());
@@ -1667,11 +1991,15 @@ export class Resource<
         : (action.path ?? `${name}/`));
     const method = request?.method ?? action.method ?? "POST";
     const controller = new AbortController();
+    const objectPrefix = target.kind === "object" ? `${this.encodeKey(target.key)}/` : "";
     const response = await this.runtime.request<unknown>(
-      `${this.runtime.scope()}|${this.definition.name}|action|${name}|${stableSerialize(input)}`,
+      `${this.runtime.scope()}|${this.definition.name}|action|${name}|${target.kind}|${target.kind === "object" ? this.encodeKey(target.key) : ""}|${stableSerialize(input)}`,
       {
         method,
-        url: joinUrl(this.runtime.baseUrl, joinUrl(this.definition.url, path)),
+        url: joinUrl(
+          this.runtime.baseUrl,
+          joinUrl(this.definition.url, joinUrl(objectPrefix, path)),
+        ),
         ...(request?.query ? { query: request.query } : {}),
         ...(method !== "GET" ? { body: request?.body ?? encodedInput } : {}),
         ...((request?.encoding ?? action.encoding)
@@ -2039,9 +2367,40 @@ export interface ObjectSnapshot<T> extends ControllerState {
   readonly stale: boolean;
 }
 
-export class ResourceObject<T, TKey extends EntityKey, TContext> implements ExternalStore<
-  ObjectSnapshot<T>
+interface ObjectActionExecutor<
+  TKey extends EntityKey,
+  TActions extends ActionMap<TContext, TValue, TKey>,
+  TContext,
+  TValue,
 > {
+  execute<K extends keyof TActions & string>(
+    name: K,
+    key: TKey,
+    input: ActionInput<TActions[K]>,
+    options?: MutationRequestOptions,
+  ): Promise<unknown>;
+  operation<K extends keyof TActions & string>(
+    name: K,
+    key: TKey,
+    input: ActionInput<TActions[K]>,
+  ): ActionController<unknown>;
+  form<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    key: TKey,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial?: Partial<import("./form.js").FormValues<TFormSchema>>,
+  ): FormController<TFormSchema>;
+}
+
+export class ResourceObject<
+  T,
+  TKey extends EntityKey,
+  TContext,
+  TActions extends ActionMap<TContext, T, TKey> = ActionMap<TContext, T, TKey>,
+> implements ExternalStore<ObjectSnapshot<T>> {
   private readonly store: Store<ObjectSnapshot<T>>;
   private controller = new AbortController();
   private generation = 0;
@@ -2065,6 +2424,7 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
     private readonly runtime: Runtime<TContext>,
     private readonly definition: RuntimeDefinition<TContext>,
     private readonly keySource: TKey | (() => TKey),
+    private readonly actionExecutor?: ObjectActionExecutor<TKey, TActions, TContext, T>,
   ) {
     this.boundKey = this.encodeRawKey(this.rawKey());
     this.store = new Store(this.snapshot(false, this.boundKey));
@@ -2191,6 +2551,53 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
   }
   clearError(): void {
     this.store.update(clearObjectError);
+  }
+
+  action<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): Promise<ObjectActionOutput<T, TActions[K]>> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.execute(name, this.key, input) as Promise<
+      ObjectActionOutput<T, TActions[K]>
+    >;
+  }
+
+  runOperation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+    options: MutationRequestOptions = {},
+  ): Promise<ObjectActionOutput<T, TActions[K]>> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.execute(name, this.key, input, options) as Promise<
+      ObjectActionOutput<T, TActions[K]>
+    >;
+  }
+
+  operation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): ActionController<ObjectActionOutput<T, TActions[K]>> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.operation(name, this.key, input) as ActionController<
+      ObjectActionOutput<T, TActions[K]>
+    >;
+  }
+
+  actionForm<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+  ): FormController<TFormSchema> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.form(name, this.key, schema, initial);
   }
 
   relation<K extends keyof T & string>(
@@ -3692,6 +4099,12 @@ type ActionOutput<TSchema, TViews, TAction> = TAction extends {
         : Infer<TSchema>
       : Infer<TSchema>
   : Infer<TSchema>;
+
+type ObjectActionOutput<T, TAction> = TAction extends { readonly output?: infer S }
+  ? S extends { readonly _output: infer TOutput }
+    ? TOutput
+    : T
+  : T;
 
 type ServiceActionOutput<TAction> = TAction extends { readonly output?: infer S }
   ? S extends { readonly _output: infer T }

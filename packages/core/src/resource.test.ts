@@ -3,7 +3,7 @@ import { defineSchema, registerResource } from "./test-utils.js";
 import { describe, expect, it } from "vitest";
 import { createUiCogs } from "./factory.js";
 import { fields } from "./field.js";
-import { CacheConflictError } from "./resource.js";
+import { CacheConflictError, operation } from "./resource.js";
 import type { Transport, TransportRequest } from "./transport.js";
 
 class DeferredTransport implements Transport {
@@ -141,6 +141,72 @@ describe("resource instances", () => {
     expect(body).toEqual({ keys: [1, 2], input: { reason: "Completed" } });
     expect(result.succeeded).toEqual([1, 2]);
     expect(result.values.map((value) => value.id)).toEqual([1, 2]);
+  });
+
+  it("binds object actions to an object URL and resolves their presentation", async () => {
+    const requests: TransportRequest[] = [];
+    const transport: Transport = {
+      request: async (request) => {
+        requests.push(request);
+        return { status: 204, data: undefined };
+      },
+    };
+    const cogs = createUiCogs({ context: undefined, transport });
+    const task = defineSchema({
+      id: fields.ID(),
+      status: fields.Str({ required: true }),
+      locked: fields.Bool(),
+    });
+    const Tasks = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema: task,
+      key: "id",
+      actions: {
+        archive: operation.object({
+          path: "archive/",
+          presentation: {
+            placement: ["aside", "edit"],
+            label: "Archive",
+            icon: "archive",
+            confirmation: "Archive this task?",
+            disabled: ({ value }) => value?.locked === true,
+          },
+        }),
+        secureExport: operation.action({
+          presentation: {
+            placement: ["aside"],
+            label: "Export",
+            scopes: ["tasks.export"],
+          },
+        }),
+      },
+    });
+    const resource = cogs.resource(Tasks);
+    const object = resource.get(7);
+
+    expect(Object.isFrozen(Tasks.actions.archive)).toBe(true);
+    expect(Object.isFrozen(Tasks.actions.archive.presentation)).toBe(true);
+    expect(Object.isFrozen(Tasks.actions.archive.presentation?.placement)).toBe(true);
+
+    const actions = resource.actions({
+      placement: "aside",
+      object: { key: 7, value: { id: 7, status: "open", locked: true } },
+    });
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({
+      name: "archive",
+      target: "object",
+      label: "Archive",
+      disabled: true,
+      requiresInput: false,
+    });
+
+    await object.action("archive", undefined as never);
+    expect(requests[0]?.url).toBe("tasks/7/archive/");
+    await expect(resource.action("archive", undefined as never)).rejects.toThrow(
+      "requires an object key",
+    );
   });
 
   it("rebinds getter-driven objects when their key changes", async () => {

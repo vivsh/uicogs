@@ -340,6 +340,68 @@ enabled fields from validation.
 
 The components do not own validation rules. Every enabled form field participates even when no component is mounted.
 
+### Responsive form and filter layout
+
+Fields can carry reusable responsive presentation intent. `UcForm` reads `layout.form`;
+`UcFilter` reads `layout.filter`, so an ordinary edit form and a horizontal filter row
+can give the same field different widths without duplicating its schema.
+
+```ts
+const TaskFilters = schema({
+  search: fields.Str({
+    layout: {
+      form: { xs: 12 },
+      filter: { xs: 12, md: 5, placement: "static" },
+    },
+  }),
+  createdAfter: fields.Date({
+    layout: { filter: { xs: 12, sm: 6, md: 3, placement: "collapsible" } },
+  }),
+});
+```
+
+Responsive values are `1` through `12`, `"auto"`, `"grow"`, or `"shrink"`.
+The Quasar adapter maps them to its native `col-*` classes; schemas remain free of
+Quasar class names. `placement: "collapsible"` has meaning only in `UcFilter`.
+
+Use app-wide defaults through the existing Quasar skin installation:
+
+```ts
+injectSkin(
+  app,
+  defineSkin({
+    layout: {
+      form: { mode: "stack", default: { xs: 12 } },
+      filter: {
+        mode: "grid",
+        gutter: "sm",
+        default: { xs: 12, md: 4 },
+        kinds: { boolean: { xs: "auto" }, textarea: { xs: 12 } },
+      },
+    },
+  }),
+);
+```
+
+`UcForm` also accepts a local `layout` override. Generated `UcFilter` fields with
+`placement: "static"` render first; optional fields are hidden until expanded. Bind
+`v-model:expanded` when that disclosure state belongs to the page.
+
+```vue
+<UcFilter v-model:expanded="moreFilters" :form="filterForm">
+  <template #actions="{ expanded, hasCollapsible, toggleExpanded }">
+    <UcSubmit label="Apply" />
+    <QBtn v-if="hasCollapsible" flat @click="toggleExpanded()">
+      {{ expanded ? "Fewer filters" : "More filters" }}
+    </QBtn>
+  </template>
+</UcFilter>
+```
+
+`#actions` is shared by `UcForm` and `UcFilter`. Forms render it after their fields;
+generated filters render it inline beside static filters. Keep page/list actions in
+`UcResourceView #tools` and object actions in `detail-actions`.
+
 ### Quasar skin and CSS hooks
 
 `@uicogs/quasar` can apply one typed, application-scoped skin. Install it before the
@@ -371,7 +433,9 @@ choices, and readonly behavior therefore cannot be replaced by a skin.
 </UcForm>
 ```
 
-The following stable classes are always emitted: `uc-form`; `uc-field`,
-`uc-field-<editor-kind>`, and `uc-field-<schema-name>`. For example,
+The following stable classes are always emitted as applicable: `uc-form`,
+`uc-form__grid`, `uc-form__field`, `uc-form__actions`, `uc-filter__static`,
+`uc-filter__collapsible`, `uc-filter__actions`; `uc-field`, `uc-field-<editor-kind>`,
+and `uc-field-<schema-name>`. For example,
 `uc-field-password` and `uc-field-internal_note` are safe CSS hooks for app styling.
 They merge with skin and editor classes.

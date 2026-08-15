@@ -1,4 +1,12 @@
-import { isLoggedIn, type ExternalStore, type RuntimeAuthController } from "@uicogs/core";
+import {
+  isLoggedIn,
+  type ActionPlacement,
+  type EntityKey,
+  type ExternalStore,
+  type ResourceActionDescriptor,
+  type ResourceActionResolveOptions,
+  type RuntimeAuthController,
+} from "@uicogs/core";
 import {
   canAccessScopes,
   createNavigation,
@@ -36,6 +44,85 @@ export const useCollection = useController;
 export const useForm = useController;
 export const useAction = useController;
 export const useAuth = useController;
+
+/** Declarative narrowing for generated resource actions; core presentation checks still apply. */
+export type ResourceActionOverride =
+  false | readonly string[] | ((names: readonly string[]) => readonly string[]);
+
+/** Options shared by React resource-action hooks. */
+export interface ResourceActionOptions<TKey extends EntityKey> {
+  readonly placement: ActionPlacement;
+  readonly selectedKeys?: readonly TKey[];
+  readonly actions?: ResourceActionOverride;
+}
+
+/** Framework-neutral resource surface consumed by React action hooks. */
+export interface ResourceActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+  actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
+}
+
+/** Framework-neutral object surface consumed by React object-action hooks. */
+export interface ObjectActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+  readonly key: TKey;
+  readonly value?: Readonly<Record<string, unknown>>;
+}
+
+/** Returns core-resolved placement actions and rerenders when the resource or auth state changes. */
+export function useResourceActions<TKey extends EntityKey>(
+  resource: ResourceActionSource<TKey>,
+  options: ResourceActionOptions<TKey>,
+): readonly ResourceActionDescriptor<TKey>[] {
+  const reactiveResource = useController(resource);
+  const cogs = useUiCogs();
+  useScopeAccess(cogs.auth);
+  return applyResourceActionOverride(
+    reactiveResource.actions({
+      placement: options.placement,
+      selectedKeys: options.selectedKeys,
+    }),
+    options.actions,
+  );
+}
+
+/** Returns core-resolved object actions and rerenders when the object or auth state changes. */
+export function useObjectActions<TKey extends EntityKey>(
+  resource: ResourceActionSource<TKey>,
+  object: ObjectActionSource<TKey>,
+  options: ResourceActionOptions<TKey>,
+): readonly ResourceActionDescriptor<TKey>[] {
+  const reactiveResource = useController(resource);
+  const reactiveObject = useController(object);
+  const cogs = useUiCogs();
+  useScopeAccess(cogs.auth);
+  return applyResourceActionOverride(
+    reactiveResource.actions({
+      placement: options.placement,
+      object: {
+        key: reactiveObject.key,
+        ...(reactiveObject.value ? { value: reactiveObject.value } : {}),
+      },
+      selectedKeys: options.selectedKeys,
+    }),
+    options.actions,
+  );
+}
+
+function applyResourceActionOverride<TKey extends EntityKey>(
+  actions: readonly ResourceActionDescriptor<TKey>[],
+  override: ResourceActionOverride | undefined,
+): readonly ResourceActionDescriptor<TKey>[] {
+  if (override === false) return Object.freeze([]);
+  const names =
+    typeof override === "function" ? override(actions.map((action) => action.name)) : override;
+  if (!names) return actions;
+  const resolved = new Map(actions.map((action) => [action.name, action]));
+  return Object.freeze(
+    names.flatMap((name) => {
+      const action = resolved.get(name);
+      return action ? [action] : [];
+    }),
+  );
+}
 
 /** Current native React Router matches supplied to navigation presentation callbacks. */
 export interface UiCogsReactNavigationContext {
@@ -307,7 +394,7 @@ function resolveBreadcrumbs(
   const groups = new Map((navigation[placement]?.groups ?? []).map((group) => [group.id, group]));
   const link = routeNode(candidate, presentation, matches);
   return Object.freeze([
-    ...groupTrail(presentation.parent, groups, matches).map((group) =>
+    ...groupTrail(presentation.parent, groups).map((group) =>
       Object.freeze({
         label: labelOf(group.label, matches),
         ...(group.icon === undefined ? {} : { icon: iconOf(group.icon, matches) }),
@@ -396,7 +483,6 @@ function routeNode(
 function groupTrail(
   parent: string | undefined,
   groups: ReadonlyMap<string, UiCogsReactNavigationGroup>,
-  matches: readonly UiCogsReactRouteMatch[],
 ): readonly UiCogsReactNavigationGroup[] {
   const trail: UiCogsReactNavigationGroup[] = [];
   let id = parent;

@@ -1,10 +1,10 @@
 # @uicogs/react API
 
-Declaration SHA-256: `5277b8463213b70c8b6f9e68bfd7ae59f7c5fb4f324dcf6cede3a7679cb312a9`
+Declaration SHA-256: `68b4a16f5e93076eb8464a11abc80d4525a9f16e9da38f01db59f47ec7d9940e`
 
 ```ts
 // index.d.ts
-import { RuntimeAuthController, ExternalStore } from '@uicogs/core';
+import { EntityKey, ExternalStore, RuntimeAuthController, ActionPlacement, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
 export * from '@uicogs/core';
 import { NavigationDefinition, NavigationGroup } from '@uicogs/routes';
 import { ReactNode, createElement } from 'react';
@@ -16,6 +16,27 @@ declare const useCollection: typeof useController;
 declare const useForm: typeof useController;
 declare const useAction: typeof useController;
 declare const useAuth: typeof useController;
+/** Declarative narrowing for generated resource actions; core presentation checks still apply. */
+type ResourceActionOverride = false | readonly string[] | ((names: readonly string[]) => readonly string[]);
+/** Options shared by React resource-action hooks. */
+interface ResourceActionOptions<TKey extends EntityKey> {
+    readonly placement: ActionPlacement;
+    readonly selectedKeys?: readonly TKey[];
+    readonly actions?: ResourceActionOverride;
+}
+/** Framework-neutral resource surface consumed by React action hooks. */
+interface ResourceActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+    actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
+}
+/** Framework-neutral object surface consumed by React object-action hooks. */
+interface ObjectActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+    readonly key: TKey;
+    readonly value?: Readonly<Record<string, unknown>>;
+}
+/** Returns core-resolved placement actions and rerenders when the resource or auth state changes. */
+declare function useResourceActions<TKey extends EntityKey>(resource: ResourceActionSource<TKey>, options: ResourceActionOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
+/** Returns core-resolved object actions and rerenders when the object or auth state changes. */
+declare function useObjectActions<TKey extends EntityKey>(resource: ResourceActionSource<TKey>, object: ObjectActionSource<TKey>, options: ResourceActionOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
 /** Current native React Router matches supplied to navigation presentation callbacks. */
 interface UiCogsReactNavigationContext {
     readonly matches: readonly UiCogsReactRouteMatch[];
@@ -106,5 +127,5 @@ declare function withReact<T extends ReactRuntimeSource>(cogs: T, options?: Reac
 /** Returns the React-bound runtime supplied by the matching withReact() binding. */
 declare function useUiCogs<T extends ReactRuntimeSource = ReactRuntimeSource>(): ReactBoundUiCogs<T>;
 
-export { type ReactBindingOptions, type ReactBoundUiCogs, type UiCogsReactBreadcrumb, type UiCogsReactNavigationContext, type UiCogsReactNavigationGroup, type UiCogsReactNavigationGroupNode, type UiCogsReactNavigationIcon, type UiCogsReactNavigationLabel, type UiCogsReactNavigationLink, type UiCogsReactNavigationNode, type UiCogsReactNavigationOptions, type UiCogsReactNavigationRoute, type UiCogsReactRouteDefinition, type UiCogsReactRouteHandle, type UiCogsReactRouteMatch, type UiCogsReactRouteMeta, useAction, useAuth, useCollection, useController, useForm, useObject, useResource, useUiCogs, withReact };
+export { type ObjectActionSource, type ReactBindingOptions, type ReactBoundUiCogs, type ResourceActionOptions, type ResourceActionOverride, type ResourceActionSource, type UiCogsReactBreadcrumb, type UiCogsReactNavigationContext, type UiCogsReactNavigationGroup, type UiCogsReactNavigationGroupNode, type UiCogsReactNavigationIcon, type UiCogsReactNavigationLabel, type UiCogsReactNavigationLink, type UiCogsReactNavigationNode, type UiCogsReactNavigationOptions, type UiCogsReactNavigationRoute, type UiCogsReactRouteDefinition, type UiCogsReactRouteHandle, type UiCogsReactRouteMatch, type UiCogsReactRouteMeta, useAction, useAuth, useCollection, useController, useForm, useObject, useObjectActions, useResource, useResourceActions, useUiCogs, withReact };
 ```

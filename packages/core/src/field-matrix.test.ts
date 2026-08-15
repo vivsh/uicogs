@@ -101,6 +101,24 @@ describe("field catalog", () => {
     expect(field.modify({ help: "Help" }).options.help).toBe("Help");
   });
 
+  it("preserves immutable form and filter layout declarations", () => {
+    const field = fields.Str({
+      layout: {
+        form: { xs: 12, md: 6 },
+        filter: { xs: 12, md: 4, placement: "collapsible" },
+      },
+    });
+    expect(field.options.layout).toEqual({
+      form: { xs: 12, md: 6 },
+      filter: { xs: 12, md: 4, placement: "collapsible" },
+    });
+    expect(Object.isFrozen(field.options.layout)).toBe(true);
+    expect(field.modify({ layout: { form: { xs: "grow" } } }).options.layout).toEqual({
+      form: { xs: "grow" },
+    });
+    expect(field.describe()).toMatchObject({ layout: field.options.layout });
+  });
+
   it("covers semantic editor, formatter, filter, and sorter factories", () => {
     const descriptors = [
       editor.Text(),

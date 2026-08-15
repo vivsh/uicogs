@@ -269,7 +269,7 @@ const collection = useRouteCollection({
 Built-in operation factories are:
 
 ```text
-list, retrieve, create, replace, patch, remove, action, bulk
+list, retrieve, create, replace, patch, remove, action, object, bulk
 ```
 
 An operation can define:
@@ -317,6 +317,82 @@ Run it directly:
 ```ts
 const value = await tasks.action("publish", { notify: true });
 ```
+
+## Presented Resource Actions
+
+CRUD and custom operations are headless by default. Add `presentation` only when an
+application wants an action to appear in a UI. Presentation is immutable client-side
+metadata; it never authorizes a server endpoint.
+
+```ts
+const Tasks = resource({
+  name: "tasks",
+  url: "tasks/",
+  schema: Task,
+  key: "id",
+  operations: {
+    archive: operation.object({
+      path: "archive/",
+      presentation: {
+        placement: ["aside", "edit"],
+        label: "Archive",
+        icon: "archive",
+        confirmation: "Archive this task?",
+        scopes: ["tasks.archive"],
+        visible: ({ value }) => value?.status !== "archived",
+        disabled: ({ value }) => value?.locked === true,
+      },
+    }),
+    complete: operation.bulk({
+      input: CompleteInput,
+      bulk: { path: "complete/bulk/" },
+      presentation: {
+        placement: ["list"],
+        label: "Complete selected",
+        icon: "done_all",
+      },
+    }),
+  },
+});
+```
+
+`placement` identifies a view region, not a URL or transport target. Standard names
+are `list`, `create`, `edit`, and `aside`; any other string is application-owned.
+`scopes` is an all-of check. `visible` removes an action, while `disabled` keeps its
+presentation but prevents execution. The resolver supplies application context, auth
+state, effective scopes, the current object value/key, and selected keys.
+
+`operation.object()` is object-bound: `archive/` above calls
+`tasks/:key/archive/`. It must run through an object controller:
+
+```ts
+const task = tasks.get(42);
+await task.action("archive", undefined);
+
+const archive = task.operation("archive", undefined);
+const archiveForm = task.actionForm("archive", ArchiveInput.toForm());
+```
+
+Calling `tasks.action("archive", ...)` is rejected because there is no object key.
+`operation.action()` remains resource-bound; `operation.bulk()` runs through
+`tasks.bulk.action(name, selectedKeys, input)`.
+
+Use `tasks.actions()` to resolve immutable descriptors in a custom headless view:
+
+```ts
+const actions = tasks.actions({
+  placement: "aside",
+  object: { key: task.key, value: task.value },
+});
+
+await actions[0]?.execute(undefined);
+```
+
+Descriptors are ordered by `presentation.order` then declaration order. They expose
+their label, icon, confirmation, disabled state, `requiresInput`, target-bound
+`execute()` / `operation()` / `form()` helpers, and selected keys. Do not execute a
+descriptor with `requiresInput`; collect that input in an application-owned form or
+dialog first.
 
 Create a stateful action controller when the UI needs loading, failure, progress, and duplicate-execution control.
 

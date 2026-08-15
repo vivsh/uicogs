@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `b50bbe2b435b4154daa32468424f67253141c1a41bf9e2856918e2701f098539`
+Declaration SHA-256: `df6547eb93079966c7db6b7bfff022bfec19fb9f9596dc07ffde3d5273ac0cde`
 
 ```ts
 // index.d.ts
@@ -8,7 +8,7 @@ import * as vue from 'vue';
 import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
 import { UiCogsNavigationNode } from '@uicogs/vue';
-import { UiNotification, UiNotificationAction, NotificationController, AlertController, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor } from '@uicogs/core';
+import { UiNotification, UiNotificationAction, NotificationController, AlertController, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
 import { QDialogOptions, QNotifyCreateOptions } from 'quasar';
 import { RouteLocationRaw } from 'vue-router';
 
@@ -243,6 +243,18 @@ interface FormSkin {
     readonly class?: UiClass;
     readonly style?: UiStyle;
 }
+/** Responsive Quasar layout defaults for generated forms or filters. */
+interface UcSurfaceLayout {
+    readonly mode?: "stack" | "grid";
+    readonly gutter?: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+    readonly default?: ResponsiveFieldLayout;
+    readonly kinds?: Readonly<Record<string, ResponsiveFieldLayout>>;
+}
+/** Application-wide layout defaults for generated forms and filters. */
+interface UiCogsQuasarLayout {
+    readonly form?: UcSurfaceLayout;
+    readonly filter?: UcSurfaceLayout;
+}
 /** The deliberately small set of common Quasar field appearance properties. */
 interface FieldSkin {
     readonly outlined?: boolean;
@@ -271,6 +283,7 @@ type FieldSkinResolver = (context: FieldSkinContext) => FieldSkin;
 /** Reusable application-level presentation defaults for UiCogs Quasar controls. */
 interface UiCogsQuasarSkin {
     readonly palette?: QuasarPalette;
+    readonly layout?: UiCogsQuasarLayout;
     readonly form?: FormSkin;
     readonly field?: FieldSkin | FieldSkinResolver;
 }
@@ -326,6 +339,7 @@ interface FieldLike {
         readonly multiple?: boolean;
         readonly readonly?: boolean;
         readonly writeonly?: boolean;
+        readonly layout?: FieldLayout;
     }>;
 }
 interface CollectionLike extends ExternalStore<object> {
@@ -367,6 +381,7 @@ interface ResourceLike extends ExternalStore<object> {
     hasMore(): boolean;
     form?(schema: unknown, initial?: Readonly<Record<string, unknown>>): FormLike;
     get(...args: never[]): ResourceObjectLike;
+    actions?(options: ResourceActionResolveOptions<EntityKey>): readonly ResourceActionDescriptor<EntityKey>[];
 }
 interface TableCollectionLike extends ExternalStore<object> {
     readonly resource: ResourceLike["definition"];
@@ -414,6 +429,11 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     view: PropType<ViewLike>;
     skin: PropType<UiCogsQuasarFormSkin>;
+    layout: PropType<UcSurfaceLayout>;
+    surface: {
+        type: PropType<"form" | "filter">;
+        default: string;
+    };
     failureMessage: {
         type: StringConstructor;
         default: string;
@@ -427,6 +447,11 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     view: PropType<ViewLike>;
     skin: PropType<UiCogsQuasarFormSkin>;
+    layout: PropType<UcSurfaceLayout>;
+    surface: {
+        type: PropType<"form" | "filter">;
+        default: string;
+    };
     failureMessage: {
         type: StringConstructor;
         default: string;
@@ -435,6 +460,7 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     onSuccess?: ((...args: any[]) => any) | undefined;
     onFailure?: ((...args: any[]) => any) | undefined;
 }>, {
+    surface: "form" | "filter";
     failureMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcField: vue.DefineComponent<vue.ExtractPropTypes<{
@@ -477,20 +503,42 @@ declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
         required: true;
     };
     collection: PropType<CollectionLike>;
+    layout: PropType<UcSurfaceLayout>;
+    expanded: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
+    defaultExpanded: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
     failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("failure" | "load-failure")[], "failure" | "load-failure", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("failure" | "load-failure" | "update:expanded")[], "failure" | "load-failure" | "update:expanded", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     form: {
         type: PropType<FormLike>;
         required: true;
     };
     collection: PropType<CollectionLike>;
+    layout: PropType<UcSurfaceLayout>;
+    expanded: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
+    defaultExpanded: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
     failureMessage: StringConstructor;
 }>> & Readonly<{
     onFailure?: ((...args: any[]) => any) | undefined;
     "onLoad-failure"?: ((...args: any[]) => any) | undefined;
-}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+    "onUpdate:expanded"?: ((...args: any[]) => any) | undefined;
+}>, {
+    expanded: boolean | undefined;
+    defaultExpanded: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     title: StringConstructor;
     aside: {
@@ -544,7 +592,7 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     "onUpdate:aside"?: ((...args: any[]) => any) | undefined;
     "onAside-hidden"?: ((...args: any[]) => any) | undefined;
 }>, {
-    mode: "auto" | "split" | "dialog" | "stack";
+    mode: "stack" | "auto" | "split" | "dialog";
     aside: boolean;
     loading: boolean;
     asideWidth: string;
@@ -629,7 +677,7 @@ declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
     onLoaded?: ((...args: any[]) => any) | undefined;
 }>, {
     selectedKeys: readonly EntityKey[];
-    selection: "multiple" | "none" | "single";
+    selection: "none" | "multiple" | "single";
     serial: boolean;
     infinite: boolean;
     noPagination: boolean;
@@ -653,6 +701,10 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         default: string;
     };
     columns: PropType<readonly UcResourceColumn[]>;
+    display: {
+        type: PropType<"table" | "list">;
+        default: string;
+    };
     autoLoad: {
         type: BooleanConstructor;
         default: boolean;
@@ -675,10 +727,14 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     createForm: ObjectConstructor;
     editForm: ObjectConstructor;
+    objectActions: {
+        type: PropType<boolean | readonly string[]>;
+        default: boolean;
+    };
     failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     resource: {
         type: PropType<ResourceLike>;
         required: true;
@@ -695,6 +751,10 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         default: string;
     };
     columns: PropType<readonly UcResourceColumn[]>;
+    display: {
+        type: PropType<"table" | "list">;
+        default: string;
+    };
     autoLoad: {
         type: BooleanConstructor;
         default: boolean;
@@ -717,6 +777,10 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     createForm: ObjectConstructor;
     editForm: ObjectConstructor;
+    objectActions: {
+        type: PropType<boolean | readonly string[]>;
+        default: boolean;
+    };
     failureMessage: StringConstructor;
 }>> & Readonly<{
     onFailure?: ((...args: any[]) => any) | undefined;
@@ -726,14 +790,20 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     onLoaded?: ((...args: any[]) => any) | undefined;
     onCreate?: ((...args: any[]) => any) | undefined;
     onView?: ((...args: any[]) => any) | undefined;
+    "onObject-action"?: ((...args: any[]) => any) | undefined;
+    "onObject-action-success"?: ((...args: any[]) => any) | undefined;
+    "onObject-action-failure"?: ((...args: any[]) => any) | undefined;
+    "onObject-action-cancel"?: ((...args: any[]) => any) | undefined;
 }>, {
     create: boolean;
-    mode: "auto" | "split" | "dialog" | "stack";
+    mode: "stack" | "auto" | "split" | "dialog";
     asideWidth: string;
     selectedKeys: readonly EntityKey[];
-    selection: "multiple" | "none" | "single";
+    selection: "none" | "multiple" | "single";
     autoLoad: boolean;
+    display: "table" | "list";
     emptyLabel: string;
+    objectActions: boolean | readonly string[];
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcFormAction: vue.DefineComponent<vue.ExtractPropTypes<{
     label: {
@@ -925,5 +995,5 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
 ```

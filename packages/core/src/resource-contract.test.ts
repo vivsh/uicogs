@@ -32,6 +32,13 @@ describe("resource definitions and operation builders", () => {
       kind: "action",
       method: "POST",
       bulk: {},
+      target: "bulk",
+    });
+    expect(operation.object({ path: "archive/" })).toEqual({
+      kind: "action",
+      method: "POST",
+      path: "archive/",
+      target: "object",
     });
     expect(Object.isFrozen(operation.list())).toBe(true);
     expect(Object.isFrozen(operation.all())).toBe(true);

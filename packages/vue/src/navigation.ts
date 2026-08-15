@@ -209,7 +209,7 @@ function resolveBreadcrumbs(
   const groups = new Map((navigation[placement]?.groups ?? []).map((group) => [group.id, group]));
   const link = routeNode(candidate, presentation, current);
   return Object.freeze([
-    ...groupTrail(presentation.parent, groups, current).map((group) =>
+    ...groupTrail(presentation.parent, groups).map((group) =>
       Object.freeze({
         label: labelOf(group.label, current),
         ...(group.icon === undefined ? {} : { icon: iconOf(group.icon, current) }),
@@ -317,7 +317,6 @@ function routeNode(
 function groupTrail(
   parent: string | undefined,
   groups: ReadonlyMap<string, UiCogsNavigationGroup>,
-  current: RouteLocationNormalizedLoaded,
 ): readonly UiCogsNavigationGroup[] {
   const trail: UiCogsNavigationGroup[] = [];
   let id = parent;

@@ -9,6 +9,9 @@ import {
   type Schema,
   type Shape,
   type RuntimeAuthController,
+  type ActionPlacement,
+  type ResourceActionDescriptor,
+  type ResourceActionResolveOptions,
   type AlertController,
   type NotificationController,
   isLoggedIn,
@@ -222,6 +225,93 @@ export const useUcObject = useUcController;
 export const useUcCollection = useUcController;
 export const useUcForm = useUcController;
 export const useUcAction = useUcController;
+
+/** Declarative narrowing for generated resource actions; access rules always remain enforced. */
+export type UcResourceActionOverride =
+  false | readonly string[] | ((names: readonly string[]) => readonly string[]);
+
+/** Options shared by the Vue resource-action composables. */
+export interface UcResourceActionOptions<TKey extends EntityKey> {
+  readonly placement: ActionPlacement;
+  readonly selectedKeys?: Readonly<Ref<readonly TKey[]>> | readonly TKey[];
+  readonly actions?: UcResourceActionOverride;
+}
+
+/** The core resource surface consumed by framework action bindings. */
+export interface UcResourceActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+  actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
+}
+
+/** The object surface consumed by object-bound Vue action bindings. */
+export interface UcObjectActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+  readonly key: TKey;
+  readonly value?: Readonly<Record<string, unknown>>;
+}
+
+/** Resolves placement actions reactively while preserving core scope and visibility checks. */
+export function useUcResourceActions<TKey extends EntityKey>(
+  resource: UcResourceActionSource<TKey>,
+  options: UcResourceActionOptions<TKey>,
+): ComputedRef<readonly ResourceActionDescriptor<TKey>[]> {
+  const reactiveResource = vueReactive(resource);
+  const cogs = useUiCogs();
+  return computed(() => {
+    void cogs.auth?.status;
+    void cogs.auth?.scopes;
+    const selectedKeys = actionSelectedKeys(options.selectedKeys);
+    const available = reactiveResource.actions({ placement: options.placement, selectedKeys });
+    return applyActionOverride(available, options.actions);
+  });
+}
+
+/** Resolves object-bound placement actions reactively for a current resource object. */
+export function useUcObjectActions<TKey extends EntityKey>(
+  resource: UcResourceActionSource<TKey>,
+  object: UcObjectActionSource<TKey>,
+  options: UcResourceActionOptions<TKey>,
+): ComputedRef<readonly ResourceActionDescriptor<TKey>[]> {
+  const reactiveResource = vueReactive(resource);
+  const reactiveObject = vueReactive(object);
+  const cogs = useUiCogs();
+  return computed(() => {
+    void cogs.auth?.status;
+    void cogs.auth?.scopes;
+    const selectedKeys = actionSelectedKeys(options.selectedKeys);
+    const available = reactiveResource.actions({
+      placement: options.placement,
+      object: {
+        key: reactiveObject.key,
+        ...(reactiveObject.value ? { value: reactiveObject.value } : {}),
+      },
+      selectedKeys,
+    });
+    return applyActionOverride(available, options.actions);
+  });
+}
+
+function actionSelectedKeys<TKey extends EntityKey>(
+  value: UcResourceActionOptions<TKey>["selectedKeys"],
+): readonly TKey[] | undefined {
+  if (!value) return undefined;
+  return "value" in value ? value.value : value;
+}
+
+function applyActionOverride<TKey extends EntityKey>(
+  actions: readonly ResourceActionDescriptor<TKey>[],
+  override: UcResourceActionOverride | undefined,
+): readonly ResourceActionDescriptor<TKey>[] {
+  if (override === false) return Object.freeze([]);
+  const names =
+    typeof override === "function" ? override(actions.map((action) => action.name)) : override;
+  if (!names) return actions;
+  const selected = new Map(actions.map((action) => [action.name, action]));
+  return Object.freeze(
+    names.flatMap((name) => {
+      const action = selected.get(name);
+      return action ? [action] : [];
+    }),
+  );
+}
 
 export function useUcSnapshot<T extends object>(store: ExternalStore<T>): Readonly<ShallowRef<T>> {
   const snapshot = shallowRef(store.getSnapshot()) as ShallowRef<T>;
