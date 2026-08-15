@@ -20,10 +20,12 @@ import {
 } from "@uicogs/core";
 import {
   UcAction,
+  UcActions,
   UcAlert,
   UcAlertFailure,
   UcAlertSuccess,
   UcCancel,
+  UcButton,
   UcConfirm,
   UcDelete,
   UcField,
@@ -120,7 +122,50 @@ describe("Quasar forms and fields", () => {
     expect(cells[0]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-6"]));
     expect(cells[1]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-4"]));
     expect(wrapper.find(".uc-form__actions").classes()).toContain("col-12");
+    expect(wrapper.find(".uc-form__actions").classes()).not.toContain("uc-actions--inline");
     expect(wrapper.find(".custom-actions").text()).toBe("false");
+  });
+
+  it("uses shared buttons and an inline action row only for horizontal forms", () => {
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "One" });
+    const wrapper = mount(UcForm, {
+      props: {
+        form,
+        layout: { mode: "grid", default: { xs: 12, md: 6 } },
+        actionLayout: "inline",
+      },
+      slots: {
+        actions: () => [
+          h(UcSubmit, { label: "Save" }),
+          h(UcButton, { label: "Cancel", flat: true, "aria-label": "Cancel editing" }),
+          h("button", { class: "raw-action" }, "Raw action"),
+        ],
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    const actions = wrapper.findComponent(UcActions);
+    expect(actions.classes()).toEqual(
+      expect.arrayContaining(["uc-actions", "uc-actions--inline", "col-12", "col-sm-auto"]),
+    );
+    const buttons = wrapper.findAll(".uc-button");
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.attributes("data-color")).toBe("primary");
+    expect(buttons[1]?.attributes("aria-label")).toBe("Cancel editing");
+    expect(wrapper.find(".raw-action").classes()).not.toContain("uc-button");
+  });
+
+  it("lets submit callers replace the default primary color", () => {
+    const schema = defineSchema({ title: fields.Str() });
+    const form = createFormController(schema.toForm(), { title: "One" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      slots: { actions: () => h(UcSubmit, { color: "accent" }) },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.find(".uc-button").attributes("data-color")).toBe("accent");
   });
 
   it("applies installed layout defaults before field-specific overrides", () => {
@@ -184,7 +229,9 @@ describe("Quasar forms and fields", () => {
 
     expect(wrapper.find(".uc-filter__static").exists()).toBe(true);
     expect(wrapper.find(".uc-filter__collapsible").exists()).toBe(false);
-    expect(wrapper.find(".uc-filter__actions").classes()).toContain("col-auto");
+    expect(wrapper.find(".uc-filter__actions").classes()).toEqual(
+      expect.arrayContaining(["uc-actions", "uc-actions--inline", "col-12", "col-sm-auto"]),
+    );
     expect(wrapper.find(".uc-form__grid").classes()).toEqual(
       expect.arrayContaining(["q-col-gutter-md", "q-row-gutter-md"]),
     );
@@ -1590,7 +1637,14 @@ const controlStub = defineComponent({
 const buttonStub = defineComponent({
   name: "QBtnStub",
   inheritAttrs: false,
-  props: { label: String, icon: String, title: String, type: String, disable: Boolean },
+  props: {
+    label: String,
+    icon: String,
+    title: String,
+    type: String,
+    color: String,
+    disable: Boolean,
+  },
   emits: ["click"],
   setup(props, { attrs, emit, slots }) {
     return () =>
@@ -1602,6 +1656,7 @@ const buttonStub = defineComponent({
           disabled: props.disable,
           title: props.title,
           "data-icon": props.icon,
+          "data-color": props.color,
           onClick: () => emit("click"),
         },
         slots.default?.() ?? props.label ?? props.icon,

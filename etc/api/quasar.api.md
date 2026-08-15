@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `538d7baa2890bc9494ca4ab375020643d8acb5a5621edee8936c004f4a06be7e`
+Declaration SHA-256: `b20b12d203b61bc1b7732bda01c8ea35f08cd515129427eaa37f4aa44180ade8`
 
 ```ts
 // index.d.ts
@@ -9,7 +9,7 @@ import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
 import { UiCogsNavigationNode } from '@uicogs/vue';
 import { UiNotification, UiNotificationAction, NotificationController, AlertController, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
-import { QDialogOptions, QNotifyCreateOptions } from 'quasar';
+import { QDialogOptions, QNotifyCreateOptions, QBtnProps } from 'quasar';
 import { RouteLocationRaw } from 'vue-router';
 
 /** A small, accessible indicator rendered beside a generated navigation node. */
@@ -292,6 +292,14 @@ interface UiCogsQuasarFormSkin {
     readonly form?: FormSkin;
     readonly field?: FieldSkin | FieldSkinResolver;
 }
+/** Controls where a generated form action row is placed. */
+type UcFormActionLayout = "footer" | "inline";
+/** Public Quasar button controls supported by UiCogs button primitives. */
+type UcButtonProps = Pick<QBtnProps, "label" | "icon" | "iconRight" | "color" | "textColor" | "flat" | "outline" | "unelevated" | "round" | "rounded" | "square" | "dense" | "size" | "padding" | "fab" | "fabMini" | "loading" | "disable" | "type" | "noCaps" | "noWrap">;
+/** Layout controls for a UiCogs action row. */
+interface UcActionsProps {
+    readonly inline?: boolean;
+}
 interface FormLike extends ExternalStore<object> {
     readonly schema: {
         readonly fields: {
@@ -430,6 +438,10 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     view: PropType<ViewLike>;
     skin: PropType<UiCogsQuasarFormSkin>;
     layout: PropType<UcSurfaceLayout>;
+    actionLayout: {
+        type: PropType<UcFormActionLayout>;
+        default: string;
+    };
     surface: {
         type: PropType<"form" | "filter">;
         default: string;
@@ -448,6 +460,10 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     view: PropType<ViewLike>;
     skin: PropType<UiCogsQuasarFormSkin>;
     layout: PropType<UcSurfaceLayout>;
+    actionLayout: {
+        type: PropType<UcFormActionLayout>;
+        default: string;
+    };
     surface: {
         type: PropType<"form" | "filter">;
         default: string;
@@ -460,6 +476,7 @@ declare const UcForm: vue.DefineComponent<vue.ExtractPropTypes<{
     onSuccess?: ((...args: any[]) => any) | undefined;
     onFailure?: ((...args: any[]) => any) | undefined;
 }>, {
+    actionLayout: UcFormActionLayout;
     surface: "form" | "filter";
     failureMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
@@ -487,6 +504,10 @@ declare const UcSubmit: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    color: {
+        type: StringConstructor;
+        default: string;
+    };
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
@@ -494,8 +515,91 @@ declare const UcSubmit: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    color: {
+        type: StringConstructor;
+        default: string;
+    };
 }>> & Readonly<{}>, {
     label: string;
+    color: string;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** Renders an application-owned Quasar button with a stable UiCogs class hook. */
+declare const UcButton: vue.DefineComponent<vue.ExtractPropTypes<{
+    label: (StringConstructor | NumberConstructor)[];
+    icon: StringConstructor;
+    iconRight: StringConstructor;
+    color: StringConstructor;
+    textColor: StringConstructor;
+    flat: BooleanConstructor;
+    outline: BooleanConstructor;
+    unelevated: BooleanConstructor;
+    round: BooleanConstructor;
+    rounded: BooleanConstructor;
+    square: BooleanConstructor;
+    dense: BooleanConstructor;
+    size: StringConstructor;
+    padding: StringConstructor;
+    fab: BooleanConstructor;
+    fabMini: BooleanConstructor;
+    loading: BooleanConstructor;
+    disable: BooleanConstructor;
+    type: StringConstructor;
+    noCaps: BooleanConstructor;
+    noWrap: BooleanConstructor;
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    label: (StringConstructor | NumberConstructor)[];
+    icon: StringConstructor;
+    iconRight: StringConstructor;
+    color: StringConstructor;
+    textColor: StringConstructor;
+    flat: BooleanConstructor;
+    outline: BooleanConstructor;
+    unelevated: BooleanConstructor;
+    round: BooleanConstructor;
+    rounded: BooleanConstructor;
+    square: BooleanConstructor;
+    dense: BooleanConstructor;
+    size: StringConstructor;
+    padding: StringConstructor;
+    fab: BooleanConstructor;
+    fabMini: BooleanConstructor;
+    loading: BooleanConstructor;
+    disable: BooleanConstructor;
+    type: StringConstructor;
+    noCaps: BooleanConstructor;
+    noWrap: BooleanConstructor;
+}>> & Readonly<{}>, {
+    flat: boolean;
+    outline: boolean;
+    unelevated: boolean;
+    round: boolean;
+    rounded: boolean;
+    square: boolean;
+    dense: boolean;
+    fab: boolean;
+    fabMini: boolean;
+    loading: boolean;
+    disable: boolean;
+    noCaps: boolean;
+    noWrap: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** Groups UiCogs or application buttons with Quasar-native responsive action-row layout. */
+declare const UcActions: vue.DefineComponent<vue.ExtractPropTypes<{
+    inline: {
+        type: PropType<UcActionsProps["inline"]>;
+        default: boolean;
+    };
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    inline: {
+        type: PropType<UcActionsProps["inline"]>;
+        default: boolean;
+    };
+}>> & Readonly<{}>, {
+    inline: boolean | undefined;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcFilter: vue.DefineComponent<vue.ExtractPropTypes<{
     form: {
@@ -592,11 +696,11 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     "onUpdate:aside"?: ((...args: any[]) => any) | undefined;
     "onAside-hidden"?: ((...args: any[]) => any) | undefined;
 }>, {
+    padding: boolean;
+    loading: boolean;
     mode: "stack" | "auto" | "split" | "dialog";
     aside: boolean;
-    loading: boolean;
     asideWidth: string;
-    padding: boolean;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
     resource: PropType<ResourceLike>;
@@ -820,6 +924,10 @@ declare const UcFormAction: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    color: {
+        type: StringConstructor;
+        default: string;
+    };
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
@@ -827,8 +935,13 @@ declare const UcFormAction: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    color: {
+        type: StringConstructor;
+        default: string;
+    };
 }>> & Readonly<{}>, {
     label: string;
+    color: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare function UcAlert(message: string, options?: QDialogOptions): Promise<boolean>;
 declare function UcConfirm(message: string, options?: QDialogOptions): Promise<boolean>;
@@ -875,10 +988,10 @@ declare const UcCancel: vue.DefineComponent<vue.ExtractPropTypes<{
 }>> & Readonly<{
     onCancel?: ((...args: any[]) => any) | undefined;
 }>, {
-    color: string;
-    flat: boolean;
     label: string;
     icon: string;
+    color: string;
+    flat: boolean;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcAction: vue.DefineComponent<vue.ExtractPropTypes<{
     action: {
@@ -999,11 +1112,11 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     onFailure?: ((...args: any[]) => any) | undefined;
     onCancel?: ((...args: any[]) => any) | undefined;
 }>, {
-    flat: boolean;
     label: string;
+    flat: boolean;
     disable: boolean;
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers };
 ```

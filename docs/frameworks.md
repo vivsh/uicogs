@@ -204,6 +204,8 @@ UcForm
 UcField
 UcFilter
 UcSubmit
+UcButton
+UcActions
 UcFormAction
 UcTable
 UcView
@@ -322,7 +324,9 @@ declare separate `layout.form` and `layout.filter` widths; the Quasar adapter ma
 their numeric spans and `auto`/`grow`/`shrink` values to native `col-*` classes.
 `UcFilter` uses a horizontal grid by default, supports static and collapsible generated
 filter fields, and exposes `v-model:expanded`. Both components expose `#actions`;
-filter actions render inline while form actions render after fields. See
+filter actions render inline while form actions render after fields by default. Set
+`UcForm action-layout="inline"` when a form action row deliberately shares a grid row
+with fields. See
 [Forms](forms.md#responsive-form-and-filter-layout) for the complete contract.
 
 File and image fields use the form's typed file values and progress state.
@@ -552,6 +556,12 @@ restore actions hidden by scopes or `visible`.
 `UcAction` executes a supplied callback or action controller.
 
 It owns component pending state, optional confirmation, and success or failure events.
+
+`UcButton` is the presentation-only Quasar button primitive for custom controls.
+`UcActions` is the shared action-row container used automatically by forms and filters.
+Use `UcButton` in custom action slots when it should receive UiCogs' stable button hook;
+raw `QBtn` remains valid and application-owned. `UcSubmit` defaults to `primary`, while
+`UcAction`, `UcDelete`, and `UcCancel` retain their existing semantic defaults.
 
 `UcDelete` is the destructive specialization.
 

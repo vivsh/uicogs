@@ -1,19 +1,11 @@
 import { computed, createApp, defineComponent, h, ref } from "vue";
-import {
-  QBtn,
-  QHeader,
-  QInput,
-  QLayout,
-  QPageContainer,
-  QToolbar,
-  QToolbarTitle,
-  Quasar,
-} from "quasar";
+import { QBtn, QHeader, QLayout, QPageContainer, QToolbar, QToolbarTitle, Quasar } from "quasar";
 import "quasar/dist/quasar.css";
 import "@quasar/extras/material-icons/material-icons.css";
 import iconSet from "quasar/icon-set/svg-material-icons.js";
 import {
   createUiCogs,
+  createFormController,
   editor,
   fields,
   format,
@@ -26,7 +18,7 @@ import {
 } from "@uicogs/core";
 import { sse } from "@uicogs/http";
 import { storage } from "@uicogs/storage";
-import { UcAction, UcDelete, UcResourceView } from "@uicogs/quasar";
+import { UcAction, UcDelete, UcFilter, UcResourceView, UcSubmit } from "@uicogs/quasar";
 import { UcEChart, chart, useUcChart } from "@uicogs/echarts";
 import * as echarts from "echarts/core";
 import { BarChart } from "echarts/charts";
@@ -199,6 +191,12 @@ const Task = schema({
   attachment: fields.File({ label: "Attachment" }),
 });
 const BulkStatus = schema({ status: fields.Enum(["open", "done"] as const) });
+const TaskFilters = schema({
+  search: fields.Str({
+    label: "Search tasks",
+    layout: { filter: { xs: 12, md: 5 } },
+  }),
+});
 const TaskCreate = Task.drop("id", "project").toForm({ mode: "create", encoding: "auto" });
 const TaskEdit = Task.keep("title", "status", "attachment").toForm({
   mode: "patch",
@@ -365,7 +363,6 @@ const app = defineComponent({
     const tasks = cogs.resource(Tasks).page(1, 2);
     const activeKey = ref<number>();
     const selectedKeys = ref<readonly number[]>([]);
-    const search = ref("");
     const lastEvent = ref("Ready");
     const localTasks = cogs.resource(LocalTasks);
     const localTaskChart = useUcChart(LocalTaskBars, localTasks);
@@ -378,11 +375,17 @@ const app = defineComponent({
       const value = tasks.get(activeKey.value).value;
       return value ? `Project: ${value.project.name}` : "Loading relation";
     });
-    const applySearch = async (): Promise<void> => {
-      tasks.filter({ search: search.value }, { merge: false }).page(1, 2);
-      await tasks.load({ policy: "network-only" });
-      lastEvent.value = `Filtered: ${search.value || "all"}`;
-    };
+    const filterForm = createFormController(
+      TaskFilters.toForm(),
+      { search: "" },
+      async (values) => {
+        const search = typeof values.search === "string" ? values.search : "";
+        tasks.filter({ search }, { merge: false }).page(1, 2);
+        await tasks.load({ policy: "network-only" });
+        lastEvent.value = `Filtered: ${search || "all"}`;
+        return {};
+      },
+    );
     const completeSelected = async (): Promise<void> => {
       await tasks.bulk.action("complete", selectedKeys.value, { status: "done" });
       await tasks.refresh();
@@ -441,16 +444,12 @@ const app = defineComponent({
             },
             {
               filters: () =>
-                h("div", { class: "workflow-filters" }, [
-                  h(QInput, {
-                    modelValue: search.value,
-                    label: "Search tasks",
-                    clearable: true,
-                    "onUpdate:modelValue": (value: string | number | null) => {
-                      search.value = value === null ? "" : String(value);
-                    },
-                  }),
-                  h(QBtn, { label: "Apply filter", color: "primary", onClick: applySearch }),
+                h("section", { "data-testid": "generated-filter" }, [
+                  h(
+                    UcFilter,
+                    { form: filterForm },
+                    { actions: () => h(UcSubmit, { label: "Apply filter" }) },
+                  ),
                 ]),
               actions: ({ create }: { readonly create: () => void }) =>
                 h("div", { class: "workflow-actions" }, [

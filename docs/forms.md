@@ -336,7 +336,8 @@ enabled fields from validation.
 
 `UcField` resolves the field's semantic editor descriptor.
 
-`UcSubmit` submits the controller.
+`UcSubmit` submits the controller and defaults to Quasar's `primary` color. `UcButton`
+is the matching presentation-only button for custom links, toggles, and auxiliary controls.
 
 The components do not own validation rules. Every enabled form field participates even when no component is mounted.
 
@@ -396,9 +397,9 @@ spacing.
 <UcFilter v-model:expanded="moreFilters" :form="filterForm">
   <template #actions="{ expanded, hasCollapsible, toggleExpanded }">
     <UcSubmit label="Apply" />
-    <QBtn v-if="hasCollapsible" flat @click="toggleExpanded()">
+    <UcButton v-if="hasCollapsible" flat @click="toggleExpanded()">
       {{ expanded ? "Fewer filters" : "More filters" }}
-    </QBtn>
+    </UcButton>
   </template>
 </UcFilter>
 ```
@@ -406,6 +407,28 @@ spacing.
 `#actions` is shared by `UcForm` and `UcFilter`. Forms render it after their fields;
 generated filters render it inline beside static filters. Keep page/list actions in
 `UcResourceView #tools` and object actions in `detail-actions`.
+
+### Action rows
+
+`UcActions` is the shared Quasar-native action-row container. `UcForm` and `UcFilter`
+create it automatically, so custom action slots normally contain only buttons. Use
+`UcButton` rather than a raw `QBtn` when a custom button should share UiCogs' stable
+`uc-button` hook; raw `QBtn` remains fully application-owned.
+
+```vue
+<UcForm :form="form" action-layout="inline">
+  <template #actions>
+    <UcSubmit label="Save" />
+    <UcButton flat label="Cancel" @click="cancel()" />
+  </template>
+</UcForm>
+```
+
+`action-layout` defaults to `"footer"`. Set it to `"inline"` only when actions share a
+horizontal grid row with fields. On desktop and tablet widths, direct buttons in that
+shared row match the field-row height through Quasar's native flex layout. At `xs`, the
+action region becomes a full row and its naturally sized buttons wrap safely. Stacked
+forms, form footers, table tools, and detail actions keep their normal Quasar sizing.
 
 ### Quasar skin and CSS hooks
 

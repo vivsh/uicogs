@@ -2,6 +2,9 @@ import { expectAssignable, expectError, expectType } from "tsd";
 import {
   type UcAppBrand,
   type UcAppLayoutActionProps,
+  type UcActionsProps,
+  type UcButtonProps,
+  type UcFormActionLayout,
   type UcNavigationBadge,
   type UcNotification,
   type UcNotificationAction,
@@ -32,6 +35,16 @@ expectAssignable<UcSurfaceLayout>({
 });
 expectAssignable<FieldSkin>({ dense: true, style: "max-width: 24rem" });
 expectType<FieldSkinContext>(undefined as unknown as FieldSkinContext);
+expectAssignable<UcButtonProps>({
+  label: "Save",
+  color: "primary",
+  dense: true,
+  size: "sm",
+  type: "submit",
+});
+expectAssignable<UcActionsProps>({ inline: true });
+expectAssignable<UcFormActionLayout>("inline");
+expectError<UcFormActionLayout>("sideways");
 
 expectError(defineSkin({ palette: { brand: "#5b4bdb" } }));
 expectError(defineSkin({ palette: { "--q-primary": "#5b4bdb" } }));
@@ -39,6 +52,8 @@ expectError(defineSkin({ field: { clearable: true } }));
 expectError(defineSkin({ field: { outlined: () => true } }));
 expectError(defineSkin({ layout: { filter: { gutter: "huge" } } }));
 expectError(defineSkin({ layout: { form: { default: { xs: 13 } } } }));
+expectError<UcButtonProps>({ compact: true });
+expectError<UcActionsProps>({ inline: "yes" });
 
 expectAssignable<UcAppBrand>({ label: "Example", to: { name: "home" } });
 expectAssignable<UcAppLayoutActionProps>({

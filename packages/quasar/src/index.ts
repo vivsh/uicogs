@@ -42,6 +42,7 @@ import {
   QTr,
   Dialog,
   Notify,
+  type QBtnProps,
   type QDialogOptions,
   type QNotifyCreateOptions,
 } from "quasar";
@@ -144,6 +145,40 @@ export interface UiCogsQuasarSkin {
 export interface UiCogsQuasarFormSkin {
   readonly form?: FormSkin;
   readonly field?: FieldSkin | FieldSkinResolver;
+}
+
+/** Controls where a generated form action row is placed. */
+export type UcFormActionLayout = "footer" | "inline";
+
+/** Public Quasar button controls supported by UiCogs button primitives. */
+export type UcButtonProps = Pick<
+  QBtnProps,
+  | "label"
+  | "icon"
+  | "iconRight"
+  | "color"
+  | "textColor"
+  | "flat"
+  | "outline"
+  | "unelevated"
+  | "round"
+  | "rounded"
+  | "square"
+  | "dense"
+  | "size"
+  | "padding"
+  | "fab"
+  | "fabMini"
+  | "loading"
+  | "disable"
+  | "type"
+  | "noCaps"
+  | "noWrap"
+>;
+
+/** Layout controls for a UiCogs action row. */
+export interface UcActionsProps {
+  readonly inline?: boolean;
 }
 
 interface FormLike extends ExternalStore<object> {
@@ -372,6 +407,10 @@ export const UcForm = defineComponent({
     view: Object as PropType<ViewLike>,
     skin: Object as PropType<UiCogsQuasarFormSkin>,
     layout: Object as PropType<UcSurfaceLayout>,
+    actionLayout: {
+      type: String as PropType<UcFormActionLayout>,
+      default: "footer",
+    },
     surface: {
       type: String as PropType<"form" | "filter">,
       default: "form",
@@ -408,13 +447,29 @@ export const UcForm = defineComponent({
       const actions =
         slots.actions?.(actionContext) ??
         (slots.default ? undefined : h(UcSubmit, { key: "$submit" }));
+      const inlineActions = layout.value.mode === "grid" && props.actionLayout === "inline";
+      const actionRegion = actions
+        ? h(
+            UcActions,
+            {
+              inline: inlineActions,
+              class:
+                layout.value.mode === "grid"
+                  ? inlineActions
+                    ? "uc-form__actions col-12 col-sm-auto"
+                    : "uc-form__actions col-12"
+                  : "uc-form__actions",
+            },
+            () => actions,
+          )
+        : undefined;
       const children =
         layout.value.mode === "grid"
           ? h("div", { class: gridContainerClasses("uc-form__grid", layout.value) }, [
               ...fields,
-              actions ? h("div", { class: "uc-form__actions col-12" }, actions) : undefined,
+              actionRegion,
             ])
-          : h("div", { class: stackContainerClasses(layout.value) }, [...fields, actions]);
+          : h("div", { class: stackContainerClasses(layout.value) }, [...fields, actionRegion]);
       return h(
         QForm,
         {
@@ -550,7 +605,7 @@ export const UcField = defineComponent({
               .map((item) =>
                 h("div", { class: "row items-center q-gutter-sm", key: item.url }, [
                   h("a", { href: item.url, target: "_blank" }, item.name),
-                  h(QBtn, {
+                  h(UcButton, {
                     flat: true,
                     round: true,
                     dense: true,
@@ -581,17 +636,92 @@ export const UcField = defineComponent({
 
 export const UcSubmit = defineComponent({
   name: "UcSubmit",
-  props: { label: { type: String, default: "Submit" } },
-  setup(props) {
+  inheritAttrs: false,
+  props: {
+    label: { type: String, default: "Submit" },
+    color: { type: String, default: "primary" },
+  },
+  setup(props, { attrs }) {
     const form = inject(formKey);
     if (!form) throw new Error("UcSubmit must be rendered inside UcForm");
     return () =>
-      h(QBtn, {
+      h(UcButton, {
+        ...attrs,
         type: "submit",
         label: props.label,
+        color: props.color,
         loading: form.submitting,
         disable: form.validating,
       });
+  },
+});
+
+/** Renders an application-owned Quasar button with a stable UiCogs class hook. */
+export const UcButton = defineComponent({
+  name: "UcButton",
+  inheritAttrs: false,
+  props: {
+    label: [String, Number],
+    icon: String,
+    iconRight: String,
+    color: String,
+    textColor: String,
+    flat: Boolean,
+    outline: Boolean,
+    unelevated: Boolean,
+    round: Boolean,
+    rounded: Boolean,
+    square: Boolean,
+    dense: Boolean,
+    size: String,
+    padding: String,
+    fab: Boolean,
+    fabMini: Boolean,
+    loading: Boolean,
+    disable: Boolean,
+    type: String,
+    noCaps: Boolean,
+    noWrap: Boolean,
+  },
+  setup(props, { attrs, slots }) {
+    return () => {
+      const { class: className, ...buttonAttrs } = attrs;
+      return h(
+        QBtn,
+        {
+          ...buttonAttrs,
+          ...props,
+          class: ["uc-button", className],
+        },
+        slots,
+      );
+    };
+  },
+});
+
+/** Groups UiCogs or application buttons with Quasar-native responsive action-row layout. */
+export const UcActions = defineComponent({
+  name: "UcActions",
+  inheritAttrs: false,
+  props: { inline: { type: Boolean as PropType<UcActionsProps["inline"]>, default: false } },
+  setup(props, { attrs, slots }) {
+    return () => {
+      const { class: className, ...containerAttrs } = attrs;
+      return h(
+        "div",
+        {
+          ...containerAttrs,
+          class: [
+            "uc-actions",
+            props.inline ? "uc-actions--inline" : undefined,
+            "row",
+            "q-gutter-sm",
+            className,
+          ],
+        },
+        slots.default?.(),
+      );
+    };
   },
 });
 
@@ -651,7 +781,7 @@ export const UcFilter = defineComponent({
       const actions = slots.actions?.(actionContext()) ?? [
         h(UcSubmit, { label: "Apply" }),
         collapsible.value.length
-          ? h(QBtn, {
+          ? h(UcButton, {
               flat: true,
               label: expanded.value ? "Fewer filters" : "More filters",
               onClick: toggleExpanded,
@@ -664,13 +794,17 @@ export const UcFilter = defineComponent({
           ...(expanded.value
             ? collapsible.value.map(([name]) => h(UcField, { key: name, name }))
             : []),
-          h("div", { class: "uc-filter__actions" }, actions),
+          h(UcActions, { class: "uc-filter__actions" }, () => actions),
         ];
       return [
         h("div", { class: mergeClasses("uc-filter__static", "col-12") }, [
           h("div", { class: gridContainerClasses(undefined, layout.value) }, [
             ...staticFields.value.map(([name]) => h(UcField, { key: name, name })),
-            h("div", { class: "uc-filter__actions col-auto" }, actions),
+            h(
+              UcActions,
+              { inline: true, class: "uc-filter__actions col-12 col-sm-auto" },
+              () => actions,
+            ),
           ]),
         ]),
         expanded.value && collapsible.value.length
@@ -691,6 +825,7 @@ export const UcFilter = defineComponent({
           form: props.form,
           surface: "filter",
           layout: props.layout,
+          actionLayout: layout.value.mode === "grid" ? "inline" : "footer",
           ...(props.collection ? { onSuccess: reload } : {}),
           onFailure: (failure: unknown) => emit("failure", failure),
         },
@@ -1178,7 +1313,7 @@ export const UcResourceView = defineComponent({
           {
             default: () => listCollection.error?.message ?? "Unable to load records",
             action: () =>
-              h(QBtn, {
+              h(UcButton, {
                 flat: true,
                 label: "Retry",
                 onClick: () => run(() => listCollection.load()),
@@ -1269,7 +1404,7 @@ export const UcResourceView = defineComponent({
         { class: "uc-resource-view__object-actions" },
         actions.map((action) =>
           action.requiresInput
-            ? h(QBtn, {
+            ? h(UcButton, {
                 label: action.label,
                 ...(action.icon === undefined ? {} : { icon: action.icon }),
                 disable: action.disabled,
@@ -1387,7 +1522,7 @@ export const UcResourceView = defineComponent({
             list,
             props.create
               ? h(QPageSticky, { position: "bottom-right", offset: [18, 18] }, () =>
-                  h(QBtn, {
+                  h(UcButton, {
                     fab: true,
                     icon: "add",
                     color: "primary",
@@ -1707,7 +1842,7 @@ export const UcCancel = defineComponent({
       emit("cancel");
     };
     return () =>
-      h(QBtn, {
+      h(UcButton, {
         ...attrs,
         label: props.label,
         icon: props.icon,
@@ -1767,7 +1902,7 @@ export const UcAction = defineComponent({
       }
     };
     return () =>
-      h(QBtn, {
+      h(UcButton, {
         ...attrs,
         label: props.label,
         icon: props.icon,
@@ -2210,6 +2345,6 @@ function defaultDetail(
         ]);
       }),
     ),
-    h(QBtn, { flat: true, label: "Close", onClick: close }),
+    h(UcButton, { flat: true, label: "Close", onClick: close }),
   ]);
 }

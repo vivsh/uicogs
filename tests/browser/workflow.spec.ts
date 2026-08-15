@@ -20,6 +20,49 @@ test("runs list, filter, pagination and relation workflows", async ({ page }) =>
   await expect(page.getByText("Project: Beta")).toBeVisible();
 });
 
+test("matches generated filter actions to fields only in a shared desktop row", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const filter = page.getByTestId("generated-filter");
+  const field = filter.locator(".uc-field");
+  const action = filter.getByRole("button", { name: "Apply filter" });
+  await expect(field).toBeVisible();
+  await expect(action).toBeVisible();
+
+  const [fieldBox, actionBox] = await Promise.all([field.boundingBox(), action.boundingBox()]);
+  expect(fieldBox).not.toBeNull();
+  expect(actionBox).not.toBeNull();
+  expect(Math.abs(fieldBox!.height - actionBox!.height)).toBeLessThanOrEqual(1);
+});
+
+test("keeps generated filter actions naturally sized and reachable on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const filter = page.getByTestId("generated-filter");
+  const field = filter.locator(".uc-field");
+  const actions = filter.locator(".uc-filter__actions");
+  const action = filter.getByRole("button", { name: "Apply filter" });
+  await expect(field).toBeVisible();
+  await expect(action).toBeVisible();
+
+  const [fieldBox, actionsBox, actionBox] = await Promise.all([
+    field.boundingBox(),
+    actions.boundingBox(),
+    action.boundingBox(),
+  ]);
+  expect(fieldBox).not.toBeNull();
+  expect(actionsBox).not.toBeNull();
+  expect(actionBox).not.toBeNull();
+  expect(actionBox!.y).toBeGreaterThanOrEqual(fieldBox!.y + fieldBox!.height);
+  expect(actionBox!.width).toBeLessThan(actionsBox!.width);
+
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
+});
+
 test("creates, edits and uploads through schema-driven forms", async ({ page }) => {
   await page.getByRole("button", { name: "Create task" }).click();
   await page.getByRole("textbox", { name: "Task title" }).fill("Ship release");
