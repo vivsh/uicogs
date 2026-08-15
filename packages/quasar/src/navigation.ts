@@ -20,7 +20,7 @@ export const UcNavigationTree = defineComponent({
   },
   setup(props) {
     return () =>
-      h(QList, { class: "uc-navigation-tree" }, () => renderNodes(props.nodes, props.badges));
+      h(QList, { class: "uc-navigation-tree q-mt-lg" }, () => renderNodes(props.nodes, props.badges));
   },
 });
 
