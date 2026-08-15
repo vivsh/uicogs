@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `3e9d90dc70298d98364532d87f60edac254d8c32e10d9a4c4180efa2808b085a`
+Declaration SHA-256: `4158ba1096984030fc9f7798ef4a874df2d6225e443ce35d351cd6b741e356b4`
 
 ```ts
 // index.d.ts
@@ -171,9 +171,8 @@ declare function useRouteCollection<TCollection extends RouteCollectionSource, T
     /** Observes a failed URL-driven load after the collection has updated its own error state. */
     readonly onFailure?: (failure: unknown) => void;
 }): RouteCollection<TCollection>;
-/** Detail-key codecs are needed only when a resource key is calculated rather than a schema field. */
-interface RouteDetailOptions<TKey extends EntityKey> {
-    readonly param: string;
+/** Key codecs are needed only when a resource key is calculated rather than a schema field. */
+interface RouteKeyOptions<TKey extends EntityKey> {
     readonly parseKey?: (value: string) => TKey;
     readonly formatKey?: (key: TKey) => string;
 }
@@ -193,7 +192,7 @@ declare function useRouteResource<TResource extends RouteResourceSource, TFilter
     readonly route: string;
     readonly resource: TResource;
     readonly filters: Schema<TFilters, TFilterContext>;
-    readonly detail: RouteDetailOptions<RouteResourceKey<TResource>>;
+    readonly key?: RouteKeyOptions<RouteResourceKey<TResource>>;
     readonly pagination?: RoutePaginationCodec;
     /** Observes a failed URL-driven list load after the resource has updated its error state. */
     readonly onCollectionFailure?: (failure: unknown) => void;
@@ -202,13 +201,15 @@ declare function useRouteResource<TResource extends RouteResourceSource, TFilter
     collection: RouteCollection<TResource>;
     filterForm: FormController<FormSchema<Schema<TFilters, TFilterContext>, { [K_1 in keyof TFilters as TFilters[K_1] extends _uicogs_core.Field<unknown, unknown, unknown, unknown, true, boolean, boolean> ? K_1 : never]: TFilters[K_1] extends _uicogs_core.Field<unknown, infer T_1, unknown, unknown, boolean, boolean, boolean> ? T_1 : never; } & { [K_2 in keyof TFilters as TFilters[K_2] extends _uicogs_core.Field<unknown, unknown, unknown, unknown, false, boolean, boolean> ? K_2 : never]?: (TFilters[K_2] extends _uicogs_core.Field<unknown, infer T_1, unknown, unknown, boolean, boolean, boolean> ? T_1 : never) | undefined; } extends infer T ? { [K in keyof T]: T[K]; } : never>>;
     route: RouteState<TFilters, TFilterContext, Readonly<Record<never, never>>, unknown>;
-    activeKey: vue.Ref<RouteResourceKey<TResource> | undefined, RouteResourceKey<TResource> | undefined>;
+    activeKey: vue.WritableComputedRef<RouteResourceKey<TResource> | undefined, RouteResourceKey<TResource> | undefined>;
     activeObject: ComputedRef<{
         readonly value?: Readonly<Record<string, unknown>>;
         readonly loading: boolean;
         load(): Promise<unknown>;
     } | undefined>;
+    creating: vue.WritableComputedRef<boolean, boolean>;
     open: (key: RouteResourceKey<TResource> | undefined) => Promise<void>;
+    create: () => Promise<void>;
     close: () => Promise<void>;
 }>;
 
@@ -336,5 +337,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteDetailOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
+export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
 ```

@@ -207,7 +207,6 @@ describe("Vue route state", () => {
           route: "tasks",
           resource,
           filters: TaskFilters,
-          detail: { param: "id" },
         }),
       ),
     );
@@ -222,6 +221,45 @@ describe("Vue route state", () => {
     await settle();
     expect(router.currentRoute.value.params).toEqual({ id: "4" });
     expect(page?.activeKey.value).toBe(4);
+    scope.stop();
+  });
+
+  it("uses a reserved new segment for create mode and keeps zero as a valid detail key", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", query: { state: "open" } });
+    const source = new TestCollection();
+    const resource = Object.assign(source, {
+      definition: { key: "id", schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+        }),
+      ),
+    );
+
+    await page?.create();
+    expect(router.currentRoute.value.name).toBe("tasks");
+    expect(router.currentRoute.value.params).toEqual({ id: "new" });
+    expect(page?.creating.value).toBe(true);
+    expect(router.currentRoute.value.query).toEqual({ state: "open" });
+    page!.activeKey.value = 0;
+    await settle();
+    expect(router.currentRoute.value.name).toBe("tasks");
+    expect(router.currentRoute.value.params).toEqual({ id: "0" });
+    await page?.close();
+    expect(router.currentRoute.value.name).toBe("tasks");
+    expect(router.currentRoute.value.params).toEqual({});
     scope.stop();
   });
 
@@ -246,11 +284,10 @@ describe("Vue route state", () => {
             route: "tasks",
             resource,
             filters: TaskFilters,
-            detail: { param: "id" },
           }),
         ),
       ),
-    ).toThrow("detail.parseKey");
+    ).toThrow("key.parseKey");
     scope.stop();
   });
 });

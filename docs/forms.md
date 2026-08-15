@@ -371,10 +371,10 @@ injectSkin(
   app,
   defineSkin({
     layout: {
-      form: { mode: "stack", default: { xs: 12 } },
+      form: { mode: "stack", gutter: "md", default: { xs: 12 } },
       filter: {
         mode: "grid",
-        gutter: "sm",
+        gutter: "md",
         default: { xs: 12, md: 4 },
         kinds: { boolean: { xs: "auto" }, textarea: { xs: 12 } },
       },
@@ -386,6 +386,11 @@ injectSkin(
 `UcForm` also accepts a local `layout` override. Generated `UcFilter` fields with
 `placement: "static"` render first; optional fields are hidden until expanded. Bind
 `v-model:expanded` when that disclosure state belongs to the page.
+
+`gutter` defaults to `"md"` for both surfaces. Stack layouts use Quasar's
+`q-gutter-y-*` utility between members; grid layouts use matching `q-col-gutter-*`
+and `q-row-gutter-*` utilities. Set `gutter: "none"` when a custom layout owns all
+spacing.
 
 ```vue
 <UcFilter v-model:expanded="moreFilters" :form="filterForm">

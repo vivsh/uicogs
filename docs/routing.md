@@ -136,8 +136,8 @@ remain native React Router concerns.
 
 ## Shareable List And Detail State
 
-Route-state helpers use the router you installed. A named route with an optional key
-parameter gives a list and its active detail one shareable location:
+Route-state helpers use the router you installed. A single named route with an optional
+key parameter gives a list, active detail, and creation one shareable location:
 
 ```ts
 { name: "tasks", path: "/tasks/:id?", component: TasksPage }
@@ -151,15 +151,29 @@ const page = useRouteResource({
   route: "tasks",
   resource: tasks,
   filters: TaskFilters,
-  detail: { param: "id" },
 });
 ```
 
 `useRouteState()` owns only declared query and parameter fields and preserves foreign
 URL state. `useRouteForm()` writes submit-only canonical URLs. `useRouteCollection()`
 owns standard `page`, `page_size`, and `ordering` URL state. `useRouteResource()` adds
-an active record plus `open()` and `close()`. Back/forward and pasted URLs restore all
-of them without feedback loops.
+an active record plus `open()`, `create()`, and `close()`. Its writable `activeKey`
+and `creating` values make `UcResourceView` route-aware directly:
+
+```vue
+<UcResourceView
+  :resource="page.resource"
+  :collection="page.collection"
+  v-model="page.activeKey"
+  v-model:creating="page.creating"
+/>
+```
+
+`/tasks` is the list, `/tasks/42` is detail key `42`, and `/tasks/new` is creation.
+`new` is reserved; numeric key `0` remains a normal detail route. Resources with a
+functional key provide only `{ key: { parseKey, formatKey } }`; ordinary named schema
+keys need no route configuration.
+Back/forward and pasted URLs restore all of them without feedback loops.
 
 Route-driven loads retain the collection's normal error state. To render a custom
 page-level notification as well, pass `onFailure` to `useRouteCollection()` or

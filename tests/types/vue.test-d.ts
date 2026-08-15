@@ -96,17 +96,31 @@ const page = useRouteResource({
   route: "tasks",
   resource: taskResource,
   filters: TaskFilters,
-  detail: { param: "id" },
 });
 expectType<Promise<void>>(page.open(2));
 expectType<Promise<void>>(page.close());
+expectAssignable<boolean>(page.creating.value);
+expectError(
+  useRouteResource({
+    route: "tasks",
+    resource: taskResource,
+    filters: TaskFilters,
+    detail: { param: "id" },
+  }),
+);
+
+const createRoutePage = useRouteResource({
+  route: "tasks",
+  resource: taskResource,
+  filters: TaskFilters,
+});
+expectType<Promise<void>>(createRoutePage.create());
 
 const api = createUiCogs({ resources: [Tasks] });
 const directResourcePage = useRouteResource({
   route: "tasks",
   resource: api.resource(Tasks),
   filters: TaskFilters,
-  detail: { param: "id" },
 });
 expectType<Promise<void>>(directResourcePage.open(2));
 
@@ -120,8 +134,7 @@ const functionalResourcePage = useRouteResource({
   route: "functional-tasks",
   resource: functionalApi.resource(FunctionalTasks),
   filters: TaskFilters,
-  detail: {
-    param: "id",
+  key: {
     parseKey: (value) => Number(value),
     formatKey: (key) => String(key),
   },

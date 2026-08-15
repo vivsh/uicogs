@@ -318,9 +318,8 @@ export function useRouteCollection<
   return facade as RouteCollection<TCollection>;
 }
 
-/** Detail-key codecs are needed only when a resource key is calculated rather than a schema field. */
-export interface RouteDetailOptions<TKey extends EntityKey> {
-  readonly param: string;
+/** Key codecs are needed only when a resource key is calculated rather than a schema field. */
+export interface RouteKeyOptions<TKey extends EntityKey> {
   readonly parseKey?: (value: string) => TKey;
   readonly formatKey?: (key: TKey) => string;
 }
@@ -347,7 +346,7 @@ export function useRouteResource<
   readonly route: string;
   readonly resource: TResource;
   readonly filters: Schema<TFilters, TFilterContext>;
-  readonly detail: RouteDetailOptions<RouteResourceKey<TResource>>;
+  readonly key?: RouteKeyOptions<RouteResourceKey<TResource>>;
   readonly pagination?: RoutePaginationCodec;
   /** Observes a failed URL-driven list load after the resource has updated its error state. */
   readonly onCollectionFailure?: (failure: unknown) => void;
@@ -363,15 +362,45 @@ export function useRouteResource<
   });
   const location = useRoute();
   const router = useRouter();
-  const activeKey = ref<RouteResourceKey<TResource>>();
-  const parseKey = detailParser(options.resource, options.detail);
-  const formatKey = detailFormatter(options.resource, options.detail);
+  const activeKeyValue = ref<RouteResourceKey<TResource>>();
+  const parseKey = detailParser(options.resource, options.key);
+  const formatKey = detailFormatter(options.resource, options.key);
   const syncActive = () => {
-    const raw = location.params[options.detail.param];
+    const raw = location.params.id;
     const value = Array.isArray(raw) ? raw[0] : raw;
-    activeKey.value = typeof value === "string" ? parseKey(value) : undefined;
+    activeKeyValue.value =
+      typeof value === "string" && value !== "new" ? parseKey(value) : undefined;
   };
-  watch(() => location.params[options.detail.param], syncActive, { immediate: true });
+  watch(() => location.params.id, syncActive, { immediate: true });
+  const navigateDetail = async (key: RouteResourceKey<TResource> | undefined): Promise<void> => {
+    await router.push({
+      name: options.route,
+      params: {
+        ...location.params,
+        id: key === undefined ? undefined : formatKey(key),
+      },
+      query: location.query,
+    });
+  };
+  const activeKey = computed({
+    get: () => activeKeyValue.value,
+    set: (key: RouteResourceKey<TResource> | undefined) => {
+      void navigateDetail(key);
+    },
+  });
+  const navigateCreate = async (): Promise<void> => {
+    await router.push({
+      name: options.route,
+      params: { ...location.params, id: "new" },
+      query: location.query,
+    });
+  };
+  const creating = computed({
+    get: () => location.params.id === "new",
+    set: (next: boolean) => {
+      void (next ? navigateCreate() : navigateDetail(undefined));
+    },
+  });
   const activeObject = computed(() =>
     activeKey.value === undefined ? undefined : options.resource.get(activeKey.value as never),
   );
@@ -382,16 +411,6 @@ export function useRouteResource<
     },
     { immediate: true },
   );
-  const navigateDetail = async (key: RouteResourceKey<TResource> | undefined): Promise<void> => {
-    await router.push({
-      name: options.route,
-      params: {
-        ...location.params,
-        [options.detail.param]: key === undefined ? undefined : formatKey(key),
-      },
-      query: location.query,
-    });
-  };
   return Object.freeze({
     resource: options.resource,
     collection,
@@ -399,7 +418,9 @@ export function useRouteResource<
     route,
     activeKey,
     activeObject,
+    creating,
     open: navigateDetail,
+    create: navigateCreate,
     close: () => navigateDetail(undefined),
   });
 }
@@ -511,23 +532,23 @@ function detailParser<
     readonly definition: RouteCollectionMetadata;
   },
   TKey extends EntityKey,
->(resource: TResource, detail: RouteDetailOptions<TKey>): (value: string) => TKey {
-  if (detail.parseKey) return detail.parseKey;
-  const key = resource.definition.key;
-  if (typeof key !== "string")
-    throw new Error("Route details for a functional resource key require detail.parseKey");
-  const field = resource.definition.schema.shape[key];
+>(resource: TResource, options: RouteKeyOptions<TKey> | undefined): (value: string) => TKey {
+  if (options?.parseKey) return options.parseKey;
+  const resourceKey = resource.definition.key;
+  if (typeof resourceKey !== "string")
+    throw new Error("Route resources with a functional key require key.parseKey");
+  const field = resource.definition.schema.shape[resourceKey];
   if (!field)
-    throw new Error(`Route detail key field ${key} is not present in the resource schema`);
-  return (value) => field.parse(value, [key]) as TKey;
+    throw new Error(`Route detail key field ${resourceKey} is not present in the resource schema`);
+  return (value) => field.parse(value, [resourceKey]) as TKey;
 }
 
 function detailFormatter<
   TResource extends { readonly definition: RouteCollectionMetadata },
   TKey extends EntityKey,
->(resource: TResource, detail: RouteDetailOptions<TKey>): (key: TKey) => string {
-  if (detail.formatKey) return detail.formatKey;
+>(resource: TResource, options: RouteKeyOptions<TKey> | undefined): (key: TKey) => string {
+  if (options?.formatKey) return options.formatKey;
   if (typeof resource.definition.key !== "string")
-    throw new Error("Route details for a functional resource key require detail.formatKey");
+    throw new Error("Route resources with a functional key require key.formatKey");
   return (key) => String(key);
 }

@@ -414,7 +414,7 @@ export const UcForm = defineComponent({
               ...fields,
               actions ? h("div", { class: "uc-form__actions col-12" }, actions) : undefined,
             ])
-          : [...fields, actions];
+          : h("div", { class: stackContainerClasses(layout.value) }, [...fields, actions]);
       return h(
         QForm,
         {
@@ -1011,6 +1011,7 @@ export const UcResourceView = defineComponent({
     collection: Object as PropType<TableCollectionLike>,
     title: String,
     modelValue: [String, Number] as PropType<EntityKey | undefined>,
+    creating: { type: Boolean as PropType<boolean | undefined>, default: undefined },
     selectedKeys: {
       type: Array as PropType<readonly EntityKey[]>,
       default: () => [],
@@ -1039,6 +1040,7 @@ export const UcResourceView = defineComponent({
   },
   emits: [
     "update:modelValue",
+    "update:creating",
     "update:selectedKeys",
     "select",
     "view",
@@ -1059,7 +1061,8 @@ export const UcResourceView = defineComponent({
     const active = shallowRef<ResourceObjectLike>();
     const createController = shallowRef<FormLike>();
     const editController = shallowRef<FormLike>();
-    const creating = shallowRef(false);
+    const localCreating = shallowRef(false);
+    const creating = computed(() => props.creating ?? localCreating.value);
     const rows = computed(() => listCollection.all().map(entityRecord));
     const columns = computed(() => props.columns ?? columnsFor(listDefinition));
     const selectedRows = computed(() => {
@@ -1079,9 +1082,25 @@ export const UcResourceView = defineComponent({
         reportFailure(failure, props.failureMessage, emit);
       }
     };
+    const setCreating = (next: boolean): void => {
+      if (props.creating === undefined) localCreating.value = next;
+      emit("update:creating", next);
+    };
+    const activateCreate = (): void => {
+      active.value = undefined;
+      editController.value = undefined;
+      createController.value =
+        props.createForm && resource.form ? resource.form(props.createForm) : undefined;
+      emit("view", "create");
+    };
     const bind = (key: EntityKey | undefined): void => {
       if (key !== undefined && !creating.value && Object.is(active.value?.key, key)) return;
-      creating.value = false;
+      if (key === undefined && creating.value) {
+        active.value = undefined;
+        editController.value = undefined;
+        return;
+      }
+      setCreating(false);
       createController.value = undefined;
       active.value = key === undefined ? undefined : vueReactive(resourceObject(resource, key));
       editController.value =
@@ -1091,7 +1110,7 @@ export const UcResourceView = defineComponent({
       emit("view", key === undefined ? "list" : "detail");
     };
     const close = (): void => {
-      creating.value = false;
+      setCreating(false);
       active.value = undefined;
       createController.value = undefined;
       editController.value = undefined;
@@ -1118,15 +1137,23 @@ export const UcResourceView = defineComponent({
     const startCreate = (): void => {
       emit("create");
       if (!slots.create && (!props.createForm || !resource.form)) return;
-      creating.value = true;
-      active.value = undefined;
-      editController.value = undefined;
-      createController.value =
-        props.createForm && resource.form ? resource.form(props.createForm) : undefined;
-      emit("view", "create");
+      setCreating(true);
     };
 
     watch(() => props.modelValue, bind, { immediate: true });
+    watch(
+      creating,
+      (next) => {
+        if (next) {
+          activateCreate();
+          return;
+        }
+        if (active.value || props.modelValue !== undefined) return;
+        createController.value = undefined;
+        emit("view", "list");
+      },
+      { immediate: true },
+    );
     onMounted(() => {
       if (props.autoLoad && !rows.value.length) void run(() => listCollection.load());
     });
@@ -1415,10 +1442,10 @@ interface ResolvedSurfaceLayout {
   readonly kinds: Readonly<Record<string, ResponsiveFieldLayout>>;
 }
 
-const defaultFormLayout: UcSurfaceLayout = Object.freeze({ mode: "stack" });
+const defaultFormLayout: UcSurfaceLayout = Object.freeze({ mode: "stack", gutter: "md" });
 const defaultFilterLayout: UcSurfaceLayout = Object.freeze({
   mode: "grid",
-  gutter: "sm",
+  gutter: "md",
   default: Object.freeze({ xs: 12, md: 4 }),
   kinds: Object.freeze({
     boolean: Object.freeze({ xs: "auto" }),
@@ -1507,6 +1534,14 @@ function gridContainerClasses(
     hook,
     "row",
     layout.gutter === "none" ? undefined : `q-col-gutter-${layout.gutter}`,
+    layout.gutter === "none" ? undefined : `q-row-gutter-${layout.gutter}`,
+  );
+}
+
+function stackContainerClasses(layout: ResolvedSurfaceLayout): string | undefined {
+  return mergeClasses(
+    "uc-form__stack",
+    layout.gutter === "none" ? undefined : `q-gutter-y-${layout.gutter}`,
   );
 }
 

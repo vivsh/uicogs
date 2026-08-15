@@ -339,7 +339,7 @@ injectSkin(
   app,
   defineSkin({
     palette: { primary: "#5b4bdb" },
-    layout: { filter: { default: { xs: 12, md: 4 } } },
+    layout: { filter: { gutter: "md", default: { xs: 12, md: 4 } } },
     form: { class: "app-form" },
     field: { outlined: true, bgColor: "grey-2" },
   }),
@@ -358,7 +358,7 @@ object or one `{ name, field, form }` resolver is supported. Skin classes and st
 merge with editor configuration; UiCogs-required model, choice, readonly, and error
 bindings take precedence.
 
-Stable CSS hooks are present without a skin: `uc-form`, `uc-form__grid`,
+Stable CSS hooks are present without a skin: `uc-form`, `uc-form__stack`, `uc-form__grid`,
 `uc-form__field`, `uc-form__actions`, `uc-filter__static`, `uc-filter__collapsible`,
 `uc-filter__actions`, `uc-field`, `uc-field-<editor-kind>`, and
 `uc-field-<schema-name>`.

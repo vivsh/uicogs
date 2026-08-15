@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `df6547eb93079966c7db6b7bfff022bfec19fb9f9596dc07ffde3d5273ac0cde`
+Declaration SHA-256: `538d7baa2890bc9494ca4ab375020643d8acb5a5621edee8936c004f4a06be7e`
 
 ```ts
 // index.d.ts
@@ -692,6 +692,10 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     collection: PropType<TableCollectionLike>;
     title: StringConstructor;
     modelValue: PropType<EntityKey | undefined>;
+    creating: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
     selectedKeys: {
         type: PropType<readonly EntityKey[]>;
         default: () => never[];
@@ -734,7 +738,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     failureMessage: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel")[], "create" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:modelValue" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     resource: {
         type: PropType<ResourceLike>;
         required: true;
@@ -742,6 +746,10 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     collection: PropType<TableCollectionLike>;
     title: StringConstructor;
     modelValue: PropType<EntityKey | undefined>;
+    creating: {
+        type: PropType<boolean | undefined>;
+        default: undefined;
+    };
     selectedKeys: {
         type: PropType<readonly EntityKey[]>;
         default: () => never[];
@@ -790,6 +798,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     onLoaded?: ((...args: any[]) => any) | undefined;
     onCreate?: ((...args: any[]) => any) | undefined;
     onView?: ((...args: any[]) => any) | undefined;
+    "onUpdate:creating"?: ((...args: any[]) => any) | undefined;
     "onObject-action"?: ((...args: any[]) => any) | undefined;
     "onObject-action-success"?: ((...args: any[]) => any) | undefined;
     "onObject-action-failure"?: ((...args: any[]) => any) | undefined;
@@ -801,6 +810,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     selectedKeys: readonly EntityKey[];
     selection: "none" | "multiple" | "single";
     autoLoad: boolean;
+    creating: boolean | undefined;
     display: "table" | "list";
     emptyLabel: string;
     objectActions: boolean | readonly string[];

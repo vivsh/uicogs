@@ -81,6 +81,7 @@ describe("Quasar forms and fields", () => {
     expect(form.values.count).toBe("3");
     expect(wrapper.text()).toContain("A concise title");
     expect(wrapper.find("button").text()).toBe("Submit");
+    expect(wrapper.find(".uc-form__stack").classes()).toContain("q-gutter-y-md");
   });
 
   /** Verifies that a form view limits only its generated controls. */
@@ -113,7 +114,7 @@ describe("Quasar forms and fields", () => {
     });
 
     expect(wrapper.find(".uc-form__grid").classes()).toEqual(
-      expect.arrayContaining(["row", "q-col-gutter-sm"]),
+      expect.arrayContaining(["row", "q-col-gutter-sm", "q-row-gutter-sm"]),
     );
     const cells = wrapper.findAll(".uc-form__field");
     expect(cells[0]?.classes()).toEqual(expect.arrayContaining(["col-xs-12", "col-md-6"]));
@@ -184,6 +185,9 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.find(".uc-filter__static").exists()).toBe(true);
     expect(wrapper.find(".uc-filter__collapsible").exists()).toBe(false);
     expect(wrapper.find(".uc-filter__actions").classes()).toContain("col-auto");
+    expect(wrapper.find(".uc-form__grid").classes()).toEqual(
+      expect.arrayContaining(["q-col-gutter-md", "q-row-gutter-md"]),
+    );
     expect(actionProps).toMatchObject({ expanded: false, hasCollapsible: true });
     await wrapper.find(".filter-toggle").trigger("click");
     expect(wrapper.emitted("update:expanded")?.at(-1)).toEqual([true]);
@@ -1080,6 +1084,20 @@ describe("Quasar views and tables", () => {
     await nextTick();
     expect(wrapper.emitted("create")).toHaveLength(1);
     expect(wrapper.emitted("view")?.at(-1)).toEqual(["create"]);
+  });
+
+  it("accepts controlled create state for URL-bound resource pages", async () => {
+    const { resource, createForm } = await resourceFixture();
+    const wrapper = mount(UcResourceView, {
+      props: { resource, autoLoad: false, createForm, creating: true },
+      global: { stubs: quasarStubs },
+    });
+    await nextTick();
+    expect(wrapper.emitted("view")?.at(-1)).toEqual(["create"]);
+    expect(wrapper.find("input").exists()).toBe(true);
+
+    await wrapper.setProps({ creating: false });
+    expect(wrapper.emitted("view")?.at(-1)).toEqual(["list"]);
   });
 
   it("renders empty, error, retry, and default detail states", async () => {
