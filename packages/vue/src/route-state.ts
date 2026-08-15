@@ -370,7 +370,9 @@ export function useRouteResource<
     const raw = location.params.id;
     const value = Array.isArray(raw) ? raw[0] : raw;
     activeKeyValue.value =
-      typeof value === "string" && value !== "new" ? parseKey(value) : undefined;
+      typeof value === "string" && value !== "" && value !== "new"
+        ? parseKey(value)
+        : undefined;
   };
   watch(() => location.params.id, syncActive, { immediate: true });
   const navigateDetail = async (key: RouteResourceKey<TResource> | undefined): Promise<void> => {

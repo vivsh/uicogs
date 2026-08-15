@@ -224,6 +224,39 @@ describe("Vue route state", () => {
     scope.stop();
   });
 
+  it("treats an empty optional detail parameter as no active key", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "" } });
+    expect(router.currentRoute.value.params.id).toBe("");
+
+    const source = new TestCollection();
+    const parseKey = vi.fn((value: string) => Number(value));
+    const resource = Object.assign(source, {
+      definition: { name: "tasks", key: () => 1, schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+          key: { parseKey, formatKey: (key) => String(key) },
+        }),
+      ),
+    );
+
+    expect(page?.activeKey.value).toBeUndefined();
+    expect(parseKey).not.toHaveBeenCalled();
+    scope.stop();
+  });
+
   it("uses a reserved new segment for create mode and keeps zero as a valid detail key", async () => {
     const { app, router } = routeHarness();
     await router.push({ name: "tasks", query: { state: "open" } });
