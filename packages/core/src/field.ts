@@ -657,12 +657,6 @@ export const fields = {
   >(
     config?: TConfig,
   ) => stringField("rich-text", config, editor.RichText()),
-  Markdown: <
-    TContext = unknown,
-    const TConfig extends StringConfig<TContext> = StringConfig<TContext>,
-  >(
-    config?: TConfig,
-  ) => stringField("markdown", config, editor.Markdown(), format.Markdown()),
   Email: <
     TContext = unknown,
     const TConfig extends StringConfig<TContext> = StringConfig<TContext>,

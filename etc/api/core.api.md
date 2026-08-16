@@ -1,6 +1,6 @@
 # @uicogs/core API
 
-Declaration SHA-256: `5c12e87a8025cb85a71fcd8262f6c1525d9127cd3256627beed1fbedea1263e1`
+Declaration SHA-256: `f750cb974742746e19f8f4d1c377486fb39d28a5f31576ba76b65dab436c6979`
 
 ```ts
 // index.d.ts
@@ -547,13 +547,6 @@ interface EditorDescriptorMap {
         /** Native drag direction for the editable content area. */
         readonly resize?: EditorResize;
     };
-    markdown: {
-        readonly rows?: number;
-        readonly autogrow?: boolean;
-        readonly defaultView?: "edit" | "preview";
-        /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
-        readonly resize?: EditorResize;
-    };
     email: {
         readonly autocomplete?: string;
     };
@@ -573,6 +566,9 @@ interface EditorDescriptorMap {
     switch: {
         readonly labelPosition?: "before" | "after";
         readonly toggleIndeterminate?: boolean;
+    };
+    "radio-group": {
+        readonly inline?: boolean;
     };
     select: {
         readonly multiple?: boolean;
@@ -640,9 +636,6 @@ interface FormatterDescriptorMap {
     datetime: Intl.DateTimeFormatOptions;
     "date-range": Intl.DateTimeFormatOptions & {
         readonly separator?: string;
-    };
-    markdown: {
-        readonly empty?: string;
     };
     reference: Readonly<Record<never, never>>;
     "reference-list": {
@@ -716,13 +709,6 @@ declare const editor: {
         /** Native drag direction for the editable content area. */
         readonly resize?: EditorResize;
     }>;
-    Markdown: (options?: EditorDescriptorMap["markdown"]) => Descriptor<"markdown", {
-        readonly rows?: number;
-        readonly autogrow?: boolean;
-        readonly defaultView?: "edit" | "preview";
-        /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
-        readonly resize?: EditorResize;
-    }>;
     Email: (options?: EditorDescriptorMap["email"]) => Descriptor<"email", {
         readonly autocomplete?: string;
     }>;
@@ -742,6 +728,9 @@ declare const editor: {
     Switch: (options?: EditorDescriptorMap["switch"]) => Descriptor<"switch", {
         readonly labelPosition?: "before" | "after";
         readonly toggleIndeterminate?: boolean;
+    }>;
+    RadioGroup: (options?: EditorDescriptorMap["radio-group"]) => Descriptor<"radio-group", {
+        readonly inline?: boolean;
     }>;
     Select: (options?: EditorDescriptorMap["select"]) => Descriptor<"select", {
         readonly multiple?: boolean;
@@ -807,9 +796,6 @@ declare const format: {
     DateTime: (options?: FormatterDescriptorMap["datetime"]) => Descriptor<"datetime", Intl.DateTimeFormatOptions>;
     DateRange: (options?: FormatterDescriptorMap["date-range"]) => Descriptor<"date-range", Intl.DateTimeFormatOptions & {
         readonly separator?: string;
-    }>;
-    Markdown: (options?: FormatterDescriptorMap["markdown"]) => Descriptor<"markdown", {
-        readonly empty?: string;
     }>;
     Reference: () => Descriptor<"reference", {}>;
     ReferenceList: (options?: FormatterDescriptorMap["reference-list"]) => Descriptor<"reference-list", {
@@ -1112,7 +1098,6 @@ declare const fields: {
     Str: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Text: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     RichText: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
-    Markdown: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Email: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Password: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
     Phone: <TContext = unknown, const TConfig extends StringConfig<TContext> = StringConfig<TContext>>(config?: TConfig) => Field<string, NullableOf<TConfig, string>, string, unknown, RequiredOf<TConfig>, false, WritableOf<TConfig>>;
@@ -2554,7 +2539,6 @@ declare const struct: {
     Str: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Text: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     RichText: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
-    Markdown: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Email: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Password: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;
     Phone: <TContext = unknown>(config?: StringConfig<TContext>) => (target: object, propertyKey: string | symbol) => void;

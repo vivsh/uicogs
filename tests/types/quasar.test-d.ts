@@ -14,6 +14,7 @@ import {
   type FieldSkinContext,
   type UcSurfaceLayout,
   type UiCogsQuasarSkin,
+  quasarEditor,
 } from "@uicogs/quasar";
 
 const skin = defineSkin({
@@ -86,7 +87,20 @@ expectAssignable<UcNotification>({
   actions: [{ id: "open", label: "Open", actionUrl: "/releases/current", priority: "primary" }],
 });
 expectAssignable<UcNotificationAction>({ id: "dismiss", label: "Dismiss" });
-
+const customRichText = quasarEditor.RichText({
+  toolbar: [["bold", "insert-token"]],
+  tools: {
+    "insert-token": {
+      label: "Insert token",
+      run: (editor) => editor.runCmd("insertText", "{{ customer.name }}"),
+    },
+  },
+});
+expectType<"rich-text">(customRichText.kind);
+expectError(
+  quasarEditor.RichText({ tools: { "insert-token": { label: "Token", run: "invalid" } } }),
+);
+expectError(quasarEditor.RichText({ modes: ["edit", "invalid"] }));
 expectError<UcNotification>({ id: "missing-title" });
 expectError<UcNotification>({
   id: "ambiguous",

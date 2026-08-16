@@ -336,42 +336,68 @@ enabled fields from validation.
 
 `UcField` resolves the field's semantic editor descriptor.
 
-### Markdown, rich text, and temporal editors
+### Rich text and temporal editors
 
-`@uicogs/quasar` generates native Quasar field controls for `RichText`, `Markdown`,
-`Date`, `Time`, `DateTime`, and `DateRange`. Date and range fields use popup pickers but
+`@uicogs/quasar` generates native Quasar field controls for `RichText`, `Date`, `Time`,
+`DateTime`, and `DateRange`. Date and range fields use popup pickers but
 retain UiCogs' `Date` and immutable tuple contracts; date-only values use a fixed UTC
 calendar representation to avoid timezone day shifts.
 
-Markdown fields provide Edit and Preview controls. Preview rendering uses UiCogs'
-sanitized Markdown renderer; raw Markdown remains unchanged in form values and payloads.
-Use `UcMarkdown` when an application needs the same safe rendered output outside a form.
+Rich text has WYSIWYG `edit`, optional raw-HTML `source`, and sanitized read-only `preview`
+modes. The generated mode commands change only the visible surface; they never rewrite the
+stored value. Use the Quasar-specific descriptor for modes and named toolbar tools. Tools run
+only in WYSIWYG mode and receive the real `QEditor`, including `runCmd()` and `focus()`.
 
-```vue
-<UcField name="body" />
-<UcMarkdown :source="article.body" />
+```ts
+import { quasarEditor } from "@uicogs/quasar";
+
+fields.RichText({
+  editor: quasarEditor.RichText({
+    modes: ["edit", "source", "preview"],
+    toolbar: [["bold", "italic", "insert-token"]],
+    tools: {
+      "insert-token": {
+        label: "Insert token",
+        run: (editor) => editor.runCmd("insertText", "{{ customer.name }}"),
+      },
+    },
+  }),
+});
 ```
+
+`edit`, `source`, and `preview` are reserved UiCogs mode names. Choose custom tool names that do
+not collide with Quasar's built-in rich-text commands.
 
 Nullable `Bool` fields render as three-state Quasar checkbox or switch controls. They
 cycle `null`, `true`, and `false`; use `editor.Checkbox({ toggleIndeterminate: false })`
 when null should display but not be selectable by interaction.
 
-Textarea, rich-text, and Markdown editors use the browser's native bottom-right resize
+Textarea and rich-text editors use the browser's native bottom-right resize
 handle by default. The default is vertical-only; choose `resize: "both"` to allow width
 changes or `resize: false` for a fixed editor. Use `rows` to set the initial height:
-textarea and Markdown pass it directly to Quasar, while rich text converts it to an
-approximately equivalent minimum editable height that follows the current font size.
+textarea passes it directly to Quasar, while rich text converts it to an approximately
+equivalent minimum editable height that follows the current font size.
 `autogrow: true` takes precedence and intentionally disables manual resizing, since two
 competing height controls make the result unpredictable.
 
 ```ts
 fields.Text({ editor: editor.Textarea({ rows: 6, resize: "both" }) });
 fields.RichText({ editor: editor.RichText({ rows: 10, resize: false }) });
-fields.Markdown({ editor: editor.Markdown({ rows: 8 }) });
 ```
 
 `UcSubmit` submits the controller and defaults to Quasar's `primary` color. `UcButton`
 is the matching presentation-only button for custom links, toggles, and auxiliary controls.
+
+Enum fields can declare an inline or stacked radio group through their editor descriptor.
+The field remains an ordinary schema enum: the editor changes only presentation.
+
+```ts
+const Publishing = schema({
+  visibility: fields.Enum(["draft", "review", "published"] as const, {
+    editor: editor.RadioGroup({ inline: true }),
+  }),
+});
+```
 
 The components do not own validation rules. Every enabled form field participates even when no component is mounted.
 

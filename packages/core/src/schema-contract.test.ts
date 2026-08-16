@@ -257,8 +257,6 @@ class DecoratedCatalog extends DecoratedBase {
   text!: string;
   @struct.RichText()
   rich!: string;
-  @struct.Markdown()
-  markdown!: string;
   @struct.Email()
   email!: string;
   @struct.Password()
@@ -310,7 +308,6 @@ describe("class schema authoring", () => {
       inherited: "base",
       text: "text",
       rich: "<p>rich</p>",
-      markdown: "## Markdown",
       email: "person@example.test",
       password: "secret",
       phone: "+1 555 0100",

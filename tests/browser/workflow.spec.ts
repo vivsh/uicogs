@@ -63,14 +63,8 @@ test("keeps generated filter actions naturally sized and reachable on mobile", a
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
 });
 
-test("renders Markdown preview and cycles a nullable generated Boolean", async ({ page }) => {
+test("cycles a nullable generated Boolean and opens a temporal picker", async ({ page }) => {
   const showcase = page.getByTestId("editor-showcase");
-  await expect(showcase.getByRole("button", { name: "Preview" })).toBeVisible();
-  await showcase.getByRole("button", { name: "Preview" }).click();
-  await expect(showcase.locator(".uc-markdown__preview").getByRole("heading")).toHaveText(
-    "Markdown preview",
-  );
-
   const featured = showcase.getByRole("checkbox", { name: "Featured" });
   await expect(featured).toHaveAttribute("aria-checked", "mixed");
   await featured.click();

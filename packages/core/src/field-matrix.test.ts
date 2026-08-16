@@ -12,7 +12,6 @@ describe("field catalog", () => {
     expect(fields.Str().parse("value", path)).toBe("value");
     expect(fields.Text().parse("long", path)).toBe("long");
     expect(fields.RichText().parse("<p>text</p>", path)).toBe("<p>text</p>");
-    expect(fields.Markdown().parse("## Heading", path)).toBe("## Heading");
     expect(fields.Email().parse("person@example.test", path)).toBe("person@example.test");
     expect(fields.Password().parse("secret", path)).toBe("secret");
     expect(fields.Phone().parse("+12025550123", path)).toBe("+12025550123");
@@ -130,7 +129,6 @@ describe("field catalog", () => {
       editor.Text(),
       editor.Textarea(),
       editor.RichText(),
-      editor.Markdown({ defaultView: "preview" }),
       editor.Email(),
       editor.Password(),
       editor.Number(),
@@ -158,7 +156,6 @@ describe("field catalog", () => {
       format.Time(),
       format.DateTime(),
       format.DateRange(),
-      format.Markdown(),
       format.Reference(),
       format.ReferenceList(),
       format.Image(),

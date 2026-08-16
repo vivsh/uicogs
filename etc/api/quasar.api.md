@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `238254234aa066d11ce752888ee31c2753fa45f697e560a8c79b829c39456a77`
+Declaration SHA-256: `cc9c936d0d1964b723c72711e1298ec6b286f4ab941d8caf5fd23883cf0210e1`
 
 ```ts
 // index.d.ts
@@ -8,8 +8,8 @@ import * as vue from 'vue';
 import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
 import { UiCogsNavigationNode } from '@uicogs/vue';
-import { UiNotification, UiNotificationAction, NotificationController, AlertController, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Descriptor, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
-import { QDialogOptions, QNotifyCreateOptions, QBtnProps } from 'quasar';
+import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
+import { QEditor, QDialogOptions, QNotifyCreateOptions, QBtnProps } from 'quasar';
 import { RouteLocationRaw } from 'vue-router';
 
 /** A small, accessible indicator rendered beside a generated navigation node. */
@@ -225,22 +225,34 @@ declare const UcAlertHost: vue.DefineComponent<vue.ExtractPropTypes<{
     source: PropType<AlertController>;
 }>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-/** Renders Markdown through UiCogs' safe parser and sanitizer. */
-declare function renderMarkdown(source: string): string;
-/** Renders a safe Markdown document without introducing a UiCogs visual skin. */
-declare const UcMarkdown: vue.DefineComponent<vue.ExtractPropTypes<{
-    source: {
-        type: StringConstructor;
-        required: true;
-    };
-}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
-    [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
-    source: {
-        type: StringConstructor;
-        required: true;
-    };
-}>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** The supported presentation modes for generated HTML rich-text fields. */
+type QuasarRichTextMode = "edit" | "source" | "preview";
+/** One application-owned command rendered while a Quasar rich-text editor is editable. */
+interface QuasarRichTextTool {
+    readonly label: string;
+    readonly tip?: string;
+    readonly icon?: string;
+    readonly run: (editor: QEditor) => void;
+}
+/** Quasar-specific rich-text options, including named toolbar tools and view modes. */
+interface QuasarRichTextEditorOptions {
+    /** Quasar command groups shown in WYSIWYG edit mode. */
+    readonly toolbar?: readonly (readonly string[])[];
+    /** Additional named QEditor commands. Tools run only in WYSIWYG edit mode. */
+    readonly tools?: Readonly<Record<string, QuasarRichTextTool>>;
+    /** Enabled views. Defaults to `edit` and `preview`. */
+    readonly modes?: readonly QuasarRichTextMode[];
+    /** Initially visible view. Defaults to `edit`. */
+    readonly defaultMode?: QuasarRichTextMode;
+    /** Approximate minimum number of editable text rows. */
+    readonly rows?: number;
+    /** Native drag direction for the editable content area. */
+    readonly resize?: EditorResize;
+}
+/** Builds Quasar-aware editor descriptors without coupling UiCogs core to Quasar. */
+declare const quasarEditor: Readonly<{
+    RichText: (options?: QuasarRichTextEditorOptions) => Descriptor<"rich-text", QuasarRichTextEditorOptions>;
+}>;
 
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
@@ -1172,5 +1184,40 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, UcMarkdown, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarRenderers, renderMarkdown };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
+
+// stylebook.d.ts
+import { VueRouteIntegration } from '@uicogs/vue';
+import { Component } from 'vue';
+
+/** One optional application-owned page exposed from the fixture-only UiCogs stylebook. */
+interface UcStylebookEntry<TFixture = undefined> {
+    /** Stable URL segment below the configured stylebook path. */
+    readonly id: string;
+    /** Accessible label used in the stylebook navigation. */
+    readonly label?: string;
+    /** A local Vue component rendered only by the opt-in stylebook route. */
+    readonly component: Component;
+    /**
+     * Application-owned fixture input passed to the component as its
+     * `fixture` property. It must contain local sample data only.
+     */
+    readonly fixture?: TFixture;
+}
+/** Options for the opt-in, fixture-only UiCogs Quasar stylebook route. */
+interface UcStylebookOptions {
+    /** Disables route registration when false. This makes production omission explicit. */
+    readonly enabled?: boolean;
+    /** Absolute route prefix. Defaults to `/__stylebook`. */
+    readonly path?: string;
+    /** Optional application-owned fixture pages placed after the built-in overview. */
+    readonly components?: readonly UcStylebookEntry<unknown>[];
+}
+/**
+ * Creates a Vue Router integration for a local, fixture-only Quasar component stylebook.
+ * It performs no network, storage, resource, service, notification, or application-runtime work.
+ */
+declare function stylebook(options?: UcStylebookOptions): VueRouteIntegration;
+
+export { type UcStylebookEntry, type UcStylebookOptions, stylebook };
 ```

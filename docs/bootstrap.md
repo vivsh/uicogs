@@ -160,6 +160,22 @@ app.use(router).use(uiCogs);
 app.mount("#app");
 ```
 
+### Optional Quasar stylebook
+
+For a fixture-only visual review route in development, dynamically import the optional
+Quasar subpath and supply its generic Vue route integration to `withVue()`. It installs
+before UiCogs snapshots static router records.
+
+```ts
+const stylebook = import.meta.env.DEV
+  ? (await import("@uicogs/quasar/stylebook")).stylebook()
+  : undefined;
+
+export const { uiCogs } = await withVue(api, { navigation, stylebook });
+```
+
+See [Quasar Stylebook](stylebook.md) for custom fixture entries and its isolation rules.
+
 `api.auth.initialize()` remains public and idempotent for deterministic tests, but is
 not the normal application entry point.
 

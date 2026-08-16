@@ -12,6 +12,7 @@
       "@uicogs/vue": ["packages/vue/src/index.ts"],
       "@uicogs/react": ["packages/react/src/index.ts"],
       "@uicogs/quasar": ["packages/quasar/src/index.ts"],
+      "@uicogs/quasar/stylebook": ["packages/quasar/src/stylebook.ts"],
       "@uicogs/openapi": ["packages/openapi/src/index.ts"],
       "@uicogs/storage": ["packages/storage/src/index.ts"],
       "@uicogs/legacy": ["packages/legacy/src/index.ts"]

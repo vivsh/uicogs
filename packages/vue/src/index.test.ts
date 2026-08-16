@@ -26,6 +26,7 @@ import {
   useUcTableModel,
   vueReactive,
   withVue,
+  type VueRouteIntegration,
 } from "./index.js";
 
 async function createUiCogs(options: Parameters<typeof createCoreUiCogs>[0]) {
@@ -88,6 +89,21 @@ describe("Vue controller integration", () => {
     expect(injected).toBe(runtime);
     expect(injectedBinding).toBeDefined();
     expect(runtime.requests.isDisposed).toBe(false);
+    runtime.dispose();
+  });
+
+  it("installs an optional route integration before binding the Vue runtime", async () => {
+    const runtime = createCoreUiCogs({ context: undefined });
+    const install = vi.fn((router) =>
+      router.addRoute({ name: "fixture-stylebook", path: "/__stylebook", component: {} }),
+    );
+    const integration: VueRouteIntegration = { install };
+    const router = createRouter({ history: createMemoryHistory(), routes: [] });
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const binding = await withVue(runtime, { stylebook: integration });
+    app.use(router).use(binding.uiCogs);
+    expect(install).toHaveBeenCalledWith(router);
+    expect(router.hasRoute("fixture-stylebook")).toBe(true);
     runtime.dispose();
   });
 

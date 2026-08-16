@@ -206,7 +206,6 @@ const TaskFilters = schema({
   }),
 });
 const EditorShowcase = schema({
-  body: fields.Markdown({ label: "Markdown body", editor: editor.Markdown({ rows: 4 }) }),
   published: fields.Date({ label: "Published" }),
   publishingTime: fields.Time({
     label: "Publishing time",
@@ -405,7 +404,6 @@ const app = defineComponent({
       },
     );
     const editorForm = createFormController(EditorShowcase.toForm(), {
-      body: "# Markdown preview\n\nSafe **content**.",
       published: new Date("2026-07-21T00:00:00.000Z"),
       publishingTime: "10:30",
       publishingWindow: [
@@ -565,7 +563,6 @@ const app = defineComponent({
                     { "data-testid": "editor-showcase", "aria-label": "Editor showcase" },
                     [
                       h(UcForm, { form: editorForm }, () => [
-                        h(UcField, { name: "body" }),
                         h(UcField, { name: "published" }),
                         h(UcField, { name: "publishingTime" }),
                         h(UcField, { name: "publishingWindow" }),

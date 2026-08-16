@@ -27,18 +27,12 @@ export interface EditorDescriptorMap {
     /** Native drag direction for the editable content area. */
     readonly resize?: EditorResize;
   };
-  markdown: {
-    readonly rows?: number;
-    readonly autogrow?: boolean;
-    readonly defaultView?: "edit" | "preview";
-    /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
-    readonly resize?: EditorResize;
-  };
   email: { readonly autocomplete?: string };
   password: { readonly autocomplete?: string; readonly revealable?: boolean };
   number: { readonly step?: number; readonly prefix?: string; readonly suffix?: string };
   checkbox: { readonly labelPosition?: "before" | "after"; readonly toggleIndeterminate?: boolean };
   switch: { readonly labelPosition?: "before" | "after"; readonly toggleIndeterminate?: boolean };
+  "radio-group": { readonly inline?: boolean };
   select: { readonly multiple?: boolean; readonly clearable?: boolean };
   autocomplete: { readonly multiple?: boolean; readonly minimumCharacters?: number };
   date: { readonly min?: string; readonly max?: string };
@@ -67,7 +61,6 @@ export interface FormatterDescriptorMap {
   time: Intl.DateTimeFormatOptions;
   datetime: Intl.DateTimeFormatOptions;
   "date-range": Intl.DateTimeFormatOptions & { readonly separator?: string };
-  markdown: { readonly empty?: string };
   reference: Readonly<Record<never, never>>;
   "reference-list": { readonly separator?: string };
   image: { readonly alt?: string; readonly preview?: boolean };
@@ -125,12 +118,13 @@ export const editor = {
   Text: (options: EditorDescriptorMap["text"] = {}) => descriptor("text", options),
   Textarea: (options: EditorDescriptorMap["textarea"] = {}) => descriptor("textarea", options),
   RichText: (options: EditorDescriptorMap["rich-text"] = {}) => descriptor("rich-text", options),
-  Markdown: (options: EditorDescriptorMap["markdown"] = {}) => descriptor("markdown", options),
   Email: (options: EditorDescriptorMap["email"] = {}) => descriptor("email", options),
   Password: (options: EditorDescriptorMap["password"] = {}) => descriptor("password", options),
   Number: (options: EditorDescriptorMap["number"] = {}) => descriptor("number", options),
   Checkbox: (options: EditorDescriptorMap["checkbox"] = {}) => descriptor("checkbox", options),
   Switch: (options: EditorDescriptorMap["switch"] = {}) => descriptor("switch", options),
+  RadioGroup: (options: EditorDescriptorMap["radio-group"] = {}) =>
+    descriptor("radio-group", options),
   Select: (options: EditorDescriptorMap["select"] = {}) => descriptor("select", options),
   Autocomplete: (options: EditorDescriptorMap["autocomplete"] = {}) =>
     descriptor("autocomplete", options),
@@ -160,7 +154,6 @@ export const format = {
   DateTime: (options: FormatterDescriptorMap["datetime"] = {}) => descriptor("datetime", options),
   DateRange: (options: FormatterDescriptorMap["date-range"] = {}) =>
     descriptor("date-range", options),
-  Markdown: (options: FormatterDescriptorMap["markdown"] = {}) => descriptor("markdown", options),
   Reference: () => descriptor("reference", {}),
   ReferenceList: (options: FormatterDescriptorMap["reference-list"] = {}) =>
     descriptor("reference-list", options),

@@ -2,6 +2,7 @@ import {
   localFile,
   removedFile,
   type Descriptor,
+  type Choice,
   type ExternalStore,
   type Field,
   type FieldLayout,
@@ -15,6 +16,7 @@ import {
   type ResourceActionResolveOptions,
   type ResponsiveFieldLayout,
 } from "@uicogs/core";
+import DOMPurify from "dompurify";
 import { createRendererRegistry, vueReactive } from "@uicogs/vue";
 import {
   QBanner,
@@ -31,6 +33,7 @@ import {
   QItem,
   QList,
   QLinearProgress,
+  QOptionGroup,
   QPage,
   QPageSticky,
   QPullToRefresh,
@@ -42,6 +45,7 @@ import {
   Dialog,
   Notify,
   type QBtnProps,
+  type QEditor as QuasarEditor,
   type QDialogOptions,
   type QNotifyCreateOptions,
 } from "quasar";
@@ -64,12 +68,17 @@ import {
 
 export * from "./app-layout.js";
 export * from "./alert-host.js";
+export {
+  quasarEditor,
+  type QuasarRichTextEditorOptions,
+  type QuasarRichTextMode,
+  type QuasarRichTextTool,
+} from "./editor-tools.js";
 export * from "./navigation.js";
 export * from "./notifications.js";
-export { UcMarkdown, renderMarkdown } from "./markdown.js";
 
 import { UcDateEditor, UcDateRangeEditor, UcDateTimeEditor, UcTimeEditor } from "./editors.js";
-import { UcMarkdown, UcMarkdownEditor } from "./markdown.js";
+import { type QuasarRichTextMode, type QuasarRichTextTool } from "./editor-tools.js";
 
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
@@ -390,7 +399,10 @@ const UcRichTextEditor = defineComponent({
     errorMessage: String,
     readonly: Boolean,
     disable: Boolean,
-    toolbar: Array as PropType<readonly string[]>,
+    toolbar: Array as PropType<readonly (readonly string[])[]>,
+    tools: Object as PropType<Readonly<Record<string, QuasarRichTextTool>>>,
+    modes: Array as PropType<readonly QuasarRichTextMode[]>,
+    defaultMode: String as PropType<QuasarRichTextMode>,
     rows: Number,
     resize: {
       type: [String, Boolean] as PropType<"vertical" | "both" | false>,
@@ -399,8 +411,38 @@ const UcRichTextEditor = defineComponent({
   },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
+    const editorRef = shallowRef<QuasarEditor>();
+    const mode = ref<QuasarRichTextMode>(richTextDefaultMode(props.defaultMode, props.modes));
+    watch(
+      () => [props.defaultMode, props.modes] as const,
+      () => {
+        mode.value = richTextDefaultMode(props.defaultMode, props.modes, mode.value);
+      },
+    );
     return () => {
       const { class: className, ...fieldAttrs } = attrs;
+      const definitions = richTextDefinitions(
+        props.tools,
+        () => editorRef.value,
+        (next) => {
+          mode.value = next;
+        },
+      );
+      const readonly = mode.value !== "edit";
+      const editor = h(QEditor, {
+        ref: editorRef,
+        class: ["full-width", "uc-rich-text__editor", `uc-rich-text__${mode.value}`],
+        modelValue: richTextValue(props.modelValue, mode.value),
+        readonly: readonly || props.readonly,
+        disable: props.disable,
+        definitions,
+        toolbar: richTextToolbar(props.toolbar, mode.value, props.modes, props.tools),
+        minHeight: richTextMinHeight(props.rows),
+        ...(readonly ? {} : { contentStyle: resizeStyle(props.resize) }),
+        ...(readonly
+          ? {}
+          : { "onUpdate:modelValue": (value: string) => emit("update:modelValue", value) }),
+      });
       return h(
         QField,
         {
@@ -415,19 +457,60 @@ const UcRichTextEditor = defineComponent({
           disable: props.disable,
         },
         {
+          control: () => h("div", { class: "full-width" }, [editor]),
+        },
+      );
+    };
+  },
+});
+
+/** Wraps Quasar's radio option group in the generated field label and validation surface. */
+const UcRadioGroupEditor = defineComponent({
+  name: "UcRadioGroupEditor",
+  inheritAttrs: false,
+  props: {
+    modelValue: { type: [String, Number], default: undefined },
+    options: { type: Array as PropType<readonly Choice[]>, default: () => [] },
+    label: String,
+    hint: String,
+    error: Boolean,
+    errorMessage: String,
+    readonly: Boolean,
+    disable: Boolean,
+    inline: Boolean,
+    color: String,
+    dense: Boolean,
+  },
+  emits: ["update:modelValue"],
+  setup(props, { attrs, emit }) {
+    return () => {
+      const { class: className, ...receivedAttrs } = attrs;
+      const fieldAttrs = withoutFieldAppearance(receivedAttrs);
+      return h(
+        QField,
+        {
+          ...fieldAttrs,
+          class: className,
+          label: props.label,
+          hint: props.hint,
+          error: props.error,
+          errorMessage: props.errorMessage,
+          borderless: true,
+          stackLabel: true,
+          dense: props.dense,
+        },
+        {
           control: () =>
-            h("div", { class: "full-width" }, [
-              h(QEditor, {
-                class: "full-width",
-                modelValue: props.modelValue,
-                readonly: props.readonly,
-                disable: props.disable,
-                toolbar: props.toolbar,
-                minHeight: richTextMinHeight(props.rows),
-                contentStyle: resizeStyle(props.resize),
-                "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
-              }),
-            ]),
+            h(QOptionGroup, {
+              modelValue: props.modelValue,
+              options: props.options,
+              type: "radio",
+              inline: props.inline,
+              color: props.color,
+              dense: props.dense,
+              disable: props.disable || props.readonly,
+              "onUpdate:modelValue": (value: string | number) => emit("update:modelValue", value),
+            }),
         },
       );
     };
@@ -439,12 +522,12 @@ quasarRenderers
   .registerEditor("text", QInput)
   .registerEditor("textarea", QInput)
   .registerEditor("rich-text", UcRichTextEditor)
-  .registerEditor("markdown", UcMarkdownEditor)
   .registerEditor("email", QInput)
   .registerEditor("password", QInput)
   .registerEditor("number", QInput)
   .registerEditor("checkbox", QCheckbox)
   .registerEditor("switch", QToggle)
+  .registerEditor("radio-group", UcRadioGroupEditor)
   .registerEditor("select", QSelect)
   .registerEditor("autocomplete", QSelect)
   .registerEditor("date", UcDateEditor)
@@ -467,7 +550,6 @@ quasarRenderers
   .registerFormatter("time", formatDate)
   .registerFormatter("datetime", formatDate)
   .registerFormatter("date-range", formatDateRange)
-  .registerFormatter("markdown", formatMarkdown)
   .registerFormatter("reference", formatReference)
   .registerFormatter("reference-list", formatChoices)
   .registerFormatter("image", formatImage)
@@ -672,17 +754,12 @@ export const UcField = defineComponent({
           : {}),
         ...(kind === "rich-text"
           ? {
-              toolbar: stringArrayOption(descriptorOptions.toolbar),
+              toolbar: richTextToolbarOption(descriptorOptions.toolbar),
+              tools: richTextToolsOption(descriptorOptions.tools),
+              modes: richTextModesOption(descriptorOptions.modes),
+              defaultMode: richTextModeOption(descriptorOptions.defaultMode),
               rows: numberOption(descriptorOptions.rows),
               resize: resizeOption(descriptorOptions.resize),
-            }
-          : {}),
-        ...(kind === "markdown"
-          ? {
-              rows: numberOption(descriptorOptions.rows),
-              autogrow: booleanOption(descriptorOptions.autogrow),
-              defaultView: markdownViewOption(descriptorOptions.defaultView),
-              resize: resizeOption(descriptorOptions.resize, descriptorOptions.autogrow),
             }
           : {}),
         ...(kind === "date" || kind === "date-range"
@@ -702,6 +779,7 @@ export const UcField = defineComponent({
                 field.options?.nullable === true,
             }
           : {}),
+        ...(kind === "radio-group" ? { inline: booleanOption(descriptorOptions.inline) } : {}),
         ...(kind === "image"
           ? { accept: "image/*" }
           : descriptorOptions.accept
@@ -1935,6 +2013,13 @@ function classValue(value: unknown): UiClass | undefined {
   return classes.length ? classes : undefined;
 }
 
+function withoutFieldAppearance(
+  attrs: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const omitted = new Set(["borderless", "filled", "outlined", "rounded", "standout"]);
+  return Object.fromEntries(Object.entries(attrs).filter(([name]) => !omitted.has(name)));
+}
+
 function classNames(value: unknown): readonly string[] {
   if (typeof value === "string") return value.split(/\s+/).filter(Boolean);
   if (Array.isArray(value)) return value.flatMap(classNames);
@@ -2355,14 +2440,191 @@ function booleanOption(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
-function stringArrayOption(value: unknown): readonly string[] | undefined {
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? Object.freeze([...value])
-    : undefined;
+function richTextToolbarOption(value: unknown): readonly (readonly string[])[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  if (value.every((item) => typeof item === "string"))
+    return Object.freeze([Object.freeze([...value])]);
+  if (
+    !value.every((group) => Array.isArray(group) && group.every((item) => typeof item === "string"))
+  )
+    return undefined;
+  return Object.freeze(value.map((group) => Object.freeze([...group])));
 }
 
-function markdownViewOption(value: unknown): "edit" | "preview" | undefined {
-  return value === "edit" || value === "preview" ? value : undefined;
+function richTextToolsOption(
+  value: unknown,
+): Readonly<Record<string, QuasarRichTextTool>> | undefined {
+  return toolsOption(value, isQuasarRichTextTool);
+}
+
+function toolsOption<TTool>(
+  value: unknown,
+  isTool: (value: unknown) => value is TTool,
+): Readonly<Record<string, TTool>> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const tools: Record<string, TTool> = {};
+  for (const [name, tool] of Object.entries(value)) {
+    if (!isToolName(name) || isEditorMode(name) || !isTool(tool)) continue;
+    tools[name] = tool;
+  }
+  return Object.keys(tools).length ? Object.freeze(tools) : undefined;
+}
+
+function isQuasarRichTextTool(value: unknown): value is QuasarRichTextTool {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "label" in value &&
+    typeof value.label === "string" &&
+    "run" in value &&
+    typeof value.run === "function"
+  );
+}
+
+function isToolName(value: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_-]*$/.test(value);
+}
+
+function isEditorMode(value: string): boolean {
+  return value === "edit" || value === "source" || value === "preview";
+}
+
+function richTextModesOption(value: unknown): readonly QuasarRichTextMode[] | undefined {
+  return modeListOption(value, isRichTextMode);
+}
+
+function modeListOption<TMode extends string>(
+  value: unknown,
+  isMode: (value: string) => value is TMode,
+): readonly TMode[] | undefined {
+  if (
+    !Array.isArray(value) ||
+    !value.length ||
+    !value.every((mode) => typeof mode === "string" && isMode(mode))
+  )
+    return undefined;
+  return new Set(value).size === value.length ? Object.freeze([...value]) : undefined;
+}
+
+function richTextModeOption(value: unknown): QuasarRichTextMode | undefined {
+  return typeof value === "string" && isRichTextMode(value) ? value : undefined;
+}
+
+function isRichTextMode(value: string): value is QuasarRichTextMode {
+  return value === "edit" || value === "source" || value === "preview";
+}
+
+const defaultRichTextToolbar: readonly (readonly string[])[] = Object.freeze([
+  Object.freeze(["left", "center", "right", "justify"]),
+  Object.freeze(["bold", "italic", "underline", "strike"]),
+  Object.freeze(["undo", "redo"]),
+]);
+
+interface RichTextToolbarDefinition {
+  readonly label: string;
+  readonly tip?: string;
+  readonly icon?: string;
+  readonly type: "no-state";
+  readonly handler: () => void;
+}
+
+function richTextToolbar(
+  value: readonly (readonly string[])[] | undefined,
+  mode: QuasarRichTextMode,
+  configuredModes: readonly QuasarRichTextMode[] | undefined,
+  tools: Readonly<Record<string, QuasarRichTextTool>> | undefined,
+): readonly (readonly string[])[] {
+  const modes = richTextModes(configuredModes);
+  const navigation = Object.freeze(modes.filter((item) => item !== mode));
+  if (mode !== "edit") return navigation.length ? Object.freeze([navigation]) : Object.freeze([]);
+  const toolbar = value?.length ? value : defaultRichTextToolbar;
+  const known = new Set(toolbar.flat());
+  const additions = Object.keys(tools ?? {}).filter((name) => !known.has(name));
+  return Object.freeze([
+    ...toolbar.map((group) => Object.freeze([...group])),
+    ...(additions.length ? [Object.freeze(additions)] : []),
+    ...(navigation.length ? [navigation] : []),
+  ]);
+}
+
+function richTextDefinitions(
+  tools: Readonly<Record<string, QuasarRichTextTool>> | undefined,
+  getEditor: () => QuasarEditor | undefined,
+  setMode: (mode: QuasarRichTextMode) => void,
+): Readonly<Record<string, RichTextToolbarDefinition>> {
+  const definitions: Record<string, RichTextToolbarDefinition> = {
+    preview: {
+      label: "Preview",
+      tip: "Preview rich text",
+      type: "no-state",
+      handler: () => setMode("preview"),
+    },
+    edit: {
+      label: "Edit",
+      tip: "Edit rich text",
+      type: "no-state",
+      handler: () => setMode("edit"),
+    },
+    source: {
+      label: "Source",
+      tip: "View HTML source",
+      type: "no-state",
+      handler: () => setMode("source"),
+    },
+  };
+  for (const [name, definition] of Object.entries(tools ?? {})) {
+    if (isEditorMode(name)) continue;
+    definitions[name] = {
+      label: definition.label,
+      ...(definition.tip === undefined ? {} : { tip: definition.tip }),
+      ...(definition.icon === undefined ? {} : { icon: definition.icon }),
+      type: "no-state",
+      handler: () => {
+        const editor = getEditor();
+        if (editor) definition.run(editor);
+      },
+    };
+  }
+  return Object.freeze(definitions);
+}
+
+function richTextModes(
+  value: readonly QuasarRichTextMode[] | undefined,
+): readonly QuasarRichTextMode[] {
+  return value?.length ? value : Object.freeze(["edit", "preview"]);
+}
+
+function richTextDefaultMode(
+  configured: QuasarRichTextMode | undefined,
+  modes: readonly QuasarRichTextMode[] | undefined,
+  current?: QuasarRichTextMode,
+): QuasarRichTextMode {
+  const available = richTextModes(modes);
+  if (current !== undefined && available.includes(current)) return current;
+  if (configured !== undefined && available.includes(configured)) return configured;
+  return available[0] ?? "edit";
+}
+
+function richTextValue(value: string, mode: QuasarRichTextMode): string {
+  if (mode === "preview") return DOMPurify.sanitize(value);
+  return mode === "source" ? escapeHtml(value) : value;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      default:
+        return "&#39;";
+    }
+  });
 }
 
 function resizeOption(value: unknown, autogrow: unknown = false): "vertical" | "both" | false {
@@ -2508,11 +2770,6 @@ function formatDateRange(value: unknown, options: Readonly<Record<string, unknow
   return Array.isArray(value)
     ? value.map((item) => formatDate(item, options)).join(String(options.separator ?? " - "))
     : "";
-}
-
-function formatMarkdown(value: unknown, options: Readonly<Record<string, unknown>>): RenderedField {
-  if (typeof value !== "string" || value === "") return String(options.empty ?? "");
-  return h(UcMarkdown, { source: value });
 }
 
 function formatReference(value: unknown): string {

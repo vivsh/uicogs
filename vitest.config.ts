@@ -12,6 +12,9 @@ export default defineConfig({
       "@uicogs/vue": fileURLToPath(new URL("./packages/vue/src/index.ts", import.meta.url)),
       "@uicogs/react": fileURLToPath(new URL("./packages/react/src/index.ts", import.meta.url)),
       "@uicogs/quasar": fileURLToPath(new URL("./packages/quasar/src/index.ts", import.meta.url)),
+      "@uicogs/quasar/stylebook": fileURLToPath(
+        new URL("./packages/quasar/src/stylebook.ts", import.meta.url),
+      ),
     },
   },
   test: {

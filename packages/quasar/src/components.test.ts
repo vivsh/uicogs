@@ -29,11 +29,11 @@ import {
   UcField,
   UcFilter,
   UcForm,
-  UcMarkdown,
   UcResourceView,
   UcSubmit,
   UcTable,
   UcView,
+  quasarEditor,
   quasarRenderers,
 } from "./index.js";
 
@@ -91,24 +91,6 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.findAll("input")).toHaveLength(1);
   });
 
-  it("renders Markdown safely and provides a generated edit and preview field", async () => {
-    const markdown = mount(UcMarkdown, {
-      props: { source: "# Heading\n\n<script>alert('unsafe')</script>" },
-    });
-    expect(markdown.html()).toContain("<h1>Heading</h1>");
-    expect(markdown.html()).not.toContain("<script");
-
-    const schema = defineSchema({ body: fields.Markdown({ editor: editor.Markdown() }) });
-    const form = createFormController(schema.toForm(), { body: "# Draft" });
-    const wrapper = mount(UcForm, {
-      props: { form },
-      global: { stubs: quasarStubs },
-    });
-    expect(wrapper.find(".uc-markdown__editor").exists()).toBe(true);
-    await wrapper.find(".uc-markdown__toggle").trigger("click");
-    expect(wrapper.find(".uc-markdown__preview").exists()).toBe(true);
-  });
-
   it("configures nullable generated booleans as tri-state controls", () => {
     const schema = defineSchema({
       visible: fields.Bool({ nullable: true, editor: editor.Checkbox() }),
@@ -129,6 +111,36 @@ describe("Quasar forms and fields", () => {
     expect(controls[0]?.props("indeterminateValue")).toBeNull();
     expect(controls[0]?.props("toggleIndeterminate")).toBe(true);
     expect(controls[1]?.props("toggleIndeterminate")).toBe(false);
+  });
+
+  it("renders schema-declared radio groups with generated labels and choices", async () => {
+    const schema = defineSchema({
+      visibility: fields.Enum(["draft", "review", "published"] as const, {
+        label: "Visibility",
+        editor: editor.RadioGroup({ inline: true }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), { visibility: "draft" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    const group = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => control.props("type") === "radio");
+    if (!group) throw new Error("Expected the generated radio option group");
+    const field = wrapper.findComponent({ name: "QFieldStub" });
+    expect(field.props("borderless")).toBe(true);
+    expect(field.props("stackLabel")).toBe(true);
+    expect(group.props("type")).toBe("radio");
+    expect(group.props("inline")).toBe(true);
+    expect(group.props("options")).toEqual([
+      { label: "draft", value: "draft" },
+      { label: "review", value: "review" },
+      { label: "published", value: "published" },
+    ]);
+    await group.vm.$emit("update:modelValue", "review");
+    expect(form.values.visibility).toBe("review");
   });
 
   it("binds generated popup temporal editors and rich-text field validation", async () => {
@@ -162,14 +174,61 @@ describe("Quasar forms and fields", () => {
     expect(
       wrapper
         .findAllComponents(controlStub)
-        .some((control) => control.props("toolbar")?.[0] === "bold"),
+        .some((control) => hasBoldToolbar(control.props("toolbar"))),
     ).toBe(true);
     const richText = wrapper
       .findAllComponents(controlStub)
-      .find((control) => control.props("toolbar")?.[0] === "bold");
+      .find((control) => hasBoldToolbar(control.props("toolbar")));
+    expect(richText?.props("toolbar")).toEqual([["bold"], ["preview"]]);
     expect(richText?.find("input").classes()).toContain("full-width");
     expect(richText?.props("contentStyle")).toEqual({ overflow: "auto", resize: "vertical" });
+    const definitions = richText?.props("definitions") as
+      { readonly preview?: { readonly handler?: () => void } } | undefined;
+    definitions?.preview?.handler?.();
+    await nextTick();
+    expect(wrapper.find(".uc-rich-text__preview").exists()).toBe(true);
     expect(wrapper.findComponent({ name: "QIconStub" }).props("name")).toBe("calendar-icon");
+  });
+
+  it("switches rich text between editable HTML, source, and sanitized preview modes", async () => {
+    const schema = defineSchema({
+      body: fields.RichText({
+        editor: quasarEditor.RichText({ modes: ["edit", "source", "preview"] }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), {
+      body: "<p>Draft</p><script>unsafe()</script>",
+    });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const editorControl = () =>
+      wrapper
+        .findAllComponents(controlStub)
+        .find((control) => control.props("modelValue") === form.values.body);
+    const edit = editorControl();
+    expect(edit?.props("toolbar")).toEqual([
+      ["left", "center", "right", "justify"],
+      ["bold", "italic", "underline", "strike"],
+      ["undo", "redo"],
+      ["source", "preview"],
+    ]);
+    const definitions = edit?.props("definitions") as
+      { readonly source?: { readonly handler?: () => void } } | undefined;
+    definitions?.source?.handler?.();
+    await nextTick();
+    const source = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => toolbarIncludes(control.props("toolbar"), "edit"));
+    expect(wrapper.find(".uc-rich-text__source").exists()).toBe(true);
+    expect(source?.props("modelValue")).toBe(
+      "&lt;p&gt;Draft&lt;/p&gt;&lt;script&gt;unsafe()&lt;/script&gt;",
+    );
+    expect(source?.props("toolbar")).toEqual([["edit", "preview"]]);
+    const sourceDefinitions = source?.props("definitions") as
+      { readonly preview?: { readonly handler?: () => void } } | undefined;
+    sourceDefinitions?.preview?.handler?.();
+    await nextTick();
+    expect(wrapper.find(".uc-rich-text__preview").exists()).toBe(true);
+    expect(form.values.body).toBe("<p>Draft</p><script>unsafe()</script>");
   });
 
   it("provides native resizing for multiline editors and keeps autogrowing fields automatic", () => {
@@ -177,13 +236,11 @@ describe("Quasar forms and fields", () => {
       description: fields.Text({ editor: editor.Textarea() }),
       growing: fields.Text({ editor: editor.Textarea({ autogrow: true }) }),
       body: fields.RichText({ editor: editor.RichText({ rows: 8, resize: "both" }) }),
-      markdown: fields.Markdown({ editor: editor.Markdown({ resize: false }) }),
     });
     const form = createFormController(schema.toForm(), {
       description: "Text",
       growing: "Growing text",
       body: "<p>Text</p>",
-      markdown: "# Text",
     });
     const wrapper = mount(UcForm, {
       props: { form },
@@ -193,13 +250,42 @@ describe("Quasar forms and fields", () => {
     const textarea = controls.find((control) => control.props("modelValue") === "Text");
     const autogrowing = controls.find((control) => control.props("modelValue") === "Growing text");
     const richText = controls.find((control) => control.props("modelValue") === "<p>Text</p>");
-    const markdown = controls.find((control) => control.props("modelValue") === "# Text");
 
     expect(textarea?.props("inputStyle")).toEqual({ overflow: "auto", resize: "vertical" });
     expect(autogrowing?.props("inputStyle")).toBeUndefined();
     expect(richText?.props("contentStyle")).toEqual({ overflow: "auto", resize: "both" });
     expect(richText?.props("minHeight")).toBe("calc(8 * 1.5em)");
-    expect(markdown?.props("inputStyle")).toBeUndefined();
+  });
+
+  it("renders named Quasar rich-text tools in the configured toolbar", () => {
+    const runAction = vi.fn();
+    const schema = defineSchema({
+      body: fields.RichText({
+        editor: quasarEditor.RichText({
+          toolbar: [["bold", "insert-token"]],
+          tools: {
+            "insert-token": { label: "Token", run: runAction },
+          },
+        }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), { body: "<p>Draft</p>" });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const richText = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => toolbarIncludes(control.props("toolbar"), "insert-token"));
+    expect(richText?.props("toolbar")).toEqual([["bold", "insert-token"], ["preview"]]);
+    const definitions = richText?.props("definitions") as
+      { readonly [key: string]: { readonly handler?: () => void } | undefined } | undefined;
+    definitions?.["insert-token"]?.handler?.();
+    expect(runAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects invalid generated editor mode and tool declarations", () => {
+    expect(quasarEditor.RichText({ modes: ["preview"] }).options?.defaultMode).toBe("preview");
+    expect(() => quasarEditor.RichText({ modes: ["preview"], defaultMode: "edit" })).toThrow(
+      "defaultMode",
+    );
   });
 
   it("renders field errors, summaries, progress, submit state, and success", async () => {
@@ -855,8 +941,6 @@ describe("Quasar formatter registry", () => {
     expect(render("date", new Date("2026-07-21T00:00:00Z"))).not.toBe("");
     expect(render("date-range", ["2026-07-01", "2026-07-31"])).toContain("-");
     expect(render("date-range", "invalid")).toBe("");
-    expect(render("markdown", "## Heading")).toMatchObject({ type: UcMarkdown });
-    expect(render("markdown", "", { empty: "No content" })).toBe("No content");
     expect(render("reference", { title: "Task" })).toBe("Task");
     expect(render("reference", { label: "Label" })).toBe("Label");
     expect(render("reference", { name: "Name" })).toBe("Name");
@@ -893,6 +977,7 @@ const controlStub = defineComponent({
     range: Boolean,
     options: [Array, Function],
     multiple: Boolean,
+    inline: Boolean,
     readonly: Boolean,
     accept: String,
     outlined: Boolean,
@@ -901,6 +986,7 @@ const controlStub = defineComponent({
     borderless: Boolean,
     dense: Boolean,
     toolbar: Array,
+    definitions: Object,
     rows: Number,
     minHeight: String,
     autogrow: Boolean,
@@ -946,6 +1032,16 @@ const controlStub = defineComponent({
       ]);
   },
 });
+
+function hasBoldToolbar(value: unknown): boolean {
+  return Array.isArray(value) && Array.isArray(value[0]) && value[0][0] === "bold";
+}
+
+function toolbarIncludes(value: unknown, action: string): boolean {
+  return (
+    Array.isArray(value) && value.some((group) => Array.isArray(group) && group.includes(action))
+  );
+}
 
 const buttonStub = defineComponent({
   name: "QBtnStub",
@@ -1051,7 +1147,15 @@ const quasarStubs = {
   QEditor: controlStub,
   QField: defineComponent({
     name: "QFieldStub",
-    props: { label: String, hint: String, error: Boolean, errorMessage: String },
+    props: {
+      label: String,
+      hint: String,
+      error: Boolean,
+      errorMessage: String,
+      borderless: Boolean,
+      stackLabel: Boolean,
+      dense: Boolean,
+    },
     setup(props, { slots }) {
       return () =>
         h("label", [
@@ -1064,6 +1168,7 @@ const quasarStubs = {
   }),
   QCheckbox: controlStub,
   QToggle: controlStub,
+  QOptionGroup: controlStub,
   QSelect: controlStub,
   QDate: controlStub,
   QTime: controlStub,
@@ -1099,6 +1204,13 @@ const quasarStubs = {
     },
   }),
   QBtn: buttonStub,
+  QToolbar: defineComponent({
+    name: "QToolbarStub",
+    setup(_props, { slots }) {
+      return () => h("div", slots.default?.());
+    },
+  }),
+  QSeparator: defineComponent({ name: "QSeparatorStub", setup: () => () => h("hr") }),
   QBanner: defineComponent({
     name: "QBannerStub",
     setup(_props, { slots }) {

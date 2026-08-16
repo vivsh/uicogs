@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `000575d362cbea6d4e9c383493677f831fe89ab4df6629b43f8c91e584682937`
+Declaration SHA-256: `cf0766ce17a4c35391bed7e1015238935e2fc02c49f6033a9cd0758c06ce4b75`
 
 ```ts
 // index.d.ts
@@ -11,7 +11,7 @@ export * from '@uicogs/core';
 import * as vue from 'vue';
 import { ComputedRef, Ref, Plugin, ShallowRef } from 'vue';
 import { NavigationGroup, NavigationDefinition, ScopeAccess } from '@uicogs/routes';
-import { RouteLocationNormalizedLoaded, RouteLocationRaw, RouteRecordNormalized } from 'vue-router';
+import { RouteLocationNormalizedLoaded, RouteLocationRaw, RouteRecordNormalized, Router } from 'vue-router';
 
 /** Presentation metadata attached to a standard Vue Router route record. */
 interface UiCogsRouteMeta {
@@ -217,10 +217,22 @@ declare function useRouteResource<TResource extends RouteResourceSource, TFilter
 declare function vueReactive<T extends ExternalStore<object>>(controller: T): T;
 interface WithVueOptions {
     readonly navigation?: UiCogsNavigationOptions;
+    /**
+     * An optional route integration installed before UiCogs captures the application's
+     * static route records. Framework extensions can use this to add opt-in routes.
+     */
+    readonly stylebook?: VueRouteIntegration;
     readonly onDenied?: (input: {
         readonly to: RouteLocationNormalizedLoaded;
         readonly scopes: readonly string[];
     }) => RouteLocationRaw | false | void;
+}
+/**
+ * A framework-neutral Vue Router extension installed during `withVue()` setup.
+ * Implementations must only add their own static router records.
+ */
+interface VueRouteIntegration {
+    install(router: Router): void;
 }
 interface VueRuntimeSource extends Record<never, never> {
     readonly ready: Promise<void>;
@@ -338,5 +350,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
+export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueRouteIntegration, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
 ```

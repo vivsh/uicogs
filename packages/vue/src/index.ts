@@ -78,10 +78,23 @@ export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
 
 export interface WithVueOptions {
   readonly navigation?: UiCogsNavigationOptions;
+  /**
+   * An optional route integration installed before UiCogs captures the application's
+   * static route records. Framework extensions can use this to add opt-in routes.
+   */
+  readonly stylebook?: VueRouteIntegration;
   readonly onDenied?: (input: {
     readonly to: RouteLocationNormalizedLoaded;
     readonly scopes: readonly string[];
   }) => RouteLocationRaw | false | void;
+}
+
+/**
+ * A framework-neutral Vue Router extension installed during `withVue()` setup.
+ * Implementations must only add their own static router records.
+ */
+export interface VueRouteIntegration {
+  install(router: Router): void;
 }
 
 interface VueRuntimeSource extends Record<never, never> {
@@ -124,8 +137,10 @@ export async function withVue<T extends VueRuntimeSource>(
   await cogs.ready;
   const uiCogs: Plugin = {
     install(app: App) {
+      const router = routerFor(app);
+      options.stylebook?.install(router);
       validateNavigation(options.navigation ?? {});
-      bindVueRuntime(app, cogs, routerFor(app), options);
+      bindVueRuntime(app, cogs, router, options);
     },
   };
   return Object.freeze({

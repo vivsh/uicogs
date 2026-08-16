@@ -38,6 +38,12 @@ export const { uiCogs } = await withVue(api, { navigation });
 app.use(router).use(uiCogs);
 ```
 
+`withVue()` also accepts a generic `stylebook` route integration. The optional
+`@uicogs/quasar/stylebook` subpath supplies one for local development fixtures; it is
+installed after Vue Router is available and before UiCogs snapshots static routes. Load
+that subpath dynamically in development so production bundles omit it. See
+[Quasar Stylebook](stylebook.md).
+
 The Vue adapter returns readonly proxies. A controller property read tracks one shallow reactive revision.
 
 ```ts
@@ -219,7 +225,9 @@ UcAlertSuccess
 UcAlertFailure
 UcNavigationTree
 UcNotificationList
+stylebook (from @uicogs/quasar/stylebook)
 UcAppLayout
+quasarEditor
 ```
 
 There is no `UcViewset` export.
@@ -315,10 +323,9 @@ the payload writer.
 
 `UcField` resolves the field's editor descriptor automatically.
 
-The Quasar package also provides `UcMarkdown` for safe Markdown presentation. Generated
-Markdown fields use a textarea with a toggleable preview; UiCogs disables raw HTML and
-sanitizes rendered output. This client rendering protection does not replace any
-application-owned server-side storage or rendering policy.
+Rich-text fields use `QEditor` and expose WYSIWYG edit, optional HTML source, and read-only
+sanitized preview modes through normal editor-toolbar commands. Use `quasarEditor.RichText()`
+for named tools and explicit mode choices.
 
 Manual editor-kind selection is an override.
 

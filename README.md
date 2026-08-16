@@ -160,6 +160,23 @@ Payload writers run before JSON or multipart selection. File values automaticall
 
 Entity identity is scoped by resource and key. Collections hold ordered keys rather than duplicate entity objects. Detail responses, lists, relations, mutations, direct writes, and live events all normalize through the same cache entry.
 
+### Optional Quasar stylebook
+
+Quasar applications can opt into a fixture-only visual review route. It uses the same
+public UiCogs and Quasar components while deliberately avoiding application data,
+resources, network calls, storage, and live effects. Dynamically import it only during
+development:
+
+```ts
+const stylebook = import.meta.env.DEV
+  ? (await import("@uicogs/quasar/stylebook")).stylebook()
+  : undefined;
+const { uiCogs } = await withVue(api, { navigation, stylebook });
+```
+
+The built-in overview includes palette, typography, component states, and static pie,
+bar, and line chart fixtures. See [Quasar Stylebook](docs/stylebook.md).
+
 ### Services for operation-first APIs
 
 Use a service when an API has actions but no managed entity: sign-in, password reset,
@@ -308,9 +325,8 @@ the same explicit height, and use
 `UcFilter #actions` for Apply, Reset, and optional-filter controls. See
 [Forms](docs/forms.md#responsive-form-and-filter-layout).
 
-Core schemas also include Markdown, date/time, date-range, rich-text, and nullable
-Boolean semantics. The Quasar adapter supplies safe Markdown preview, popup temporal
-pickers, and three-state nullable Boolean controls.
+Core schemas also include date/time, date-range, rich-text, and nullable Boolean semantics.
+The Quasar adapter supplies popup temporal pickers and three-state nullable Boolean controls.
 
 ## Installation
 

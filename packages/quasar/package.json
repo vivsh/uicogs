@@ -18,20 +18,33 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./stylebook": {
+      "import": {
+        "types": "./dist/stylebook.d.ts",
+        "default": "./dist/stylebook.js"
+      },
+      "require": {
+        "types": "./dist/stylebook.d.cts",
+        "default": "./dist/stylebook.cjs"
+      }
     }
   },
   "files": [
     "dist"
   ],
-  "sideEffects": false,
+  "sideEffects": [
+    "./src/stylebook.css",
+    "./dist/stylebook.css"
+  ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --external vue --external quasar"
+    "build": "tsup src/index.ts src/stylebook.ts --format esm,cjs --dts --inject-style --external vue --external quasar --external vue-router --external @uicogs/echarts --external echarts"
   },
   "dependencies": {
     "@uicogs/core": "workspace:^",
+    "@uicogs/echarts": "workspace:^",
     "@uicogs/vue": "workspace:^",
-    "dompurify": "^3.4.13",
-    "markdown-it": "^15.0.0"
+    "dompurify": "^3.4.13"
   },
   "engines": {
     "node": ">=22"
@@ -39,12 +52,15 @@
   "peerDependencies": {
     "quasar": "^2.18.0",
     "vue": "^3.5.0",
-    "vue-router": "^4.0.0"
+    "vue-router": "^4.0.0",
+    "echarts": "^6.1.0"
+  },
+  "peerDependenciesMeta": {
+    "echarts": {
+      "optional": true
+    }
   },
   "publishConfig": {
     "access": "public"
-  },
-  "devDependencies": {
-    "@types/markdown-it": "^14.1.2"
   }
 }
