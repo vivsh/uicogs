@@ -1251,15 +1251,53 @@ describe("Quasar views and tables", () => {
 
     const { resource } = await resourceFixture();
     const detail = mount(UcResourceView, {
-      props: { resource, modelValue: 1, autoLoad: false, create: false },
+      props: {
+        resource,
+        modelValue: 1,
+        autoLoad: false,
+        create: false,
+        title: "Tasks",
+        asideCaption: "Task workspace",
+      },
       global: { stubs: quasarStubs },
     });
     expect(detail.text()).toContain("One");
+    expect(detail.find(".uc-resource-view__aside-header").text()).toContain("Details");
+    expect(detail.find(".uc-resource-view__aside-caption").text()).toBe("Task workspace");
     await detail
       .findAll("button")
-      .find((button) => button.text() === "Close")
+      .find((button) => button.text() === "Cancel")
       ?.trigger("click");
     expect(detail.emitted("update:modelValue")?.at(-1)).toEqual([undefined]);
+  });
+
+  it("renders a replaceable create-aside header with its close binding", async () => {
+    const { resource, createForm } = await resourceFixture();
+    const wrapper = mount(UcResourceView, {
+      props: {
+        resource,
+        creating: true,
+        createForm,
+        autoLoad: false,
+        title: "Tasks",
+      },
+      slots: {
+        "aside-header": ({
+          mode,
+          caption,
+          close,
+        }: {
+          mode: "create" | "detail";
+          caption: string;
+          close: () => void;
+        }) => h("button", { class: "custom-aside-close", onClick: close }, `${mode}:${caption}`),
+      },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.find(".uc-resource-view__aside-header").exists()).toBe(false);
+    expect(wrapper.find(".custom-aside-close").text()).toBe("create:Tasks");
+    await wrapper.find(".custom-aside-close").trigger("click");
+    expect(wrapper.emitted("update:creating")?.at(-1)).toEqual([false]);
   });
 
   it("submits generated create and edit forms then refreshes the resource", async () => {
@@ -1855,6 +1893,18 @@ const quasarStubs = {
     },
   }),
   QBtn: buttonStub,
+  QToolbar: defineComponent({
+    name: "QToolbarStub",
+    setup(_props, { slots }) {
+      return () => h("div", slots.default?.());
+    },
+  }),
+  QToolbarTitle: defineComponent({
+    name: "QToolbarTitleStub",
+    setup(_props, { slots }) {
+      return () => h("div", slots.default?.());
+    },
+  }),
   QBanner: defineComponent({
     name: "QBannerStub",
     setup(_props, { slots }) {

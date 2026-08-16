@@ -461,6 +461,24 @@ In split mode, the header belongs to the list pane. The create/detail aside star
 at the same top edge as that pane, rather than below the caption, tools, or filters.
 Stack and dialog modes retain the normal responsive aside behavior.
 
+When an aside is active, `UcResourceView` renders a native Quasar toolbar with a state
+heading (`Create` or `Details`), a small resource caption, and a neutral flat `Cancel`
+button. The button closes the active create or detail state; it does not submit or mutate
+the resource. Set `aside-caption` when the resource/list title is not the right label.
+Use `aside-header` to replace that complete toolbar. The slot receives `mode`, `caption`,
+and `close`.
+
+```vue
+<UcResourceView :resource="tasks" aside-caption="Task workspace">
+  <template #aside-header="{ mode, caption, close }">
+    <QToolbar>
+      <QToolbarTitle>{{ mode === "create" ? "New task" : caption }}</QToolbarTitle>
+      <UcButton flat round icon="close" aria-label="Close task" @click="close()" />
+    </QToolbar>
+  </template>
+</UcResourceView>
+```
+
 ```vue
 <UcResourceView
   v-model="activeTaskId"

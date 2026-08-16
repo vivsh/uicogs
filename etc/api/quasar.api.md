@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `cc9c936d0d1964b723c72711e1298ec6b286f4ab941d8caf5fd23883cf0210e1`
+Declaration SHA-256: `396ddddfae08dff90969e6c04b1a6cca2597462d0974ce6ca187183d5aeb2d57`
 
 ```ts
 // index.d.ts
@@ -854,6 +854,14 @@ declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
     autoLoad: boolean;
     pageSize: number;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** The semantic state shown in a resource view's active aside. */
+type UcResourceViewAsideMode = "create" | "detail";
+/** Bindings provided to an application-owned `aside-header` slot. */
+interface UcResourceViewAsideHeaderContext {
+    readonly mode: UcResourceViewAsideMode;
+    readonly caption: string;
+    close(): void;
+}
 declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     resource: {
         type: PropType<ResourceLike>;
@@ -891,6 +899,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    asideCaption: StringConstructor;
     mode: {
         type: PropType<"auto" | "split" | "stack" | "dialog">;
         default: string;
@@ -945,6 +954,7 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    asideCaption: StringConstructor;
     mode: {
         type: PropType<"auto" | "split" | "stack" | "dialog">;
         default: string;
@@ -1023,10 +1033,7 @@ declare const UcCancel: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
-    color: {
-        type: StringConstructor;
-        default: string;
-    };
+    color: StringConstructor;
     flat: {
         type: BooleanConstructor;
         default: boolean;
@@ -1043,10 +1050,7 @@ declare const UcCancel: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
-    color: {
-        type: StringConstructor;
-        default: string;
-    };
+    color: StringConstructor;
     flat: {
         type: BooleanConstructor;
         default: boolean;
@@ -1056,7 +1060,6 @@ declare const UcCancel: vue.DefineComponent<vue.ExtractPropTypes<{
 }>, {
     label: string;
     icon: string;
-    color: string;
     flat: boolean;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcAction: vue.DefineComponent<vue.ExtractPropTypes<{
@@ -1184,7 +1187,7 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, type UcResourceViewAsideHeaderContext, type UcResourceViewAsideMode, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
 
 // stylebook.d.ts
 import { VueRouteIntegration } from '@uicogs/vue';

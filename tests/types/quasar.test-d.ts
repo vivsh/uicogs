@@ -2,6 +2,8 @@ import { expectAssignable, expectError, expectType } from "tsd";
 import {
   type UcAppBrand,
   type UcAppLayoutActionProps,
+  type UcResourceViewAsideHeaderContext,
+  type UcResourceViewAsideMode,
   type UcActionsProps,
   type UcButtonProps,
   type UcControlSize,
@@ -50,6 +52,13 @@ expectAssignable<UcButtonProps>({
 expectAssignable<UcActionsProps>({ inline: true });
 expectAssignable<UcFormActionLayout>("inline");
 expectError<UcFormActionLayout>("sideways");
+expectAssignable<UcResourceViewAsideMode>("create");
+expectError<UcResourceViewAsideMode>("aside");
+expectAssignable<UcResourceViewAsideHeaderContext>({
+  mode: "detail",
+  caption: "Task workspace",
+  close: () => undefined,
+});
 
 expectError(defineSkin({ palette: { brand: "#5b4bdb" } }));
 expectError(defineSkin({ palette: { "--q-primary": "#5b4bdb" } }));

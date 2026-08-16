@@ -40,6 +40,8 @@ import {
   QSelect,
   QTable,
   QTd,
+  QToolbar,
+  QToolbarTitle,
   QToggle,
   QTr,
   Dialog,
@@ -1365,6 +1367,16 @@ export const UcTable = defineComponent({
   },
 });
 
+/** The semantic state shown in a resource view's active aside. */
+export type UcResourceViewAsideMode = "create" | "detail";
+
+/** Bindings provided to an application-owned `aside-header` slot. */
+export interface UcResourceViewAsideHeaderContext {
+  readonly mode: UcResourceViewAsideMode;
+  readonly caption: string;
+  close(): void;
+}
+
 export const UcResourceView = defineComponent({
   name: "UcResourceView",
   props: {
@@ -1386,6 +1398,7 @@ export const UcResourceView = defineComponent({
     autoLoad: { type: Boolean, default: true },
     create: { type: Boolean, default: true },
     asideWidth: { type: String, default: "32rem" },
+    asideCaption: String,
     mode: {
       type: String as PropType<"auto" | "split" | "stack" | "dialog">,
       default: "auto",
@@ -1652,6 +1665,27 @@ export const UcResourceView = defineComponent({
       );
     };
 
+    const asideHeaderContext = (): UcResourceViewAsideHeaderContext => {
+      const mode: UcResourceViewAsideMode = creating.value ? "create" : "detail";
+      return Object.freeze({
+        mode,
+        caption: props.asideCaption ?? props.title ?? labelFor(resource.definition.name),
+        close,
+      });
+    };
+
+    const defaultAsideHeader = (context: UcResourceViewAsideHeaderContext) =>
+      h(QToolbar, { class: "uc-resource-view__aside-header" }, () => [
+        h(QToolbarTitle, { class: "uc-resource-view__aside-heading" }, () => [
+          h("div", { class: "text-subtitle1" }, context.mode === "create" ? "Create" : "Details"),
+          h("div", { class: "uc-resource-view__aside-caption text-caption" }, context.caption),
+        ]),
+        h(UcCancel, {
+          class: "uc-resource-view__aside-cancel",
+          action: context.close,
+        }),
+      ]);
+
     return () => {
       const aside = creating.value || Boolean(active.value);
       const list = slots.list?.(listSlotProps()) ?? [
@@ -1728,10 +1762,15 @@ export const UcResourceView = defineComponent({
                       },
                       onFailure: (failure: unknown) => emit("failure", failure),
                     })
-                  : defaultDetail(resource, active.value, columns.value, close)),
+                  : defaultDetail(resource, active.value, columns.value)),
               detailActionSlot ?? defaultObjectActions(actions),
             ]
           : undefined;
+      const asideHeader = (() => {
+        if (!aside) return undefined;
+        const context = asideHeaderContext();
+        return slots["aside-header"]?.(context) ?? defaultAsideHeader(context);
+      })();
       return h(
         UcView,
         {
@@ -1757,7 +1796,7 @@ export const UcResourceView = defineComponent({
                 )
               : undefined,
           ],
-          aside: () => detail,
+          aside: () => [asideHeader, detail],
         },
       );
     };
@@ -2100,7 +2139,7 @@ export const UcCancel = defineComponent({
     action: Function as PropType<() => unknown>,
     label: { type: String, default: "Cancel" },
     icon: { type: String, default: "close" },
-    color: { type: String, default: "warning" },
+    color: String,
     flat: { type: Boolean, default: true },
   },
   emits: ["cancel"],
@@ -2114,7 +2153,7 @@ export const UcCancel = defineComponent({
         ...attrs,
         label: props.label,
         icon: props.icon,
-        color: props.color,
+        ...(props.color === undefined ? {} : { color: props.color }),
         flat: props.flat,
         onClick: cancel,
       });
@@ -2807,7 +2846,6 @@ function defaultDetail(
   resource: ResourceLike,
   object: ResourceObjectLike,
   columns: readonly UcResourceColumn[],
-  close: () => void,
 ) {
   if (object.loading) return h(QInnerLoading, { showing: true });
   if (object.error)
@@ -2831,6 +2869,5 @@ function defaultDetail(
         ]);
       }),
     ),
-    h(UcButton, { flat: true, label: "Close", onClick: close }),
   ]);
 }
