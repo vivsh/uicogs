@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `396ddddfae08dff90969e6c04b1a6cca2597462d0974ce6ca187183d5aeb2d57`
+Declaration SHA-256: `ee39ab0181b35f7b4d08c3ee96dd6ba4ea0fc12ca809117ff733f911ccc078cd`
 
 ```ts
 // index.d.ts
@@ -856,6 +856,32 @@ declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 /** The semantic state shown in a resource view's active aside. */
 type UcResourceViewAsideMode = "create" | "detail";
+/**
+ * The route-backed resource controller accepted by `UcResourceView`.
+ *
+ * `useRouteResource()` supplies this contract. Its URL-backed detail and create values
+ * are read by the view, while `open()`, `create()`, and `close()` remain the only route
+ * mutations performed by the view.
+ */
+interface UcRouteResource {
+    readonly resource: ResourceLike;
+    readonly collection: TableCollectionLike;
+    readonly activeKey: Readonly<{
+        readonly value: EntityKey | undefined;
+    }>;
+    readonly activeObject: Readonly<{
+        readonly value: ResourceObjectLike | undefined;
+    }>;
+    readonly creating: Readonly<{
+        readonly value: boolean;
+    }>;
+    readonly mode: Readonly<{
+        readonly value: "list" | "detail" | "create";
+    }>;
+    open(key: EntityKey | undefined): Promise<void>;
+    create(): Promise<void>;
+    close(): Promise<void>;
+}
 /** Bindings provided to an application-owned `aside-header` slot. */
 interface UcResourceViewAsideHeaderContext {
     readonly mode: UcResourceViewAsideMode;
@@ -863,11 +889,9 @@ interface UcResourceViewAsideHeaderContext {
     close(): void;
 }
 declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
-    resource: {
-        type: PropType<ResourceLike>;
-        required: true;
-    };
+    resource: PropType<ResourceLike>;
     collection: PropType<TableCollectionLike>;
+    routeResource: PropType<UcRouteResource>;
     title: StringConstructor;
     modelValue: PropType<EntityKey | undefined>;
     creating: {
@@ -918,11 +942,9 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
 }>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, ("create" | "update:modelValue" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel")[], "create" | "update:modelValue" | "select" | "failure" | "view" | "update:selectedKeys" | "loaded" | "update:creating" | "object-action" | "object-action-success" | "object-action-failure" | "object-action-cancel", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
-    resource: {
-        type: PropType<ResourceLike>;
-        required: true;
-    };
+    resource: PropType<ResourceLike>;
     collection: PropType<TableCollectionLike>;
+    routeResource: PropType<UcRouteResource>;
     title: StringConstructor;
     modelValue: PropType<EntityKey | undefined>;
     creating: {
@@ -1187,7 +1209,7 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, type UcResourceViewAsideHeaderContext, type UcResourceViewAsideMode, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, type UcResourceViewAsideHeaderContext, type UcResourceViewAsideMode, type UcRouteResource, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
 
 // stylebook.d.ts
 import { VueRouteIntegration } from '@uicogs/vue';

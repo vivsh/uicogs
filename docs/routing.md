@@ -160,15 +160,17 @@ const page = useRouteResource({
 `useRouteState()` owns only declared query and parameter fields and preserves foreign
 URL state. `useRouteForm()` writes submit-only canonical URLs. `useRouteCollection()`
 owns standard `page`, `page_size`, and `ordering` URL state. `useRouteResource()` adds
-an active record plus `open()`, `create()`, and `close()`. Its writable `activeKey`
-and `creating` values make `UcResourceView` route-aware directly:
+an active record plus `open()`, `create()`, and `close()`. Pass the resulting controller
+directly to `UcResourceView`; the view delegates its row opening, creation, close, and
+successful form navigation to that controller. Page code does not bind the route-owned
+detail key or creation state:
 
 ```vue
 <UcResourceView
-  :resource="page.resource"
-  :collection="page.collection"
-  v-model="page.activeKey"
-  v-model:creating="page.creating"
+  :route-resource="page"
+  :columns="taskColumns"
+  :create-form="TaskCreate"
+  :edit-form="TaskEdit"
 />
 ```
 
@@ -176,7 +178,20 @@ and `creating` values make `UcResourceView` route-aware directly:
 `new` is reserved; numeric key `0` remains a normal detail route. Resources with a
 functional key provide only `{ key: { parseKey, formatKey } }`; ordinary named schema
 keys need no route configuration.
-Back/forward and pasted URLs restore all of them without feedback loops.
+Back/forward, pasted URLs, and refresh restore list, detail, or creation state without
+feedback loops. The route-resource controller remains the one source of truth; do not
+also pass `resource`, `collection`, `v-model`, or `v-model:creating` to that view.
+
+For a non-routed page, keep the explicit controller contract instead:
+
+```vue
+<UcResourceView
+  :resource="tasks"
+  :collection="taskSearch"
+  v-model="activeTaskId"
+  v-model:creating="creatingTask"
+/>
+```
 
 Route-driven loads retain the collection's normal error state. To render a custom
 page-level notification as well, pass `onFailure` to `useRouteCollection()` or

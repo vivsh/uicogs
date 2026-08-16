@@ -1370,6 +1370,25 @@ export const UcTable = defineComponent({
 /** The semantic state shown in a resource view's active aside. */
 export type UcResourceViewAsideMode = "create" | "detail";
 
+/**
+ * The route-backed resource controller accepted by `UcResourceView`.
+ *
+ * `useRouteResource()` supplies this contract. Its URL-backed detail and create values
+ * are read by the view, while `open()`, `create()`, and `close()` remain the only route
+ * mutations performed by the view.
+ */
+export interface UcRouteResource {
+  readonly resource: ResourceLike;
+  readonly collection: TableCollectionLike;
+  readonly activeKey: Readonly<{ readonly value: EntityKey | undefined }>;
+  readonly activeObject: Readonly<{ readonly value: ResourceObjectLike | undefined }>;
+  readonly creating: Readonly<{ readonly value: boolean }>;
+  readonly mode: Readonly<{ readonly value: "list" | "detail" | "create" }>;
+  open(key: EntityKey | undefined): Promise<void>;
+  create(): Promise<void>;
+  close(): Promise<void>;
+}
+
 /** Bindings provided to an application-owned `aside-header` slot. */
 export interface UcResourceViewAsideHeaderContext {
   readonly mode: UcResourceViewAsideMode;
@@ -1377,11 +1396,25 @@ export interface UcResourceViewAsideHeaderContext {
   close(): void;
 }
 
+const resourceViewDeleteSuccessKey: InjectionKey<() => void> = Symbol(
+  "UiCogs resource view delete success",
+);
+
+const UcResourceViewDetailActionScope = defineComponent({
+  name: "UcResourceViewDetailActionScope",
+  props: { onDeleteSuccess: { type: Function as PropType<() => void>, required: true } },
+  setup(props, { slots }) {
+    provide(resourceViewDeleteSuccessKey, () => props.onDeleteSuccess());
+    return () => slots.default?.();
+  },
+});
+
 export const UcResourceView = defineComponent({
   name: "UcResourceView",
   props: {
-    resource: { type: Object as PropType<ResourceLike>, required: true },
+    resource: Object as PropType<ResourceLike>,
     collection: Object as PropType<TableCollectionLike>,
+    routeResource: Object as PropType<UcRouteResource>,
     title: String,
     modelValue: [String, Number] as PropType<EntityKey | undefined>,
     creating: { type: Boolean as PropType<boolean | undefined>, default: undefined },
@@ -1429,14 +1462,43 @@ export const UcResourceView = defineComponent({
   setup(props, { slots, emit }) {
     useControlledSelectionWarning(() => props.selection);
     warnLegacyResourceViewSlots(slots);
-    const resource = vueReactive(props.resource);
-    const listCollection = vueReactive(props.collection ?? resource);
-    const listDefinition = props.collection ? props.collection.resource : resource.definition;
-    const active = shallowRef<ResourceObjectLike>();
+    const routeResource = props.routeResource;
+    if (!routeResource && !props.resource)
+      throw new Error("UcResourceView requires either resource or route-resource");
+    if (routeResource && (props.resource || props.collection))
+      throw new Error(
+        "UcResourceView route-resource already owns resource and collection; do not provide them separately",
+      );
+    const vnodeProps = getCurrentInstance()?.vnode.props;
+    if (
+      routeResource &&
+      vnodeProps &&
+      ("modelValue" in vnodeProps ||
+        "creating" in vnodeProps ||
+        "onUpdate:modelValue" in vnodeProps ||
+        "onUpdate:creating" in vnodeProps)
+    )
+      throw new Error(
+        "UcResourceView route-resource owns detail and create route state; remove v-model and v-model:creating",
+      );
+    const resource = vueReactive(routeResource?.resource ?? props.resource!);
+    const listCollection = vueReactive(routeResource?.collection ?? props.collection ?? resource);
+    const listDefinition = routeResource
+      ? routeResource.collection.resource
+      : props.collection
+        ? props.collection.resource
+        : resource.definition;
+    const explicitActive = shallowRef<ResourceObjectLike>();
+    const active = computed(() => {
+      const object = routeResource ? routeResource.activeObject.value : explicitActive.value;
+      return object ? vueReactive(object) : undefined;
+    });
     const createController = shallowRef<FormLike>();
     const editController = shallowRef<FormLike>();
     const localCreating = shallowRef(false);
-    const creating = computed(() => props.creating ?? localCreating.value);
+    const creating = computed(() =>
+      routeResource ? routeResource.creating.value : (props.creating ?? localCreating.value),
+    );
     const rows = computed(() => listCollection.all().map(entityRecord));
     const columns = computed(() => props.columns ?? columnsFor(listDefinition));
     const selectedRows = computed(() => {
@@ -1457,35 +1519,44 @@ export const UcResourceView = defineComponent({
       }
     };
     const setCreating = (next: boolean): void => {
+      if (routeResource) return;
       if (props.creating === undefined) localCreating.value = next;
       emit("update:creating", next);
     };
     const activateCreate = (): void => {
-      active.value = undefined;
+      explicitActive.value = undefined;
       editController.value = undefined;
       createController.value =
         props.createForm && resource.form ? resource.form(props.createForm) : undefined;
       emit("view", "create");
     };
     const bind = (key: EntityKey | undefined): void => {
-      if (key !== undefined && !creating.value && Object.is(active.value?.key, key)) return;
+      if (routeResource) return;
+      if (key !== undefined && !creating.value && Object.is(explicitActive.value?.key, key)) return;
       if (key === undefined && creating.value) {
-        active.value = undefined;
+        explicitActive.value = undefined;
         editController.value = undefined;
         return;
       }
       setCreating(false);
       createController.value = undefined;
-      active.value = key === undefined ? undefined : vueReactive(resourceObject(resource, key));
+      explicitActive.value =
+        key === undefined ? undefined : vueReactive(resourceObject(resource, key));
       editController.value =
-        props.editForm && active.value?.form ? active.value.form(props.editForm) : undefined;
-      if (props.autoLoad && active.value && !active.value.value)
-        void run(() => active.value!.load());
+        props.editForm && explicitActive.value?.form
+          ? explicitActive.value.form(props.editForm)
+          : undefined;
+      if (props.autoLoad && explicitActive.value && !explicitActive.value.value)
+        void run(() => explicitActive.value!.load());
       emit("view", key === undefined ? "list" : "detail");
     };
     const close = (): void => {
+      if (routeResource) {
+        void routeResource.close();
+        return;
+      }
       setCreating(false);
-      active.value = undefined;
+      explicitActive.value = undefined;
       createController.value = undefined;
       editController.value = undefined;
       emit("update:modelValue", undefined);
@@ -1494,6 +1565,10 @@ export const UcResourceView = defineComponent({
     const open = (row: Readonly<Record<string, unknown>>): void => {
       const key = keyFor(resource.definition, row);
       emit("select", row);
+      if (routeResource) {
+        void routeResource.open(key);
+        return;
+      }
       emit("update:modelValue", key);
       bind(key);
     };
@@ -1511,23 +1586,54 @@ export const UcResourceView = defineComponent({
     const startCreate = (): void => {
       emit("create");
       if (!slots.create && (!props.createForm || !resource.form)) return;
+      if (routeResource) {
+        void routeResource.create();
+        return;
+      }
       setCreating(true);
     };
 
-    watch(() => props.modelValue, bind, { immediate: true });
+    const refreshAfterMutation = (): void => {
+      if (routeResource) {
+        void routeResource.close().then(() => run(() => listCollection.refresh()));
+        return;
+      }
+      close();
+      void run(() => listCollection.refresh());
+    };
+
+    if (!routeResource) watch(() => props.modelValue, bind, { immediate: true });
     watch(
-      creating,
-      (next) => {
-        if (next) {
+      [() => (routeResource ? routeResource.mode.value : undefined), active],
+      ([mode]) => {
+        if (!routeResource || mode === undefined) return;
+        if (mode === "create") {
           activateCreate();
           return;
         }
-        if (active.value || props.modelValue !== undefined) return;
         createController.value = undefined;
-        emit("view", "list");
+        editController.value =
+          mode === "detail" && props.editForm && active.value?.form
+            ? active.value.form(props.editForm)
+            : undefined;
+        emit("view", mode);
       },
       { immediate: true },
     );
+    if (!routeResource)
+      watch(
+        creating,
+        (next) => {
+          if (next) {
+            activateCreate();
+            return;
+          }
+          if (explicitActive.value || props.modelValue !== undefined) return;
+          createController.value = undefined;
+          emit("view", "list");
+        },
+        { immediate: true },
+      );
     onMounted(() => {
       if (props.autoLoad && !rows.value.length) void run(() => listCollection.load());
     });
@@ -1608,7 +1714,7 @@ export const UcResourceView = defineComponent({
             },
           }
         : undefined;
-      return props.collection
+      return props.collection || routeResource
         ? h(
             UcTable,
             { ...tableProps, collection: listCollection as TableCollectionLike },
@@ -1728,6 +1834,9 @@ export const UcResourceView = defineComponent({
             refresh: () => run(() => active.value!.refresh()),
           })
         : undefined;
+      const scopedDetailActionSlot = detailActionSlot
+        ? h(UcResourceViewDetailActionScope, { onDeleteSuccess: close }, () => detailActionSlot)
+        : undefined;
       const detail = creating.value
         ? (slots.create?.({
             resource,
@@ -1738,8 +1847,7 @@ export const UcResourceView = defineComponent({
             ? h(UcForm, {
                 form: createController.value,
                 onSuccess: () => {
-                  close();
-                  void run(() => listCollection.refresh());
+                  refreshAfterMutation();
                 },
                 onFailure: (failure: unknown) => emit("failure", failure),
               })
@@ -1757,13 +1865,12 @@ export const UcResourceView = defineComponent({
                   ? h(UcForm, {
                       form: editController.value,
                       onSuccess: () => {
-                        close();
-                        void run(() => listCollection.refresh());
+                        refreshAfterMutation();
                       },
                       onFailure: (failure: unknown) => emit("failure", failure),
                     })
                   : defaultDetail(resource, active.value, columns.value)),
-              detailActionSlot ?? defaultObjectActions(actions),
+              scopedDetailActionSlot ?? defaultObjectActions(actions),
             ]
           : undefined;
       const asideHeader = (() => {
@@ -2240,6 +2347,7 @@ export const UcDelete = defineComponent({
   },
   emits: ["success", "failure", "cancel"],
   setup(props, { attrs, emit }) {
+    const closeResourceView = inject(resourceViewDeleteSuccessKey, undefined);
     return () =>
       h(UcAction, {
         ...attrs,
@@ -2252,7 +2360,10 @@ export const UcDelete = defineComponent({
         confirmMessage: props.confirmMessage,
         successMessage: props.successMessage,
         failureMessage: props.failureMessage,
-        onSuccess: (value: unknown) => emit("success", value),
+        onSuccess: (value: unknown) => {
+          emit("success", value);
+          closeResourceView?.();
+        },
         onFailure: (failure: unknown) => emit("failure", failure),
         onCancel: () => emit("cancel"),
       });

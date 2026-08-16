@@ -132,6 +132,11 @@ const directResourcePage = useRouteResource({
   filters: TaskFilters,
 });
 expectType<Promise<void>>(directResourcePage.open(2));
+expectType<"list" | "detail" | "create">(directResourcePage.mode.value);
+type RouteResourceViewController = NonNullable<
+  InstanceType<typeof UcResourceView>["$props"]["routeResource"]
+>;
+expectAssignable<RouteResourceViewController>(directResourcePage);
 
 const FunctionalTasks = resource({
   name: "functional-tasks",

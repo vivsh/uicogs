@@ -499,19 +499,36 @@ and `close`.
     <QBtn label="New task" @click="create()" />
   </template>
 
-  <template #detail-actions="{ object, close }">
-    <UcDelete :action="() => tasks.remove(object.key)" @success="close" />
+  <template #detail-actions="{ object }">
+    <UcDelete :action="() => tasks.remove(object.key)" />
   </template>
 </UcResourceView>
 ```
 
-`UcResourceView` receives controllers and form definitions. It does not construct URLs or transport requests.
+`UcDelete` inside `detail-actions` closes the active surface after a successful deletion.
+For a `route-resource` view this means navigating back to the list URL; no page-level
+success forwarding is needed.
+
+`UcResourceView` receives controllers and form definitions. A regular page supplies
+`resource` (and optionally `collection`) plus explicit active/create models. A routed
+page instead supplies only the `useRouteResource()` result through `route-resource`:
+
+```vue
+<UcResourceView :route-resource="taskPage" :create-form="TaskCreate" :edit-form="TaskEdit" />
+```
+
+In that form, `UcResourceView` uses the controller's resource, route-aware collection,
+detail key, and create state, and invokes its `open`, `create`, and `close` operations.
+Do not combine `route-resource` with `resource`, `collection`, `v-model`, or
+`v-model:creating`; UiCogs rejects that ambiguous ownership at setup. It does not
+construct URLs or transport requests.
 
 Selection is opt-in and controlled. `v-model` controls the active detail record; use
 `v-model:selected-keys` only when `selection="single"` or `selection="multiple"` is enabled.
 `UcTable` and `UcResourceView` default to `selection="none"`.
 
-Routing is controlled through model state or the optional router adapter.
+Use explicit models for non-routed pages. For a route-backed page, `route-resource` is
+the preferred contract; its route controller owns navigation.
 
 `caption` replaces only the generated title. `tools` is the stable place for refresh,
 create, export, and manually declared bulk controls. `filters` follows tools. Every

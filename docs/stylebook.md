@@ -59,6 +59,12 @@ Charts use static series through `UcEChart`; no resource or transport is involve
 Custom pages receive the same restriction: keep them deterministic and local. Do not
 connect application resources, services, storage, notifications, or live effects.
 
+For that reason, the built-in resource-view fixture does not demonstrate a route-backed
+resource page. In an application page, the preferred routed pattern is
+`<UcResourceView :route-resource="page" />`, where `page` comes from
+`useRouteResource()`; see [Routing](routing.md#shareable-list-and-detail-state). This
+keeps the stylebook fixture-only while documenting the production integration.
+
 The stylebook owns a small, isolated documentation stylesheet. It gives the page itself a
 clear hierarchy—navigation, hero, section dividers, and responsive structure—through its
 own stable hooks. It never targets or restyles a presented Quasar or UiCogs component: forms,

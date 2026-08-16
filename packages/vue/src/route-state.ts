@@ -8,7 +8,14 @@ import {
   type Shape,
   type ValidationIssue,
 } from "@uicogs/core";
-import { computed, onScopeDispose, ref, watch, type ComputedRef } from "vue";
+import {
+  computed,
+  onScopeDispose,
+  ref,
+  watch,
+  type ComputedRef,
+  type WritableComputedRef,
+} from "vue";
 import {
   useRoute,
   useRouter,
@@ -339,6 +346,36 @@ type RouteResourceKey<TResource> = TResource extends { get(key: infer TKey): unk
   ? Extract<TKey, EntityKey>
   : EntityKey;
 
+/** The route-owned surface currently selected by a resource page. */
+export type RouteResourceMode = "list" | "detail" | "create";
+
+/**
+ * Immutable route-backed resource-page controller.
+ *
+ * The URL is the source of truth for its list, detail, and create state. Framework
+ * views should call `open()`, `create()`, and `close()` rather than maintaining a
+ * second selected-key or create-state model.
+ */
+export interface RouteResource<
+  TResource extends RouteResourceSource,
+  TFilters extends Shape,
+  TFilterContext = unknown,
+> {
+  readonly resource: TResource;
+  readonly collection: RouteCollection<TResource>;
+  readonly filterForm: FormController<
+    FormSchema<Schema<TFilters, TFilterContext>, Infer<Schema<TFilters, TFilterContext>>>
+  >;
+  readonly route: RouteState<TFilters, TFilterContext, EmptyShape, unknown>;
+  readonly activeKey: WritableComputedRef<RouteResourceKey<TResource> | undefined>;
+  readonly activeObject: ComputedRef<ReturnType<TResource["get"]> | undefined>;
+  readonly creating: WritableComputedRef<boolean>;
+  readonly mode: ComputedRef<RouteResourceMode>;
+  open(key: RouteResourceKey<TResource> | undefined): Promise<void>;
+  create(): Promise<void>;
+  close(): Promise<void>;
+}
+
 export function useRouteResource<
   TResource extends RouteResourceSource,
   TFilters extends Shape,
@@ -351,7 +388,7 @@ export function useRouteResource<
   readonly pagination?: RoutePaginationCodec;
   /** Observes a failed URL-driven list load after the resource has updated its error state. */
   readonly onCollectionFailure?: (failure: unknown) => void;
-}) {
+}): RouteResource<TResource, TFilters, TFilterContext> {
   const route = useRouteState({ route: options.route, query: options.filters });
   const filterForm = useRouteForm({ route, schema: options.filters });
   const collection = useRouteCollection({
@@ -370,9 +407,7 @@ export function useRouteResource<
     const raw = location.params.id;
     const value = Array.isArray(raw) ? raw[0] : raw;
     activeKeyValue.value =
-      typeof value === "string" && value !== "" && value !== "new"
-        ? parseKey(value)
-        : undefined;
+      typeof value === "string" && value !== "" && value !== "new" ? parseKey(value) : undefined;
   };
   watch(() => location.params.id, syncActive, { immediate: true });
   const navigateDetail = async (key: RouteResourceKey<TResource> | undefined): Promise<void> => {
@@ -404,8 +439,10 @@ export function useRouteResource<
       void (next ? navigateCreate() : navigateDetail(undefined));
     },
   });
-  const activeObject = computed(() =>
-    activeKey.value === undefined ? undefined : options.resource.get(activeKey.value as never),
+  const activeObject = computed<ReturnType<TResource["get"]> | undefined>(() =>
+    activeKey.value === undefined
+      ? undefined
+      : (options.resource.get(activeKey.value as never) as ReturnType<TResource["get"]>),
   );
   watch(
     activeObject,
@@ -414,6 +451,10 @@ export function useRouteResource<
     },
     { immediate: true },
   );
+  const mode = computed<RouteResourceMode>(() => {
+    if (creating.value) return "create";
+    return activeKey.value === undefined ? "list" : "detail";
+  });
   return Object.freeze({
     resource: options.resource,
     collection,
@@ -422,6 +463,7 @@ export function useRouteResource<
     activeKey,
     activeObject,
     creating,
+    mode,
     open: navigateDetail,
     create: navigateCreate,
     close: () => navigateDetail(undefined),

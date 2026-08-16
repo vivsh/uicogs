@@ -4,7 +4,7 @@ import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { defineComponent, h, nextTick, type App } from "vue";
+import { computed, defineComponent, h, nextTick, ref, type App } from "vue";
 import { Dialog, Notify } from "quasar";
 import {
   RequestError,
@@ -996,6 +996,98 @@ describe("Quasar views and tables", () => {
     expect(wrapper.findComponent({ name: "QTableStub" }).props("rows")).toEqual([
       { id: 2, title: "Route row" },
     ]);
+  });
+
+  it("uses a route resource as the sole owner of list, detail, and create state", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const activeKey = ref<number>();
+    const activeObject = ref<ReturnType<typeof objectController>>();
+    const creating = ref(false);
+    const open = vi.fn(async (key: number | undefined) => {
+      creating.value = false;
+      activeKey.value = key;
+      activeObject.value = key === undefined ? undefined : objectController({ value: { id: key } });
+    });
+    const create = vi.fn(async () => {
+      activeKey.value = undefined;
+      activeObject.value = undefined;
+      creating.value = true;
+    });
+    const close = vi.fn(async () => {
+      activeKey.value = undefined;
+      activeObject.value = undefined;
+      creating.value = false;
+    });
+    const routeResource = {
+      resource,
+      collection: { ...resource, resource: resource.definition },
+      activeKey,
+      activeObject,
+      creating,
+      mode: computed(() =>
+        creating.value ? "create" : activeKey.value === undefined ? "list" : "detail",
+      ),
+      open,
+      create,
+      close,
+    };
+    const wrapper = mount(UcResourceView, {
+      props: { routeResource, autoLoad: false },
+      slots: {
+        tools: ({ create: startCreate }: { create: () => void }) =>
+          h("button", { class: "route-create", onClick: startCreate }, "Create"),
+        "row-item": ({ open: openRow }: { open: () => void }) =>
+          h("button", { class: "route-open", onClick: openRow }, "Open"),
+        create: () => h("div", "Route create surface"),
+        "detail-actions": () =>
+          h(UcDelete, { action: async () => ({ success: true, value: undefined }) }),
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    await wrapper.find(".route-open").trigger("click");
+    await nextTick();
+    expect(open).toHaveBeenCalledWith(1);
+    expect(wrapper.text()).toContain("Details");
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+
+    await wrapper.find(".uc-resource-view__aside-cancel").trigger("click");
+    await nextTick();
+    expect(close).toHaveBeenCalledOnce();
+    expect(wrapper.text()).not.toContain("Details");
+
+    await wrapper.find(".route-open").trigger("click");
+    await nextTick();
+    wrapper.findComponent(UcDelete).findComponent(UcAction).vm.$emit("success", undefined);
+    await nextTick();
+    expect(close).toHaveBeenCalledTimes(2);
+
+    await wrapper.find(".route-create").trigger("click");
+    await nextTick();
+    expect(create).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain("Create");
+    expect(wrapper.emitted("update:creating")).toBeUndefined();
+  });
+
+  it("rejects route-resource mixed with explicit resource state", () => {
+    const resource = externalResource({ rows: [] });
+    const routeResource = {
+      resource,
+      collection: { ...resource, resource: resource.definition },
+      activeKey: ref<number>(),
+      activeObject: ref<ReturnType<typeof objectController>>(),
+      creating: ref(false),
+      mode: ref<"list" | "detail" | "create">("list"),
+      open: async () => undefined,
+      create: async () => undefined,
+      close: async () => undefined,
+    };
+    expect(() =>
+      mount(UcResourceView, {
+        props: { routeResource, resource, autoLoad: false },
+        global: { stubs: quasarStubs },
+      }),
+    ).toThrow("route-resource already owns resource and collection");
   });
 
   it("keeps the resource header in the list pane beside a split detail aside", () => {

@@ -30,11 +30,11 @@ cache requires `cache: false`; it cannot be combined with the built-in durable c
 
 Core sends logical keys that this package prefixes as `<namespace>/<key>`:
 
-| Logical key | Contents |
-| --- | --- |
-| `context` | Application context, excluding the auth-composed context. |
-| `cache/anonymous` | Normalized anonymous-scope data. |
-| `cache/<encoded scope>` | Normalized data for one authenticated scope. |
+| Logical key             | Contents                                                  |
+| ----------------------- | --------------------------------------------------------- |
+| `context`               | Application context, excluding the auth-composed context. |
+| `cache/anonymous`       | Normalized anonymous-scope data.                          |
+| `cache/<encoded scope>` | Normalized data for one authenticated scope.              |
 
 Cache records can contain entity snapshots, collection keys, freshness, tombstones,
 and source versions. They exclude controller loading/error state, drafts,
@@ -110,9 +110,15 @@ Any asynchronous backend may be used without this package:
 import type { PersistenceBackend } from "@uicogs/core";
 
 const backend: PersistenceBackend = {
-  async read(key) { /* return a value, or undefined when absent */ },
-  async write(key, value) { /* persist value */ },
-  async remove(key) { /* remove value */ },
+  async read(key) {
+    /* return a value, or undefined when absent */
+  },
+  async write(key, value) {
+    /* persist value */
+  },
+  async remove(key) {
+    /* remove value */
+  },
 };
 ```
 
