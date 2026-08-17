@@ -38,6 +38,12 @@ export * from "./factory.js";
 export * from "./field.js";
 export * from "./form.js";
 export * from "./issues.js";
+export {
+  uiCogsIconNames,
+  type UiCogsIconName,
+  type UiCogsIconOverrides,
+  type UiCogsIconRegistry,
+} from "./icons.js";
 export * from "./live.js";
 export * from "./request.js";
 export * from "./resource.js";

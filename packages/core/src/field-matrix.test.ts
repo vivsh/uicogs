@@ -48,6 +48,56 @@ describe("field catalog", () => {
     expect(fields.Unknown().parse(Symbol.for("value"), path)).toBe(Symbol.for("value"));
   });
 
+  it("keeps rich enum presentation and meta out of parsed and written values", () => {
+    const kinds = [
+      {
+        value: "paper",
+        presentation: { label: "Paper account", icon: "science", tone: "info" },
+        meta: { requiresCredential: false },
+      },
+      {
+        value: "live",
+        presentation: {
+          label: "Live account",
+          description: "Places real orders",
+          disabled: true,
+        },
+        meta: { requiresCredential: true },
+      },
+    ] as const;
+    const field = fields.Enum(kinds);
+    const list = fields.EnumList(kinds);
+
+    expect(field.parse("paper", path)).toBe("paper");
+    expect(field.write("live", undefined)).toBe("live");
+    expect(list.parse(["paper", "live"], path)).toEqual(["paper", "live"]);
+    expect(field.options.choices[0]?.presentation.label).toBe("Paper account");
+    expect(field.options.choices[1]?.meta).toEqual({ requiresCredential: true });
+    expect(Object.isFrozen(field.options.choices)).toBe(true);
+    expect(Object.isFrozen(field.options.choices[0]?.presentation)).toBe(true);
+  });
+
+  it("rejects duplicate rich enum values at definition time", () => {
+    expect(() =>
+      fields.Enum([
+        { value: "open", presentation: { label: "Open" } },
+        { value: "open", presentation: { label: "Again" } },
+      ] as const),
+    ).toThrow("declared more than once");
+  });
+
+  it("rejects the legacy enum metadata property at definition time", () => {
+    expect(() =>
+      fields.Enum([
+        {
+          value: "paper",
+          presentation: { label: "Paper" },
+          metadata: { legacy: true },
+        },
+      ] as const),
+    ).toThrow("renamed to meta");
+  });
+
   it("parses nested objects and object lists and delegates validation", async () => {
     const item = defineSchema({
       name: fields.Str({

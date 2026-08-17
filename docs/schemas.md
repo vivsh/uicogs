@@ -98,6 +98,24 @@ Choice and list fields:
 Enum, EnumList, StrList, IntList
 ```
 
+`Enum` and `EnumList` accept raw values or a rich choice catalogue. A catalogue keeps raw values
+separate from immutable UI presentation and application `meta`:
+
+```ts
+const AccountKind = fields.Enum([
+  {
+    value: "paper",
+    presentation: { label: "Paper account", icon: "science", tone: "info" },
+    meta: { requiresCredential: false },
+  },
+] as const);
+```
+
+`value` is the only part used for parsing, validation, queries, and serialization.
+`presentation` is adapter-facing (`label` is required; descriptions, icons, tones, and disabled
+state are optional). `meta` is typed application data. Use raw shorthand when the value is
+already a suitable label: `fields.Enum(["paper", "live"] as const)`.
+
 Structured fields:
 
 ```text

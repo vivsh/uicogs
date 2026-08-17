@@ -54,7 +54,8 @@ without importing the application's UiCogs runtime or data services.
 
 ## Fixtures and styling boundary
 
-The overview owns small local form, filter, table, notification, and chart fixtures.
+The overview owns small local form, filter, table, notification, chart, error-page, and rich-choice
+fixtures.
 Charts use static series through `UcEChart`; no resource or transport is involved.
 Custom pages receive the same restriction: keep them deterministic and local. Do not
 connect application resources, services, storage, notifications, or live effects.

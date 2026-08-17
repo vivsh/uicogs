@@ -749,6 +749,7 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("List");
     expect(wrapper.text()).toContain("Detail");
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(true);
+    expect(wrapper.find(".uc-view__aside").classes()).toContain("q-pa-md");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await nextTick();
     expect(wrapper.emitted("update:aside")?.[0]).toEqual([false]);
@@ -758,7 +759,11 @@ describe("Quasar views and tables", () => {
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(false);
     await wrapper.setProps({ mode: "dialog" });
     expect(wrapper.find("[data-q-dialog]").exists()).toBe(true);
-    expect(wrapper.find(".uc-view__dialog > aside").exists()).toBe(true);
+    expect(wrapper.find("[data-q-dialog]").attributes("data-position")).toBe("standard");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("bg-white");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("shadow-2");
+    expect(wrapper.find("[data-q-dialog] > aside.uc-view__dialog").exists()).toBe(true);
     wrapper.findComponent({ name: "QDialogStub" }).vm.$emit("update:modelValue", false);
     expect(wrapper.emitted("aside-hidden")).toHaveLength(2);
     wrapper.unmount();
@@ -989,7 +994,7 @@ describe("Quasar views and tables", () => {
     const list = externalResource({ rows: [{ id: 2, title: "Route row" }] });
     const collection = { ...list, resource: list.definition };
     const wrapper = mount(UcResourceView, {
-      props: { resource, collection, autoLoad: false, create: false },
+      props: { resource, collection, autoLoad: false },
       global: { stubs: quasarStubs },
     });
 
@@ -1099,7 +1104,6 @@ describe("Quasar views and tables", () => {
         modelValue: 1,
         mode: "split",
         autoLoad: false,
-        create: false,
       },
       global: { stubs: quasarStubs },
     });
@@ -1109,7 +1113,8 @@ describe("Quasar views and tables", () => {
     const header = listPane.find(".uc-resource-view__header");
     expect(header.text()).toContain("Tasks");
     expect(wrapper.find(".uc-view > .uc-view__header").exists()).toBe(false);
-    expect(header.element.parentElement).toBe(listPane.element);
+    expect(listPane.find(".uc-resource-view__list-card").exists()).toBe(true);
+    expect(header.element.parentElement?.parentElement).toBe(listPane.element.firstElementChild);
     expect(aside.element.parentElement).toBe(listPane.element.parentElement);
   });
 
@@ -1118,7 +1123,7 @@ describe("Quasar views and tables", () => {
     let toolProps: Readonly<Record<string, unknown>> | undefined;
     let filterProps: Readonly<Record<string, unknown>> | undefined;
     const wrapper = mount(UcResourceView, {
-      props: { resource, title: "Fallback", autoLoad: false, create: false },
+      props: { resource, title: "Fallback", autoLoad: false },
       slots: {
         caption: () => h("span", "Caption"),
         tools: (props: Readonly<Record<string, unknown>>) => {
@@ -1129,17 +1134,21 @@ describe("Quasar views and tables", () => {
           filterProps = props;
           return h("span", "Filters");
         },
-        "before-list": () => h("span", "Before"),
+        "list-header": () => h("span", "List header"),
         "list-body": () => h("span", "Body"),
-        "after-list": () => h("span", "After"),
+        "list-footer": () => h("span", "List footer"),
       },
       global: { stubs: quasarStubs },
     });
     const content = wrapper.text();
     expect(content.indexOf("Caption")).toBeLessThan(content.indexOf("Tools"));
     expect(content.indexOf("Tools")).toBeLessThan(content.indexOf("Filters"));
-    expect(content.indexOf("Before")).toBeLessThan(content.indexOf("Body"));
-    expect(content.indexOf("Body")).toBeLessThan(content.indexOf("After"));
+    expect(content.indexOf("List header")).toBeLessThan(content.indexOf("Body"));
+    expect(content.indexOf("Body")).toBeLessThan(content.indexOf("List footer"));
+    expect(
+      wrapper.find(".uc-resource-view__list-content-header").attributes("data-q-card-section"),
+    ).toBe("true");
+    expect(wrapper.find(".uc-resource-view__list-content-header").classes()).toContain("q-pt-none");
     expect(content).not.toContain("Fallback");
     expect(toolProps?.resource).toBeDefined();
     expect(toolProps?.rows).toEqual([{ id: 1, title: "One" }]);
@@ -1150,10 +1159,301 @@ describe("Quasar views and tables", () => {
     expect(filterProps?.rows).toEqual([{ id: 1, title: "One" }]);
 
     const fallback = mount(UcResourceView, {
-      props: { resource, title: "Fallback", autoLoad: false, create: false },
+      props: { resource, title: "Fallback", autoLoad: false },
       global: { stubs: quasarStubs },
     });
     expect(fallback.text()).toContain("Fallback");
+  });
+
+  it("aligns a caption with header tools and supplies the default create control there", async () => {
+    const { resource, createForm } = await resourceFixture();
+    const wrapper = mount(UcResourceView, {
+      props: { resource, title: "Tasks", createForm, autoLoad: false },
+      global: {
+        stubs: quasarStubs,
+        config: {
+          globalProperties: {
+            $q: {
+              screen: { lt: { md: false } },
+              iconSet: { fab: { icon: "configured-add", activeIcon: "configured-close" } },
+            },
+          },
+        },
+      } as never,
+    });
+
+    const header = wrapper.find(".uc-resource-view__header-row");
+    expect(wrapper.find(".uc-resource-view__list-card").exists()).toBe(true);
+    expect(header.classes()).toEqual(expect.arrayContaining(["row", "items-center"]));
+    expect(header.find(".uc-resource-view__caption").classes()).toEqual(
+      expect.arrayContaining(["col-md"]),
+    );
+    expect(header.find(".uc-resource-view__caption").classes()).not.toContain("text-center");
+    expect(header.find(".uc-resource-view__tools").classes()).toEqual(
+      expect.arrayContaining(["col-md-auto", "justify-end"]),
+    );
+    expect(header.find(".uc-resource-view__tools").classes()).not.toContain("justify-center");
+    expect(header.find(".uc-resource-view__caption").text()).toContain("Tasks");
+    expect(header.find(".uc-resource-view__tools").text()).toContain("Create");
+
+    const create = header.findAll("button").find((button) => button.text() === "Create");
+    expect(create?.attributes("data-icon")).toBe("configured-add");
+    await create?.trigger("click");
+    await nextTick();
+    expect(wrapper.find(".uc-resource-view__aside-card").exists()).toBe(true);
+    expect(wrapper.find(".uc-resource-view__aside-content").exists()).toBe(true);
+    expect(wrapper.find(".uc-resource-view__aside-card hr").exists()).toBe(true);
+    const close = wrapper.find(".uc-resource-view__aside-cancel");
+    expect(close.attributes("data-icon")).toBe("configured-close");
+    expect(close.attributes("aria-label")).toBe("Close");
+  });
+
+  it("derives create and edit forms from a resource schema when no override is supplied", async () => {
+    const { resource } = await resourceFixture();
+    let createSlotForm: unknown;
+    let detailSlotForm: unknown;
+    const create = mount(UcResourceView, {
+      props: { resource, creating: true, autoLoad: false },
+      slots: {
+        create: ({ form }: { form: unknown }) => {
+          createSlotForm = form;
+          return h("div", "Custom create");
+        },
+      },
+      global: { stubs: quasarStubs },
+    });
+    const detail = mount(UcResourceView, {
+      props: { resource, modelValue: 1, autoLoad: false },
+      slots: {
+        detail: ({ form }: { form: unknown }) => {
+          detailSlotForm = form;
+          return h("div", "Custom detail");
+        },
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    await nextTick();
+    expect((createSlotForm as { readonly schema: { readonly mode: string } }).schema.mode).toBe(
+      "create",
+    );
+    expect((detailSlotForm as { readonly schema: { readonly mode: string } }).schema.mode).toBe(
+      "edit",
+    );
+    expect(create.text()).toContain("Custom create");
+    expect(detail.text()).toContain("Custom detail");
+  });
+
+  it("derives forms through a route-resource without owning duplicate route state", async () => {
+    const { resource } = await resourceFixture();
+    const creating = ref(true);
+    const routeResource = {
+      resource,
+      collection: {
+        resource: resource.definition,
+        get loading() {
+          return resource.loading;
+        },
+        get error() {
+          return resource.error;
+        },
+        get pageInfo() {
+          return resource.pageInfo;
+        },
+        all: () => resource.all(),
+        load: () => resource.load(),
+        refresh: () => resource.refresh(),
+        page: async (index: number, size?: number) => {
+          resource.page(index, size);
+        },
+        sort: async (field?: string, descending?: boolean) => {
+          resource.sort(field as never, descending);
+        },
+        nextPage: async () => {
+          resource.nextPage();
+        },
+        hasMore: () => resource.hasMore(),
+        getSnapshot: () => resource.getSnapshot(),
+        subscribe: (listener: () => void) => resource.subscribe(listener),
+      },
+      activeKey: ref<number>(),
+      activeObject: ref<ReturnType<typeof resource.get>>(),
+      creating,
+      mode: computed<"list" | "create">(() => (creating.value ? "create" : "list")),
+      open: async () => undefined,
+      create: async () => undefined,
+      close: async () => {
+        creating.value = false;
+      },
+    };
+    const wrapper = mount(UcResourceView, {
+      props: { routeResource, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+
+    await nextTick();
+    const form = wrapper.findComponent(UcForm).props("form") as unknown as {
+      readonly schema: { readonly mode: string };
+    };
+    expect(form.schema.mode).toBe("create");
+    expect(wrapper.emitted("update:creating")).toBeUndefined();
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+  });
+
+  it("lets explicit form props replace schema-derived create and edit forms", async () => {
+    const { resource, createForm, editForm } = await resourceFixture();
+    const create = mount(UcResourceView, {
+      props: { resource, creating: true, createForm, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+    const detail = mount(UcResourceView, {
+      props: { resource, modelValue: 1, editForm, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+
+    await nextTick();
+    const createController = create.findComponent(UcForm).props("form") as unknown as {
+      readonly schema: { readonly fields: { readonly shape: Readonly<Record<string, unknown>> } };
+    };
+    const editController = detail.findComponent(UcForm).props("form") as unknown as {
+      readonly schema: { readonly mode: string };
+    };
+    expect(Object.keys(createController.schema.fields.shape)).toEqual(["title"]);
+    expect(editController.schema.mode).toBe("patch");
+  });
+
+  it("treats forms false as an explicit generated-form opt-out without changing access", async () => {
+    const { resource } = await resourceFixture(
+      async () => ({ status: 200, data: [{ id: 1, title: "One", secret: "hidden" }] }),
+      { create: false, edit: false },
+    );
+    let createSlotForm: unknown;
+    const list = mount(UcResourceView, {
+      props: { resource, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+    const create = mount(UcResourceView, {
+      props: { resource, creating: true, autoLoad: false },
+      slots: {
+        create: ({ form }: { form: unknown }) => {
+          createSlotForm = form;
+          return h("div", "Application create surface");
+        },
+      },
+      global: { stubs: quasarStubs },
+    });
+    const detail = mount(UcResourceView, {
+      props: { resource, modelValue: 1, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+
+    await nextTick();
+    expect(list.findAll("button").some((button) => button.text() === "Create")).toBe(false);
+    expect(create.text()).toContain("Application create surface");
+    expect(createSlotForm).toBeUndefined();
+    expect(detail.findComponent(UcForm).exists()).toBe(false);
+    expect(detail.text()).toContain("One");
+  });
+
+  it("treats generated forms as optional and applies capability policy to generated surfaces", async () => {
+    const { resource, createForm, editForm } = await resourceFixture();
+    let detailForm: unknown;
+    let canEdit: boolean | undefined;
+    const wrapper = mount(UcResourceView, {
+      props: {
+        resource,
+        modelValue: 1,
+        autoLoad: false,
+        createForm,
+        editForm,
+        scopes: { create: [] },
+        permit: ({ action }: { action: string }) => action !== "edit",
+      },
+      slots: {
+        detail: ({ form, can }: { form: unknown; can: (action: "edit") => boolean }) => {
+          detailForm = form;
+          canEdit = can("edit");
+          return h("div", "Custom detail");
+        },
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.findAll("button").some((button) => button.text() === "Create")).toBe(false);
+    expect(wrapper.text()).toContain("Custom detail");
+    expect(detailForm).toBeUndefined();
+    expect(canEdit).toBe(false);
+  });
+
+  it("keeps inaccessible rows visible without allowing their detail navigation", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    let canView: boolean | undefined;
+    const wrapper = mount(UcResourceView, {
+      props: {
+        resource,
+        autoLoad: false,
+        permit: ({ action }: { action: string }) => action !== "view",
+      },
+      slots: {
+        list: ({
+          rows,
+          open,
+          can,
+        }: {
+          rows: readonly Readonly<Record<string, unknown>>[];
+          open: (row: Readonly<Record<string, unknown>>) => void;
+          can: (action: "view") => boolean;
+        }) => {
+          const row = rows[0]!;
+          canView = can("view");
+          return h("button", { class: "blocked-row", onClick: () => open(row) }, String(row.title));
+        },
+      },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.text()).toContain("One");
+    expect(canView).toBe(false);
+    await wrapper.find(".blocked-row").trigger("click");
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+  });
+
+  it("replaces unavailable route-backed create state instead of rendering an empty aside", async () => {
+    const resource = externalResource({ rows: [] });
+    const close = vi.fn(async () => undefined);
+    const routeResource = {
+      resource,
+      collection: { ...resource, resource: resource.definition },
+      activeKey: ref<number>(),
+      activeObject: ref<ReturnType<typeof objectController>>(),
+      creating: ref(true),
+      mode: ref<"list" | "detail" | "create">("create"),
+      open: async () => undefined,
+      create: async () => undefined,
+      close,
+    };
+    mount(UcResourceView, {
+      props: { routeResource, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+
+    await flushPromises();
+    expect(close).toHaveBeenCalledWith({ history: "replace" });
+  });
+
+  it("centers caption and tools below the desktop breakpoint", async () => {
+    const { resource, createForm } = await resourceFixture();
+    const wrapper = mount(UcResourceView, {
+      props: { resource, title: "Tasks", createForm, autoLoad: false },
+      global: {
+        stubs: quasarStubs,
+        config: { globalProperties: { $q: { screen: { lt: { md: true } } } } },
+      } as never,
+    });
+
+    const header = wrapper.find(".uc-resource-view__header-row");
+    expect(header.find(".uc-resource-view__caption").classes()).toContain("text-center");
+    expect(header.find(".uc-resource-view__tools").classes()).toContain("justify-center");
   });
 
   it("supports controlled compact list cards and custom table rows", async () => {
@@ -1163,7 +1463,6 @@ describe("Quasar views and tables", () => {
         resource,
         display: "list",
         autoLoad: false,
-        create: false,
         selection: "multiple",
         selectedKeys: [],
       },
@@ -1193,7 +1492,7 @@ describe("Quasar views and tables", () => {
     expect(list.emitted("update:modelValue")?.at(-1)).toEqual([1]);
 
     const table = mount(UcResourceView, {
-      props: { resource, autoLoad: false, create: false },
+      props: { resource, autoLoad: false },
       slots: {
         "row-item": ({ row, open }: { row: Readonly<Record<string, unknown>>; open: () => void }) =>
           h("button", { class: "table-open", onClick: open }, String(row.title)),
@@ -1209,18 +1508,31 @@ describe("Quasar views and tables", () => {
     const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const wrapper = mount(UcResourceView, {
-      props: { resource, autoLoad: false, create: false },
+      props: { resource, autoLoad: false },
       slots: {
         header: () => h("span", "Legacy caption"),
         actions: () => h("span", "Legacy tools"),
         list: () => h("span", "Legacy list"),
-        "before-list": () => h("span", "Ignored before"),
+        "list-header": () => h("span", "Ignored list header"),
       },
       global: { stubs: quasarStubs },
     });
     expect(wrapper.text()).toContain("Legacy list");
-    expect(wrapper.text()).not.toContain("Ignored before");
+    expect(wrapper.text()).not.toContain("Ignored list header");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("deprecated"));
+  });
+
+  it("retains pre-list slot aliases while warning in development", () => {
+    const resource = externalResource({ rows: [] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const wrapper = mount(UcResourceView, {
+      props: { resource, autoLoad: false },
+      slots: { "before-list": () => h("span", "Legacy list header") },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.text()).toContain("Legacy list header");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("#before-list"));
   });
 
   it("accepts explicit selected-key prop and event bindings without a warning", () => {
@@ -1323,14 +1635,14 @@ describe("Quasar views and tables", () => {
   it("renders empty, error, retry, and default detail states", async () => {
     const empty = externalResource({ rows: [] });
     const emptyWrapper = mount(UcResourceView, {
-      props: { resource: empty, autoLoad: false, create: false, emptyLabel: "Nothing here" },
+      props: { resource: empty, autoLoad: false, emptyLabel: "Nothing here" },
       global: { stubs: quasarStubs },
     });
     expect(emptyWrapper.text()).toContain("Nothing here");
 
     const failed = externalResource({ rows: [], error: { message: "Unavailable" } });
     const failedWrapper = mount(UcResourceView, {
-      props: { resource: failed, autoLoad: false, create: false },
+      props: { resource: failed, autoLoad: false },
       global: { stubs: quasarStubs },
     });
     expect(failedWrapper.text()).toContain("Unavailable");
@@ -1347,19 +1659,16 @@ describe("Quasar views and tables", () => {
         resource,
         modelValue: 1,
         autoLoad: false,
-        create: false,
         title: "Tasks",
         asideCaption: "Task workspace",
       },
       global: { stubs: quasarStubs },
     });
     expect(detail.text()).toContain("One");
-    expect(detail.find(".uc-resource-view__aside-header").text()).toContain("Details");
-    expect(detail.find(".uc-resource-view__aside-caption").text()).toBe("Task workspace");
-    await detail
-      .findAll("button")
-      .find((button) => button.text() === "Cancel")
-      ?.trigger("click");
+    expect(detail.find(".uc-resource-view__aside-header").text()).toContain("Task workspace");
+    expect(detail.find(".uc-resource-view__aside-header").text()).not.toContain("Details");
+    expect(detail.find(".uc-resource-view__aside-caption").exists()).toBe(false);
+    await detail.find(".uc-resource-view__aside-cancel").trigger("click");
     expect(detail.emitted("update:modelValue")?.at(-1)).toEqual([undefined]);
   });
 
@@ -1474,7 +1783,7 @@ describe("Quasar views and tables", () => {
       ],
     });
     const wrapper = mount(UcResourceView, {
-      props: { resource, modelValue: 1, autoLoad: false, create: false },
+      props: { resource, modelValue: 1, autoLoad: false },
       global: { stubs: quasarStubs },
     });
 
@@ -1535,7 +1844,7 @@ describe("Quasar views and tables", () => {
   it("reports resource-view autoload and slot refresh failures", async () => {
     const failed = externalResource({ rows: [], failure: new Error("Unavailable") });
     const wrapper = mount(UcResourceView, {
-      props: { resource: failed, create: false },
+      props: { resource: failed },
       slots: {
         list: ({ refresh }: { refresh: () => Promise<void> }) =>
           h("button", { class: "refresh", onClick: refresh }, "Refresh"),
@@ -1557,7 +1866,7 @@ describe("Quasar views and tables", () => {
       const resource = externalResource({ rows: [{ id: 1 }] });
       resource.get = () => objectController(state);
       const wrapper = mount(UcResourceView, {
-        props: { resource, modelValue: 1, autoLoad: false, create: false },
+        props: { resource, modelValue: 1, autoLoad: false },
         global: { stubs: quasarStubs },
       });
       await nextTick();
@@ -1963,6 +2272,7 @@ const quasarStubs = {
   QEditor: controlStub,
   QCheckbox: controlStub,
   QToggle: controlStub,
+  QRadio: controlStub,
   QSelect: controlStub,
   QDate: controlStub,
   QTime: controlStub,
@@ -1985,6 +2295,21 @@ const quasarStubs = {
     },
   }),
   QBtn: buttonStub,
+  QCard: defineComponent({
+    name: "QCardStub",
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("section", { ...attrs, "data-q-card": true }, slots.default?.());
+    },
+  }),
+  QCardSection: defineComponent({
+    name: "QCardSectionStub",
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("div", { ...attrs, "data-q-card-section": true }, slots.default?.());
+    },
+  }),
+  QSeparator: defineComponent({ name: "QSeparatorStub", setup: () => () => h("hr") }),
   QToolbar: defineComponent({
     name: "QToolbarStub",
     setup(_props, { slots }) {
@@ -2048,8 +2373,10 @@ const quasarStubs = {
   }),
   QDialog: defineComponent({
     name: "QDialogStub",
-    setup(_props, { slots }) {
-      return () => h("div", { "data-q-dialog": true }, slots.default?.());
+    props: { position: String },
+    setup(props, { slots }) {
+      return () =>
+        h("div", { "data-q-dialog": true, "data-position": props.position }, slots.default?.());
     },
   }),
   QTable: tableStub,
@@ -2133,6 +2460,7 @@ async function resourceFixture(
     status: 200,
     data: [{ id: 1, title: "One", secret: "hidden" }],
   }),
+  forms?: Readonly<{ readonly create?: false; readonly edit?: false }>,
 ) {
   const cogs = createUiCogs({ context: undefined, transport: { request: responder } });
   const schema = defineSchema({
@@ -2147,6 +2475,7 @@ async function resourceFixture(
     schema,
     key: "id",
     queries: { search: { input: Search, path: "search/" } },
+    ...(forms === undefined ? {} : { forms }),
   });
   const resource = cogs.resource(definition);
   await resource.load();

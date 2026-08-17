@@ -18,6 +18,7 @@ import {
   type UcNotificationActionEvent,
 } from "./notifications.js";
 import { UcAlertHost } from "./alert-host.js";
+import { useUcIcon } from "./icons.js";
 
 type UcAppBrandDestination =
   | Readonly<{ readonly to: RouteLocationRaw; readonly href?: never }>
@@ -72,6 +73,7 @@ export const UcAppLayout = defineComponent({
   ],
   setup(props, { emit, slots }) {
     const cogs = useUiCogs();
+    const icon = useUcIcon();
     const notifications = cogs.notifications ?? {
       status: "disabled" as const,
       unreadCount: 0,
@@ -116,7 +118,7 @@ export const UcAppLayout = defineComponent({
               h(QToolbar, { class: "uc-app-layout__toolbar" }, () => [
                 hasSidebar.value
                   ? h(QBtn, {
-                      icon: "menu",
+                      icon: icon("menu"),
                       "aria-label": "Toggle navigation",
                       class: "uc-app-layout__navigation-toggle",
                       ...props.navigationToggleProps,
@@ -127,7 +129,7 @@ export const UcAppLayout = defineComponent({
                   ? h(
                       "div",
                       { class: "uc-app-layout__brand" },
-                      slots.brand?.() ?? defaultBrand(props.brand),
+                      slots.brand?.() ?? defaultBrand(props.brand, icon),
                     )
                   : undefined,
                 slots["topbar-before"]?.(),
@@ -143,7 +145,7 @@ export const UcAppLayout = defineComponent({
                   ? h(
                       QBtn,
                       {
-                        icon: "notifications",
+                        icon: icon("notifications"),
                         "aria-label": "Show notifications",
                         class: "uc-app-layout__notifications-toggle",
                         ...props.notificationsToggleProps,
@@ -249,12 +251,15 @@ export const UcAppLayout = defineComponent({
   },
 });
 
-function defaultBrand(brand: UcAppBrand | undefined): ReturnType<typeof h> | undefined {
+function defaultBrand(
+  brand: UcAppBrand | undefined,
+  icon: (name: string) => string,
+): ReturnType<typeof h> | undefined {
   if (!brand) return undefined;
   assertDestination(brand);
   return h(QBtn, {
     label: brand.label,
-    ...(brand.icon === undefined ? {} : { icon: brand.icon }),
+    ...(brand.icon === undefined ? {} : { icon: icon(brand.icon) }),
     ...(brand.to === undefined ? {} : { to: brand.to }),
     ...(brand.href === undefined ? {} : { href: brand.href }),
   });

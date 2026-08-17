@@ -17,6 +17,7 @@ import {
   QList,
 } from "quasar";
 import { defineComponent, h, type PropType } from "vue";
+import { useUcIcon } from "./icons.js";
 
 /** Semantic notification level. UiCogs supplies only class hooks; applications choose appearance. */
 export type UcNotificationLevel = "info" | "positive" | "warning" | "negative";
@@ -60,6 +61,7 @@ export const UcNotificationList = defineComponent({
     "notifications-retry",
   ],
   setup(props, { emit, slots }) {
+    const icon = useUcIcon();
     const source = props.source ?? injectedNotifications();
     const items = (): readonly UcNotification[] =>
       props.items ?? (source?.items as readonly UcNotification[] | undefined) ?? [];
@@ -121,7 +123,7 @@ export const UcNotificationList = defineComponent({
               onClick: () => open(notification),
             },
             () => [
-              slots.leading?.({ notification }) ?? leading(notification),
+              slots.leading?.({ notification }) ?? leading(notification, icon),
               h(QItemSection, { class: "uc-notification-list__content" }, () => [
                 h(QItemLabel, { class: "uc-notification-list__title" }, () => notification.title),
                 notification.message
@@ -149,7 +151,7 @@ export const UcNotificationList = defineComponent({
                         return h(QBtn, {
                           key: value.id,
                           label: value.label,
-                          ...(value.icon === undefined ? {} : { icon: value.icon }),
+                          ...(value.icon === undefined ? {} : { icon: icon(value.icon) }),
                           ...destination(value),
                           onClick: (event: MouseEvent) => action(notification, value, event),
                         });
@@ -165,16 +167,20 @@ export const UcNotificationList = defineComponent({
   },
 });
 
-function leading(notification: UcNotification): ReturnType<typeof h> | undefined {
+function leading(
+  notification: UcNotification,
+  icon: (name: string) => string,
+): ReturnType<typeof h> | undefined {
   if (notification.image)
     return h(QItemSection, { avatar: true, class: "uc-notification-list__leading" }, () =>
       h(QAvatar, {}, () =>
         h("img", { src: notification.image!.src, alt: notification.image!.alt }),
       ),
     );
-  if (notification.icon)
+  const iconName = notification.icon;
+  if (iconName)
     return h(QItemSection, { avatar: true, class: "uc-notification-list__leading" }, () =>
-      h(QIcon, { name: notification.icon }),
+      h(QIcon, { name: icon(iconName) }),
     );
   return undefined;
 }

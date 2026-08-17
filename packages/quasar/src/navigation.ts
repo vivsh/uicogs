@@ -1,6 +1,7 @@
 import type { UiCogsNavigationNode } from "@uicogs/vue";
 import { QBadge, QIcon, QItem, QItemLabel, QItemSection, QList } from "quasar";
 import { defineComponent, h, type PropType } from "vue";
+import { useUcIcon } from "./icons.js";
 
 /** A small, accessible indicator rendered beside a generated navigation node. */
 export interface UcNavigationBadge {
@@ -19,9 +20,10 @@ export const UcNavigationTree = defineComponent({
     badges: { type: Object as PropType<UcNavigationBadges>, default: () => ({}) },
   },
   setup(props) {
+    const icon = useUcIcon();
     return () =>
       h(QList, { class: "uc-navigation-tree q-mt-lg" }, () =>
-        renderNodes(props.nodes, props.badges),
+        renderNodes(props.nodes, props.badges, icon),
       );
   },
 });
@@ -29,6 +31,7 @@ export const UcNavigationTree = defineComponent({
 function renderNodes(
   nodes: readonly UiCogsNavigationNode[],
   badges: UcNavigationBadges,
+  icon: (name: string) => string,
 ): readonly ReturnType<typeof h>[] {
   return nodes.map((node) => {
     if (node.kind === "group") {
@@ -51,7 +54,7 @@ function renderNodes(
         ...(node.to === undefined ? {} : { to: node.to }),
       },
       () => [
-        icon(node.icon),
+        renderIcon(node.icon, icon),
         h(QItemSection, {}, () => h(QItemLabel, {}, () => node.label)),
         badge
           ? h(QItemSection, { side: true }, () =>
@@ -65,7 +68,10 @@ function renderNodes(
   });
 }
 
-function icon(value: unknown): ReturnType<typeof h> | undefined {
+function renderIcon(
+  value: unknown,
+  icon: (name: string) => string,
+): ReturnType<typeof h> | undefined {
   if (typeof value !== "string") return undefined;
-  return h(QItemSection, { avatar: true }, () => h(QIcon, { name: value }));
+  return h(QItemSection, { avatar: true }, () => h(QIcon, { name: icon(value) }));
 }

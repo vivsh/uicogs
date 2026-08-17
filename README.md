@@ -317,6 +317,16 @@ styling and notification persistence to the application. Its public drawer-width
 header-control props, and `topbar-actions` slot support compact shells without
 targeting Quasar internals. See [Frameworks](docs/frameworks.md#quasar-application-layout).
 
+Configure semantic icon overrides once in `createUiCogs()` to switch string-based icon packs
+without changing generated controls or presentation declarations:
+
+```ts
+createUiCogs({ icons: { create: "plus", close: "xmark", archive: "box-archive" } });
+```
+
+`archive` is an application-defined presentation name; UiCogs-owned names include `create`,
+`close`, `delete`, `refresh`, `menu`, `notifications`, `date`, and `time`.
+
 Generated Quasar forms can stay stacked while filters use responsive native Quasar
 grid columns. Declare separate field `layout.form` and `layout.filter` metadata,
 configure app-wide defaults through `defineSkin({ layout: ... })`. Set a generated
@@ -327,6 +337,24 @@ the same explicit height, and use
 
 Core schemas also include date/time, date-range, rich-text, and nullable Boolean semantics.
 The Quasar adapter supplies popup temporal pickers and three-state nullable Boolean controls.
+It also exports route-friendly `UcUnauthorizedPage`, `UcForbiddenPage`, `UcNotFoundPage`, and
+`UcServerErrorPage` components; applications add them to normal Vue Router records and own their
+retry and navigation actions.
+
+Enums can stay concise with raw values or carry UI-only presentation and application `meta`:
+
+```ts
+const AccountKind = fields.Enum([
+  {
+    value: "paper",
+    presentation: { label: "Paper account", icon: "science", tone: "info" },
+    meta: { requiresCredential: false },
+  },
+] as const);
+```
+
+Only `value` is parsed and serialized. Generated Quasar selectors, radios, and formatters use
+`presentation`; `meta` remains application-owned.
 
 ## Installation
 

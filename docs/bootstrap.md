@@ -96,6 +96,7 @@ the application needs their capability.
 | Error normalization                    | `errorAdapters: [...]`.                                                                                            |
 | Live cache, inbox, and alerts          | `live: { sources: [sse(...)], adapters: [...] }` from `@uicogs/http`.                                              |
 | Relation key loading                   | `relationDefaults: { byKeys: ... }`.                                                                               |
+| Icon pack mapping                      | `icons: { close: "…", create: "…" }`; semantic UiCogs controls and declared presentation icons resolve through it. |
 | Unauthenticated but partitioned cache  | `cacheScope: () => scope`. Auth strategies own scope when `auth` is configured.                                    |
 
 For example, a browser runtime with persistence and authentication can be assembled
@@ -132,6 +133,34 @@ export const api = createUiCogs({
 Choose `storage.indexedDb` for normal persistent caches. `storage.local` and
 `storage.session` are for small values. Authentication storage is separate from the
 shared persistence backend.
+
+### Semantic Icons
+
+UiCogs keeps a framework-neutral list of semantic icon names: `add`, `back`, `cancel`,
+`clear`, `close`, `collapse`, `create`, `date`, `dateRange`, `delete`, `download`, `edit`,
+`error`, `expand`, `filter`, `info`, `menu`, `next`, `notifications`, `open`, `previous`,
+`refresh`, `remove`, `retry`, `search`, `success`, `time`, `upload`, and `warning`.
+
+Override the names once in the common runtime when using a different icon pack. Additional
+application presentation names are allowed too, so the same map can resolve a resource action,
+enum choice, or notification icon.
+
+```ts
+export const api = createUiCogs({
+  resources: [Tasks],
+  icons: {
+    create: "plus",
+    close: "xmark",
+    dateRange: "calendar-days",
+    archive: "box-archive",
+  },
+});
+```
+
+UiCogs preserves an unknown icon name unchanged. Quasar maps the built-in semantic names to its
+native defaults when not overridden; its regular string-based icon packs therefore need no extra
+adapter configuration. Component-based icon packs require a framework renderer and are not
+implicitly converted into Quasar `QIcon` values.
 
 ## 4. Let Automatic Initialization Run
 

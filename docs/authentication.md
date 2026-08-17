@@ -158,6 +158,11 @@ scopes: ({ user }) => user.roles.flatMap((role) => roleScopes[role] ?? []);
 The Vue and React bindings use that set to hide unavailable links and block client
 navigation. Endpoint authorization must still be enforced by the server.
 
+`UcResourceView` and `useRouteResource()` use the same effective set for their optional
+`view`, `create`, and `edit` capability policies. Those policies govern surfaces inside an
+already-entered page route; unlike route metadata, an omitted capability is unrestricted.
+Use a route record's `meta.uicogs.scopes` to protect page entry itself.
+
 ## JWT Behavior
 
 JWT auth:

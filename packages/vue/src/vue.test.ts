@@ -260,6 +260,24 @@ describe("Vue controller integration", () => {
     expect(model.summary.value.map((issue) => issue.message)).toEqual(["General", "Unknown"]);
   });
 
+  it("derives only fields visible to the current reactive form values", () => {
+    const schema = defineSchema({
+      kind: fields.Enum(["paper", "broker"] as const, { required: true }),
+      secretRef: fields.Str(),
+    });
+    const form = createFormController(
+      schema.toForm({
+        fields: { secretRef: { visible: ({ values }) => values.kind !== "paper" } },
+      }),
+      { kind: "paper", secretRef: "saved-reference" },
+    );
+    const model = useUcFormModel(form);
+
+    expect(model.fields.value.map((field) => field.name)).toEqual(["kind"]);
+    form.set("kind", "broker");
+    expect(model.fields.value.map((field) => field.name)).toEqual(["kind", "secretRef"]);
+  });
+
   it("derives table columns, rows, descriptors, sorting, and hidden fields", async () => {
     const schema = defineSchema({
       id: fields.ID(),

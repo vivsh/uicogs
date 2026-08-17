@@ -29,16 +29,78 @@ Form-only fields do not alter the entity schema.
 Supported modes are:
 
 ```text
-create | replace | patch | query | custom
+create | replace | patch | edit | query | custom
 ```
 
 The form writer returns the exact operation payload. A narrow edit form does not need server-owned required entity fields.
+`edit` is the generated resource-view update mode and has the same changed-field payload
+behavior as `patch`; an object controller still uses its normal update operation. Use `replace`
+only when the server expects a full replacement.
+
+## Resource-view defaults
+
+`UcResourceView` derives create and edit definitions from a resource schema, so a normal
+route-backed page needs no form declarations:
+
+```vue
+<UcResourceView :route-resource="taskPage" />
+```
+
+Provide a form prop to customize a single surface. The explicit definition wins over a resource
+default and schema derivation:
+
+```vue
+<UcResourceView :route-resource="taskPage" :create-form="TaskCreate" :edit-form="TaskEdit" />
+```
+
+For an intentionally read-only or list-only resource, use immutable resource form policy rather
+than treating an omitted prop as authorization:
+
+```ts
+const AuditEvents = resource({
+  name: "audit-events",
+  url: "audit-events/",
+  schema: AuditEvent,
+  key: "id",
+  forms: { create: false, edit: false },
+});
+```
+
+`false` disables only the generated form. Resource-view `scopes` and `permit` decide whether
+the `view`, `create`, or `edit` capability is available; server authorization remains final.
 
 The form definition is the authoritative editable-field and payload boundary. Define a
 different `keep`, `drop`, `extend`, or `toForm()` definition when validation or writing
 changes. `UcForm` may receive an optional read-only view only to choose its generated
 controls; every view field must already exist in the form definition. It cannot add
 fields, change validation, or become form input.
+
+## Conditional Fields
+
+Use the `fields` map on `toForm()` when a field's presence depends on other live form
+values. The rule belongs to the form definition, so it is typed, immutable, reactive in
+generated adapters, and does not affect other forms made from the same schema.
+
+```ts
+const BrokerAccountForm = CreateAccount.toForm({
+  mode: "custom",
+  fields: {
+    secretRef: {
+      visible: ({ values }) => values.kind !== "paper",
+    },
+  },
+});
+```
+
+`UcForm`, `UcFilter`, and explicit `UcField` components all omit a field while its
+`visible` callback returns `false`. The draft value is retained if the user changes the
+controlling value back. Hidden fields are skipped during field validation and omitted
+from UiCogs' generated schema payload; a custom `write` function remains the explicit
+owner of its output shape.
+
+Make a conditionally hidden field optional or nullable in the source schema. A required
+field is still required by the schema parser even when it is not presented. For example,
+the broker credential reference is nullable because paper accounts have no credential.
 
 ## Create A Controller
 
@@ -391,13 +453,45 @@ is the matching presentation-only button for custom links, toggles, and auxiliar
 Enum fields can declare an inline or stacked radio group through their editor descriptor.
 The field remains an ordinary schema enum: the editor changes only presentation.
 
+For generated select, autocomplete, multi-select, radio, and table formatting, declare rich
+choices with a raw `value`, UI-facing `presentation`, and optional application `meta`:
+
 ```ts
 const Publishing = schema({
-  visibility: fields.Enum(["draft", "review", "published"] as const, {
-    editor: editor.RadioGroup({ inline: true }),
-  }),
+  visibility: fields.Enum(
+    [
+      {
+        value: "draft",
+        presentation: { label: "Draft", icon: "edit_note", tone: "info" },
+        meta: { publishable: true },
+      },
+      {
+        value: "published",
+        presentation: {
+          label: "Published",
+          description: "Visible to readers",
+          icon: "public",
+          tone: "positive",
+        },
+        meta: { publishable: false },
+      },
+    ] as const,
+    {
+      editor: editor.RadioGroup({ inline: true }),
+    },
+  ),
 });
 ```
+
+`presentation.label` is required. `description`, semantic `icon`, semantic `tone`, and
+`disabled` are optional. UiCogs parses, validates, queries, and serializes only `value`;
+`presentation` and `meta` never enter form payloads. Raw shorthand remains available when
+labels matching the values are sufficient: `fields.Enum(["draft", "published"] as const)`.
+
+Use `format.Choice({ presentation: "badge" })` or `format.Choices({ presentation: "badge" })`
+when a generated table should render native Quasar chips. The default formatter renders choice
+labels as text. Known Quasar semantic tones are mapped to native colours; unsupported tone names
+remain uncoloured rather than creating a second palette system.
 
 The components do not own validation rules. Every enabled form field participates even when no component is mounted.
 

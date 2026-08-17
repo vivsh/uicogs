@@ -8,7 +8,10 @@ import {
   useRouteForm,
   useRouteResource,
   useRouteState,
+  type ResourcePermitContext,
+  type ResourceScopes,
   type RoutePaginationCodec,
+  type RouteResourceNavigationOptions,
   type UiCogsNavigationGroup,
   type UiCogsRouteMeta,
 } from "@uicogs/vue";
@@ -108,7 +111,19 @@ const page = useRouteResource({
 });
 expectType<Promise<void>>(page.open(2));
 expectType<Promise<void>>(page.close());
+expectType<Promise<void>>(page.close({ history: "replace" }));
 expectAssignable<boolean>(page.creating.value);
+expectAssignable<RouteResourceNavigationOptions>({ history: "push" });
+expectError<RouteResourceNavigationOptions>({ history: "replace-all" });
+expectAssignable<ResourceScopes>({ view: ["tasks.read"], create: [], edit: ["tasks.update"] });
+expectError<ResourceScopes>({ remove: ["tasks.remove"] });
+expectAssignable<ResourcePermitContext<number, Readonly<Record<string, unknown>>>>({
+  action: "view",
+  authenticated: true,
+  scopes: new Set(["tasks.read"]),
+  key: 2,
+  value: { id: 2 },
+});
 expectError(
   useRouteResource({
     route: "tasks",
@@ -130,9 +145,17 @@ const directResourcePage = useRouteResource({
   route: "tasks",
   resource: api.resource(Tasks),
   filters: TaskFilters,
+  scopes: { view: ["tasks.read"], create: ["tasks.create"], edit: ["tasks.update"] },
+  permit: ({ action, key, value }) => {
+    expectType<"view" | "create" | "edit">(action);
+    expectType<number | undefined>(key);
+    expectType<Readonly<{ id: number; title: string }> | undefined>(value);
+    return true;
+  },
 });
 expectType<Promise<void>>(directResourcePage.open(2));
 expectType<"list" | "detail" | "create">(directResourcePage.mode.value);
+expectType<boolean>(directResourcePage.can("view", { key: 2 }));
 type RouteResourceViewController = NonNullable<
   InstanceType<typeof UcResourceView>["$props"]["routeResource"]
 >;

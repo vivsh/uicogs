@@ -91,6 +91,37 @@ describe("Quasar forms and fields", () => {
     expect(wrapper.findAll("input")).toHaveLength(1);
   });
 
+  it("reactively omits conditionally hidden fields from generated and custom form surfaces", async () => {
+    const schema = defineSchema({
+      kind: fields.Enum(["paper", "broker"] as const, { required: true }),
+      secretRef: fields.Str({ label: "Credential reference" }),
+    });
+    const form = createFormController(
+      schema.toForm({
+        fields: { secretRef: { visible: ({ values }) => values.kind !== "paper" } },
+      }),
+      { kind: "paper", secretRef: "saved-reference" },
+    );
+    const generated = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const custom = mount(UcForm, {
+      props: { form },
+      slots: { default: () => [h(UcField, { name: "kind" }), h(UcField, { name: "secretRef" })] },
+      global: { stubs: quasarStubs },
+    });
+    const filter = mount(UcFilter, { props: { form }, global: { stubs: quasarStubs } });
+
+    expect(generated.findAll("input")).toHaveLength(1);
+    expect(custom.findAll("input")).toHaveLength(1);
+    expect(filter.findAll("input")).toHaveLength(1);
+
+    form.set("kind", "broker");
+    await nextTick();
+
+    expect(generated.findAll("input")).toHaveLength(2);
+    expect(custom.findAll("input")).toHaveLength(2);
+    expect(filter.findAll("input")).toHaveLength(2);
+  });
+
   it("configures nullable generated booleans as tri-state controls", () => {
     const schema = defineSchema({
       visible: fields.Bool({ nullable: true, editor: editor.Checkbox() }),
@@ -125,22 +156,68 @@ describe("Quasar forms and fields", () => {
       props: { form },
       global: { stubs: quasarStubs },
     });
-    const group = wrapper
-      .findAllComponents(controlStub)
-      .find((control) => control.props("type") === "radio");
-    if (!group) throw new Error("Expected the generated radio option group");
     const field = wrapper.findComponent({ name: "QFieldStub" });
     expect(field.props("borderless")).toBe(true);
     expect(field.props("stackLabel")).toBe(true);
-    expect(group.props("type")).toBe("radio");
-    expect(group.props("inline")).toBe(true);
-    expect(group.props("options")).toEqual([
-      { label: "draft", value: "draft" },
-      { label: "review", value: "review" },
-      { label: "published", value: "published" },
-    ]);
-    await group.vm.$emit("update:modelValue", "review");
+    expect(wrapper.find(".uc-radio-group").classes()).toContain("row");
+    expect(wrapper.text()).toContain("draft");
+    expect(wrapper.text()).toContain("review");
+    expect(wrapper.text()).toContain("published");
+    form.set("visibility", "review");
     expect(form.values.visibility).toBe("review");
+  });
+
+  it("passes rich choice presentation to generated select and radio controls", async () => {
+    const choices = [
+      {
+        value: "paper",
+        presentation: { label: "Paper account", icon: "science", tone: "info" },
+        meta: { requiresCredential: false },
+      },
+      {
+        value: "live",
+        presentation: {
+          label: "Live account",
+          description: "Places real orders",
+          disabled: true,
+        },
+      },
+    ] as const;
+    const schema = defineSchema({
+      account: fields.Enum(choices),
+      audience: fields.EnumList(choices, { editor: editor.Select({ multiple: true }) }),
+      visibility: fields.Enum(choices, { editor: editor.RadioGroup() }),
+    });
+    const form = createFormController(schema.toForm(), {
+      account: "paper",
+      audience: ["paper"],
+      visibility: "paper",
+    });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const selects = wrapper.findAllComponents({ name: "UcChoiceSelectEditor" });
+
+    expect(selects).toHaveLength(2);
+    expect(selects[0]?.props("options")).toEqual(choices);
+    expect(wrapper.text()).toContain("Paper account");
+    expect(wrapper.text()).toContain("Places real orders");
+
+    form.set("account", "live");
+    expect(form.values.account).toBe("live");
+  });
+
+  it("retains direct UcField select options outside enum catalogues", () => {
+    const form = createFormController(defineSchema({ state: fields.Str() }).toForm(), {
+      state: "open",
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      slots: { default: () => h(UcField, { name: "state", kind: "select", options: ["open"] }) },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.findComponent({ name: "UcChoiceSelectEditor" }).props("options")).toEqual([
+      "open",
+    ]);
   });
 
   it("binds generated popup temporal editors and rich-text field validation", async () => {
@@ -446,6 +523,7 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("List");
     expect(wrapper.text()).toContain("Detail");
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(true);
+    expect(wrapper.find(".uc-view__aside").classes()).toContain("q-pa-md");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await nextTick();
     expect(wrapper.emitted("update:aside")?.[0]).toEqual([false]);
@@ -455,6 +533,10 @@ describe("Quasar views and tables", () => {
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(false);
     await wrapper.setProps({ mode: "dialog" });
     expect(wrapper.find("[data-q-dialog]").exists()).toBe(true);
+    expect(wrapper.find("[data-q-dialog]").attributes("data-position")).toBe("standard");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("bg-white");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("shadow-2");
     wrapper.unmount();
   });
 
@@ -666,14 +748,14 @@ describe("Quasar views and tables", () => {
   it("renders empty, error, retry, and default detail states", async () => {
     const empty = externalResource({ rows: [] });
     const emptyWrapper = mount(UcResourceView, {
-      props: { resource: empty, autoLoad: false, create: false, emptyLabel: "Nothing here" },
+      props: { resource: empty, autoLoad: false, emptyLabel: "Nothing here" },
       global: { stubs: quasarStubs },
     });
     expect(emptyWrapper.text()).toContain("Nothing here");
 
     const failed = externalResource({ rows: [], error: { message: "Unavailable" } });
     const failedWrapper = mount(UcResourceView, {
-      props: { resource: failed, autoLoad: false, create: false },
+      props: { resource: failed, autoLoad: false },
       global: { stubs: quasarStubs },
     });
     expect(failedWrapper.text()).toContain("Unavailable");
@@ -690,19 +772,16 @@ describe("Quasar views and tables", () => {
         resource,
         modelValue: 1,
         autoLoad: false,
-        create: false,
         title: "Tasks",
         asideCaption: "Task workspace",
       },
       global: { stubs: quasarStubs },
     });
     expect(detail.text()).toContain("One");
-    expect(detail.find(".uc-resource-view__aside-header").text()).toContain("Details");
-    expect(detail.find(".uc-resource-view__aside-caption").text()).toBe("Task workspace");
-    await detail
-      .findAll("button")
-      .find((button) => button.text() === "Cancel")
-      ?.trigger("click");
+    expect(detail.find(".uc-resource-view__aside-header").text()).toContain("Task workspace");
+    expect(detail.find(".uc-resource-view__aside-header").text()).not.toContain("Details");
+    expect(detail.find(".uc-resource-view__aside-caption").exists()).toBe(false);
+    await detail.find(".uc-resource-view__aside-cancel").trigger("click");
     expect(detail.emitted("update:modelValue")?.at(-1)).toEqual([undefined]);
   });
 
@@ -987,6 +1066,19 @@ describe("Quasar formatter registry", () => {
     expect(render("reference", 4)).toBe("4");
   });
 
+  it("formats enum values through their presentation catalogue", () => {
+    const choices = [
+      { value: "paper", presentation: { label: "Paper account", tone: "info" } },
+      { value: "live", presentation: { label: "Live account", icon: "account_balance" } },
+    ] as const;
+
+    expect(render("choice", "paper", {}, choices)).toBe("Paper account");
+    expect(render("choices", ["paper", "live"], {}, choices)).toBe("Paper account, Live account");
+    expect(render("choice", "paper", { presentation: "badge" }, choices)).toMatchObject({
+      type: expect.anything(),
+    });
+  });
+
   it("renders semantic image, file, and link nodes", () => {
     expect(render("image", "https://example.test/image.png", { alt: "Preview" })).toMatchObject({
       type: "img",
@@ -1179,6 +1271,14 @@ const tableStub = defineComponent({
   },
 });
 
+const contentStub = defineComponent({
+  name: "ContentStub",
+  inheritAttrs: false,
+  setup(_props, { attrs, slots }) {
+    return () => h("div", attrs, slots.default?.());
+  },
+});
+
 const quasarStubs = {
   QForm: formStub,
   QInput: controlStub,
@@ -1207,6 +1307,10 @@ const quasarStubs = {
   QCheckbox: controlStub,
   QToggle: controlStub,
   QOptionGroup: controlStub,
+  QRadio: controlStub,
+  QItem: contentStub,
+  QItemLabel: contentStub,
+  QItemSection: contentStub,
   QSelect: controlStub,
   QDate: controlStub,
   QTime: controlStub,
@@ -1242,6 +1346,20 @@ const quasarStubs = {
     },
   }),
   QBtn: buttonStub,
+  QCard: defineComponent({
+    name: "QCardStub",
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("section", { ...attrs, "data-q-card": true }, slots.default?.());
+    },
+  }),
+  QCardSection: defineComponent({
+    name: "QCardSectionStub",
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("div", { ...attrs, "data-q-card-section": true }, slots.default?.());
+    },
+  }),
   QToolbar: defineComponent({
     name: "QToolbarStub",
     setup(_props, { slots }) {
@@ -1287,8 +1405,10 @@ const quasarStubs = {
   }),
   QDialog: defineComponent({
     name: "QDialogStub",
-    setup(_props, { slots }) {
-      return () => h("div", { "data-q-dialog": true }, slots.default?.());
+    props: { position: String },
+    setup(props, { slots }) {
+      return () =>
+        h("div", { "data-q-dialog": true, "data-position": props.position }, slots.default?.());
     },
   }),
   QTable: tableStub,
@@ -1419,10 +1539,18 @@ function render(
   kind: string,
   value: unknown,
   options: Readonly<Record<string, unknown>> = {},
+  choices: readonly {
+    readonly value: string | number;
+    readonly presentation: {
+      readonly label: string;
+      readonly tone?: string;
+      readonly icon?: string;
+    };
+  }[] = [],
 ): unknown {
   const formatter = quasarRenderers.formatter({ kind });
   if (typeof formatter !== "function") throw new Error(`Formatter ${kind} is not registered`);
-  return Reflect.apply(formatter, undefined, [value, options, kind, {}]);
+  return Reflect.apply(formatter, undefined, [value, options, kind, {}, choices]);
 }
 
 function dialogChain() {

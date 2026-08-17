@@ -17,11 +17,24 @@ import {
   type ResponsiveFieldLayout,
 } from "@uicogs/core";
 import DOMPurify from "dompurify";
-import { createRendererRegistry, vueReactive } from "@uicogs/vue";
+import {
+  createRendererRegistry,
+  useResourceAccess,
+  vueReactive,
+  type ResourceAccess,
+  type ResourceCapability,
+  type ResourcePermit,
+  type ResourcePermitTarget,
+  type ResourceScopes,
+  type RouteResourceNavigationOptions,
+} from "@uicogs/vue";
 import {
   QBanner,
   QBtn,
+  QCard,
+  QCardSection,
   QCheckbox,
+  QChip,
   QColor,
   QDialog,
   QEditor,
@@ -30,18 +43,19 @@ import {
   QForm,
   QInnerLoading,
   QInput,
+  QIcon,
   QItem,
+  QItemLabel,
+  QItemSection,
   QList,
   QLinearProgress,
-  QOptionGroup,
   QPage,
-  QPageSticky,
   QPullToRefresh,
+  QRadio,
   QSelect,
+  QSeparator,
   QTable,
   QTd,
-  QToolbar,
-  QToolbarTitle,
   QToggle,
   QTr,
   Dialog,
@@ -63,6 +77,7 @@ import {
   ref,
   shallowRef,
   watch,
+  watchEffect,
   type App,
   type InjectionKey,
   type PropType,
@@ -70,6 +85,7 @@ import {
 
 export * from "./app-layout.js";
 export * from "./alert-host.js";
+export * from "./error-pages.js";
 export {
   quasarEditor,
   type QuasarRichTextEditorOptions,
@@ -81,6 +97,7 @@ export * from "./notifications.js";
 
 import { UcDateEditor, UcDateRangeEditor, UcDateTimeEditor, UcTimeEditor } from "./editors.js";
 import { type QuasarRichTextMode, type QuasarRichTextTool } from "./editor-tools.js";
+import { useUcIcon } from "./icons.js";
 
 type UiClass = string | readonly string[];
 type UiStyle = string | Readonly<Record<string, string | number>>;
@@ -221,6 +238,7 @@ interface FormLike extends ExternalStore<object> {
   }[];
   set(name: string, value: unknown): void;
   field(name: string): Readonly<Record<string, unknown>>;
+  visible?(name: string): boolean;
   submit(): Promise<unknown>;
 }
 
@@ -242,9 +260,7 @@ interface FieldLike {
     readonly editor?: Descriptor;
     readonly format?: Descriptor;
     readonly sort?: string | Descriptor;
-    readonly choices?:
-      | readonly Readonly<{ label: string; value: unknown; disabled?: boolean }>[]
-      | (() => readonly Readonly<{ label: string; value: unknown; disabled?: boolean }>[]);
+    readonly choices?: readonly Choice[] | (() => readonly Choice[]);
     readonly multiple?: boolean;
     readonly readonly?: boolean;
     readonly nullable?: boolean;
@@ -277,7 +293,12 @@ interface ResourceLike extends ExternalStore<object> {
     readonly key: unknown;
     readonly schema: {
       readonly shape: Readonly<Record<string, unknown>>;
+      toForm?(options?: Readonly<{ readonly mode?: "create" | "edit" }>): unknown;
     };
+    readonly forms?: Readonly<{
+      readonly create?: false | unknown;
+      readonly edit?: false | unknown;
+    }>;
   };
   readonly loading: boolean;
   readonly error?: { readonly message?: string };
@@ -466,7 +487,133 @@ const UcRichTextEditor = defineComponent({
   },
 });
 
-/** Wraps Quasar's radio option group in the generated field label and validation surface. */
+const quasarChoiceTones = new Set([
+  "primary",
+  "secondary",
+  "accent",
+  "positive",
+  "negative",
+  "info",
+  "warning",
+  "dark",
+]);
+
+function choiceTone(choice: Choice): string | undefined {
+  const tone = choice.presentation.tone;
+  return tone && quasarChoiceTones.has(tone) ? tone : undefined;
+}
+
+function isChoiceOption(value: unknown): value is Choice {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "presentation" in value &&
+    typeof value.presentation === "object" &&
+    value.presentation !== null &&
+    "label" in value.presentation
+  );
+}
+
+function choiceOptionLabel(value: unknown): string {
+  if (isChoiceOption(value)) return value.presentation.label;
+  if (typeof value === "object" && value !== null && "label" in value)
+    return String(value.label ?? "");
+  return String(value ?? "");
+}
+
+function choiceOptionDisable(value: unknown): boolean {
+  if (isChoiceOption(value)) return value.presentation.disabled === true;
+  return (
+    typeof value === "object" && value !== null && "disabled" in value && value.disabled === true
+  );
+}
+
+function choiceOptionContent(
+  choice: Choice,
+  icon: (name: string) => string,
+  includeLabel = true,
+): ReturnType<typeof h>[] {
+  const presentation = choice.presentation;
+  const iconName = presentation.icon;
+  return [
+    ...(iconName
+      ? [
+          h(QItemSection, { avatar: true }, () =>
+            h(QIcon, { name: icon(iconName), color: choiceTone(choice) }),
+          ),
+        ]
+      : []),
+    ...(includeLabel || presentation.description
+      ? [
+          h(QItemSection, {}, () => [
+            ...(includeLabel ? [h(QItemLabel, {}, () => presentation.label)] : []),
+            ...(presentation.description
+              ? [h(QItemLabel, { caption: true }, () => presentation.description)]
+              : []),
+          ]),
+        ]
+      : []),
+  ];
+}
+
+/** Renders UiCogs choice catalogues through Quasar's native select and autocomplete controls. */
+const UcChoiceSelectEditor = defineComponent({
+  name: "UcChoiceSelectEditor",
+  inheritAttrs: false,
+  props: { options: { type: Array as PropType<readonly unknown[]>, default: () => [] } },
+  setup(props, { attrs }) {
+    const icon = useUcIcon();
+    return () =>
+      h(
+        QSelect,
+        {
+          ...attrs,
+          options: props.options,
+          emitValue: true,
+          mapOptions: true,
+          optionLabel: choiceOptionLabel,
+          optionValue: "value",
+          optionDisable: choiceOptionDisable,
+        },
+        {
+          option: (scope: {
+            readonly opt: unknown;
+            readonly itemProps: Readonly<Record<string, unknown>>;
+          }) => {
+            const choice = scope.opt;
+            return isChoiceOption(choice)
+              ? h(QItem, scope.itemProps, () => choiceOptionContent(choice, icon))
+              : h(QItem, scope.itemProps, () => choiceOptionLabel(choice));
+          },
+          "selected-item": (scope: {
+            readonly opt: unknown;
+            readonly index: number;
+            readonly removeAtIndex?: (index: number) => void;
+          }) => {
+            const choice = scope.opt;
+            if (!isChoiceOption(choice)) return choiceOptionLabel(choice);
+            return h(
+              QChip,
+              {
+                ...(choiceTone(choice) ? { color: choiceTone(choice) } : {}),
+                ...(scope.removeAtIndex
+                  ? { removable: true, onRemove: () => scope.removeAtIndex?.(scope.index) }
+                  : {}),
+              },
+              () => [
+                ...(choice.presentation.icon
+                  ? [h(QIcon, { name: icon(choice.presentation.icon) })]
+                  : []),
+                choice.presentation.label,
+              ],
+            );
+          },
+        },
+      );
+  },
+});
+
+/** Wraps rich radio choices in the generated field label and validation surface. */
 const UcRadioGroupEditor = defineComponent({
   name: "UcRadioGroupEditor",
   inheritAttrs: false,
@@ -485,6 +632,7 @@ const UcRadioGroupEditor = defineComponent({
   },
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
+    const icon = useUcIcon();
     return () => {
       const { class: className, ...receivedAttrs } = attrs;
       const fieldAttrs = withoutFieldAppearance(receivedAttrs);
@@ -503,16 +651,36 @@ const UcRadioGroupEditor = defineComponent({
         },
         {
           control: () =>
-            h(QOptionGroup, {
-              modelValue: props.modelValue,
-              options: props.options,
-              type: "radio",
-              inline: props.inline,
-              color: props.color,
-              dense: props.dense,
-              disable: props.disable || props.readonly,
-              "onUpdate:modelValue": (value: string | number) => emit("update:modelValue", value),
-            }),
+            h(
+              "div",
+              { class: ["uc-radio-group", props.inline ? "row" : undefined] },
+              props.options.map((choice) =>
+                h(
+                  QItem,
+                  {
+                    key: String(choice.value),
+                    dense: props.dense,
+                    disable: props.disable || props.readonly || choice.presentation.disabled,
+                    tag: "label",
+                  },
+                  () => [
+                    h(QItemSection, { side: true }, () =>
+                      h(QRadio, {
+                        modelValue: props.modelValue,
+                        val: choice.value,
+                        label: choice.presentation.label,
+                        "aria-label": choice.presentation.label,
+                        color: props.color ?? choiceTone(choice),
+                        disable: props.disable || props.readonly || choice.presentation.disabled,
+                        "onUpdate:modelValue": (value: string | number) =>
+                          emit("update:modelValue", value),
+                      }),
+                    ),
+                    ...choiceOptionContent(choice, icon, false),
+                  ],
+                ),
+              ),
+            ),
         },
       );
     };
@@ -530,8 +698,8 @@ quasarRenderers
   .registerEditor("checkbox", QCheckbox)
   .registerEditor("switch", QToggle)
   .registerEditor("radio-group", UcRadioGroupEditor)
-  .registerEditor("select", QSelect)
-  .registerEditor("autocomplete", QSelect)
+  .registerEditor("select", UcChoiceSelectEditor)
+  .registerEditor("autocomplete", UcChoiceSelectEditor)
   .registerEditor("date", UcDateEditor)
   .registerEditor("time", UcTimeEditor)
   .registerEditor("datetime", UcDateTimeEditor)
@@ -546,7 +714,7 @@ quasarRenderers
   .registerFormatter("text", formatText)
   .registerFormatter("boolean", formatBoolean)
   .registerFormatter("number", formatNumber)
-  .registerFormatter("choice", formatText)
+  .registerFormatter("choice", formatChoice)
   .registerFormatter("choices", formatChoices)
   .registerFormatter("date", formatDate)
   .registerFormatter("time", formatDate)
@@ -604,7 +772,9 @@ export const UcForm = defineComponent({
     return () => {
       const summary = [...form.unboundIssues, ...form.issues.filter((issue) => !issue.path.length)];
       const fields = slots.default?.() ?? [
-        ...Object.keys(formView(form, props.view)).map((name) => h(UcField, { key: name, name })),
+        ...Object.keys(formView(form, props.view))
+          .filter((name) => fieldVisible(form, name))
+          .map((name) => h(UcField, { key: name, name })),
       ];
       const actionContext = Object.freeze({
         form,
@@ -695,6 +865,7 @@ export const UcField = defineComponent({
     return () => {
       const field = form.schema.fields.shape[props.name];
       if (!field) throw new Error(`Field ${props.name} is not present in the form schema`);
+      if (!fieldVisible(form, props.name)) return undefined;
       const descriptor = props.kind ? ({ kind: props.kind } as Descriptor) : field.options?.editor;
       const kind = descriptor?.kind ?? "text";
       const descriptorOptions = optionsFor(descriptor);
@@ -889,6 +1060,7 @@ export const UcButton = defineComponent({
   },
   setup(props, { attrs, slots }) {
     const currentControlMetrics = inject(controlMetricsKey, undefined);
+    const icon = useUcIcon();
     return () => {
       const { class: className, style, ...buttonAttrs } = attrs;
       const controlMetrics = currentControlMetrics?.();
@@ -897,6 +1069,8 @@ export const UcButton = defineComponent({
         {
           ...buttonAttrs,
           ...props,
+          ...(props.icon === undefined ? {} : { icon: icon(props.icon) }),
+          ...(props.iconRight === undefined ? {} : { iconRight: icon(props.iconRight) }),
           ...(props.size === undefined && controlMetrics
             ? { size: controlMetrics.buttonSize }
             : {}),
@@ -963,13 +1137,16 @@ export const UcFilter = defineComponent({
   },
   emits: ["failure", "load-failure", "update:expanded"],
   setup(props, { slots, emit }) {
+    const form = vueReactive(props.form);
     const applicationSkin = inject(skinKey, undefined);
     const localExpanded = ref(props.defaultExpanded);
     const expanded = computed(() => props.expanded ?? localExpanded.value);
     const layout = computed(() =>
       resolveSurfaceLayout(defaultFilterLayout, applicationSkin?.layout?.filter, props.layout),
     );
-    const entries = computed(() => Object.entries(props.form.schema.fields.shape));
+    const entries = computed(() =>
+      Object.entries(form.schema.fields.shape).filter(([name]) => fieldVisible(form, name)),
+    );
     const collapsible = computed(() =>
       entries.value.filter(
         ([, field]) => field.options?.layout?.filter?.placement === "collapsible",
@@ -996,9 +1173,9 @@ export const UcFilter = defineComponent({
     };
     const actionContext = () =>
       Object.freeze({
-        form: props.form,
-        submitting: props.form.submitting,
-        validating: props.form.validating,
+        form,
+        submitting: form.submitting,
+        validating: form.validating,
         expanded: expanded.value,
         hasCollapsible: collapsible.value.length > 0,
         toggleExpanded,
@@ -1048,7 +1225,7 @@ export const UcFilter = defineComponent({
       h(
         UcForm,
         {
-          form: props.form,
+          form,
           surface: "filter",
           layout: props.layout,
           dense: props.dense,
@@ -1114,7 +1291,11 @@ export const UcView = defineComponent({
         ? h(
             "aside",
             {
-              class: ["uc-view__aside", props.padding && "q-pa-md", dialog && "bg-white shadow-2"],
+              class: [
+                "uc-view__aside",
+                dialog && "uc-view__dialog",
+                props.padding && !dialog && "q-pa-md",
+              ],
               style: dialog
                 ? {
                     width: `min(${props.asideWidth}, calc(100vw - 32px))`,
@@ -1149,9 +1330,10 @@ export const UcView = defineComponent({
               QDialog,
               {
                 modelValue: hasAside,
+                position: "standard",
                 "onUpdate:modelValue": (open: boolean) => !open && close(),
               },
-              () => h("div", { class: "uc-view__dialog" }, [aside]),
+              () => aside,
             )
           : undefined,
         h(QInnerLoading, { showing: props.loading }),
@@ -1384,9 +1566,14 @@ export interface UcRouteResource {
   readonly activeObject: Readonly<{ readonly value: ResourceObjectLike | undefined }>;
   readonly creating: Readonly<{ readonly value: boolean }>;
   readonly mode: Readonly<{ readonly value: "list" | "detail" | "create" }>;
-  open(key: EntityKey | undefined): Promise<void>;
-  create(): Promise<void>;
-  close(): Promise<void>;
+  readonly access?: ResourceAccess<EntityKey, Readonly<Record<string, unknown>>>;
+  can?(
+    action: ResourceCapability,
+    target?: ResourcePermitTarget<EntityKey, Readonly<Record<string, unknown>>>,
+  ): boolean;
+  open(key: EntityKey | undefined, options?: RouteResourceNavigationOptions): Promise<void>;
+  create(options?: RouteResourceNavigationOptions): Promise<void>;
+  close(options?: RouteResourceNavigationOptions): Promise<void>;
 }
 
 /** Bindings provided to an application-owned `aside-header` slot. */
@@ -1429,7 +1616,6 @@ export const UcResourceView = defineComponent({
     columns: Array as PropType<readonly UcResourceColumn[]>,
     display: { type: String as PropType<"table" | "list">, default: "table" },
     autoLoad: { type: Boolean, default: true },
-    create: { type: Boolean, default: true },
     asideWidth: { type: String, default: "32rem" },
     asideCaption: String,
     mode: {
@@ -1439,6 +1625,8 @@ export const UcResourceView = defineComponent({
     emptyLabel: { type: String, default: "No records" },
     createForm: Object,
     editForm: Object,
+    scopes: Object as PropType<ResourceScopes>,
+    permit: Function as PropType<ResourcePermit<EntityKey, Readonly<Record<string, unknown>>>>,
     objectActions: {
       type: [Boolean, Array] as PropType<boolean | readonly string[]>,
       default: true,
@@ -1462,12 +1650,15 @@ export const UcResourceView = defineComponent({
   setup(props, { slots, emit }) {
     useControlledSelectionWarning(() => props.selection);
     warnLegacyResourceViewSlots(slots);
+    const quasar = getCurrentInstance()?.proxy?.$q;
+    const icon = useUcIcon();
+    const compactHeader = computed(() => Boolean(quasar?.screen.lt.md));
     const routeResource = props.routeResource;
     if (!routeResource && !props.resource)
       throw new Error("UcResourceView requires either resource or route-resource");
-    if (routeResource && (props.resource || props.collection))
+    if (routeResource && (props.resource || props.collection || props.scopes || props.permit))
       throw new Error(
-        "UcResourceView route-resource already owns resource and collection; do not provide them separately",
+        "UcResourceView route-resource already owns resource and collection, including its access policy; do not provide them separately",
       );
     const vnodeProps = getCurrentInstance()?.vnode.props;
     if (
@@ -1483,6 +1674,12 @@ export const UcResourceView = defineComponent({
       );
     const resource = vueReactive(routeResource?.resource ?? props.resource!);
     const listCollection = vueReactive(routeResource?.collection ?? props.collection ?? resource);
+    const access =
+      routeResource?.access ??
+      useResourceAccess<EntityKey, Readonly<Record<string, unknown>>>({
+        ...(props.scopes === undefined ? {} : { scopes: props.scopes }),
+        ...(props.permit === undefined ? {} : { permit: props.permit }),
+      });
     const listDefinition = routeResource
       ? routeResource.collection.resource
       : props.collection
@@ -1499,6 +1696,36 @@ export const UcResourceView = defineComponent({
     const creating = computed(() =>
       routeResource ? routeResource.creating.value : (props.creating ?? localCreating.value),
     );
+    const accessTarget = (object: ResourceObjectLike | undefined) =>
+      object
+        ? {
+            key: object.key,
+            ...(object.value === undefined ? {} : { value: object.value }),
+          }
+        : undefined;
+    const can = (
+      action: ResourceCapability,
+      target?: ResourcePermitTarget<EntityKey, Readonly<Record<string, unknown>>>,
+    ): boolean => routeResource?.can?.(action, target) ?? access.can(action, target);
+    const derivedForms = new Map<"create" | "edit", unknown>();
+    const attemptedDerivedForms = new Set<"create" | "edit">();
+    const deriveForm = (kind: "create" | "edit"): unknown => {
+      if (attemptedDerivedForms.has(kind)) return derivedForms.get(kind);
+      attemptedDerivedForms.add(kind);
+      const form = resource.definition.schema.toForm?.({ mode: kind });
+      if (form !== undefined) derivedForms.set(kind, form);
+      return form;
+    };
+    const resolvedForm = (kind: "create" | "edit", explicit: unknown): unknown => {
+      if (explicit !== undefined) return explicit;
+      const configured = resource.definition.forms?.[kind];
+      return configured === false ? undefined : (configured ?? deriveForm(kind));
+    };
+    const resolvedCreateForm = computed(() => resolvedForm("create", props.createForm));
+    const resolvedEditForm = computed(() => resolvedForm("edit", props.editForm));
+    const hasCreateSurface = (): boolean =>
+      Boolean(slots.create || (resolvedCreateForm.value && resource.form));
+    const canCreate = (): boolean => hasCreateSurface() && can("create");
     const rows = computed(() => listCollection.all().map(entityRecord));
     const columns = computed(() => props.columns ?? columnsFor(listDefinition));
     const selectedRows = computed(() => {
@@ -1524,10 +1751,13 @@ export const UcResourceView = defineComponent({
       emit("update:creating", next);
     };
     const activateCreate = (): void => {
+      if (!canCreate()) return;
       explicitActive.value = undefined;
       editController.value = undefined;
       createController.value =
-        props.createForm && resource.form ? resource.form(props.createForm) : undefined;
+        resolvedCreateForm.value && resource.form
+          ? vueReactive(resource.form(resolvedCreateForm.value))
+          : undefined;
       emit("view", "create");
     };
     const bind = (key: EntityKey | undefined): void => {
@@ -1540,13 +1770,26 @@ export const UcResourceView = defineComponent({
       }
       setCreating(false);
       createController.value = undefined;
+      if (key !== undefined && !can("view", { key })) {
+        explicitActive.value = undefined;
+        editController.value = undefined;
+        emit("view", "list");
+        return;
+      }
       explicitActive.value =
         key === undefined ? undefined : vueReactive(resourceObject(resource, key));
       editController.value =
-        props.editForm && explicitActive.value?.form
-          ? explicitActive.value.form(props.editForm)
+        resolvedEditForm.value &&
+        explicitActive.value?.form &&
+        can("edit", accessTarget(explicitActive.value))
+          ? vueReactive(explicitActive.value.form(resolvedEditForm.value))
           : undefined;
-      if (props.autoLoad && explicitActive.value && !explicitActive.value.value)
+      if (
+        props.autoLoad &&
+        explicitActive.value &&
+        !explicitActive.value.value &&
+        can("view", accessTarget(explicitActive.value))
+      )
         void run(() => explicitActive.value!.load());
       emit("view", key === undefined ? "list" : "detail");
     };
@@ -1564,6 +1807,7 @@ export const UcResourceView = defineComponent({
     };
     const open = (row: Readonly<Record<string, unknown>>): void => {
       const key = keyFor(resource.definition, row);
+      if (!can("view", { key, value: row })) return;
       emit("select", row);
       if (routeResource) {
         void routeResource.open(key);
@@ -1584,8 +1828,9 @@ export const UcResourceView = defineComponent({
       emit("update:selectedKeys", Object.freeze([...selected]));
     };
     const startCreate = (): void => {
+      if (!can("create")) return;
       emit("create");
-      if (!slots.create && (!props.createForm || !resource.form)) return;
+      if (!hasCreateSurface()) return;
       if (routeResource) {
         void routeResource.create();
         return;
@@ -1603,37 +1848,69 @@ export const UcResourceView = defineComponent({
     };
 
     if (!routeResource) watch(() => props.modelValue, bind, { immediate: true });
-    watch(
-      [() => (routeResource ? routeResource.mode.value : undefined), active],
-      ([mode]) => {
-        if (!routeResource || mode === undefined) return;
-        if (mode === "create") {
+    const recoveredRoute = shallowRef<string>();
+    const recoverRoute = (signature: string): void => {
+      if (!routeResource || recoveredRoute.value === signature) return;
+      recoveredRoute.value = signature;
+      void routeResource.close({ history: "replace" });
+    };
+    watchEffect(() => {
+      const mode = routeResource?.mode.value;
+      if (!routeResource || mode === undefined) return;
+      if (mode === "list") {
+        recoveredRoute.value = undefined;
+        return;
+      }
+      if (mode === "create") {
+        if (!canCreate()) {
+          recoverRoute("create");
+          return;
+        }
+        activateCreate();
+        return;
+      }
+      createController.value = undefined;
+      if (mode === "detail" && !can("view", accessTarget(active.value))) {
+        recoverRoute(`detail:${String(active.value?.key ?? "")}`);
+        return;
+      }
+      editController.value =
+        mode === "detail" &&
+        resolvedEditForm.value &&
+        active.value?.form &&
+        can("edit", accessTarget(active.value))
+          ? vueReactive(active.value.form(resolvedEditForm.value))
+          : undefined;
+      emit("view", mode);
+    });
+    if (!routeResource)
+      watchEffect(() => {
+        const next = creating.value;
+        if (next) {
+          if (!canCreate()) {
+            close();
+            return;
+          }
           activateCreate();
           return;
         }
+        if (explicitActive.value || props.modelValue !== undefined) return;
         createController.value = undefined;
-        editController.value =
-          mode === "detail" && props.editForm && active.value?.form
-            ? active.value.form(props.editForm)
-            : undefined;
-        emit("view", mode);
-      },
-      { immediate: true },
-    );
+        emit("view", "list");
+      });
     if (!routeResource)
-      watch(
-        creating,
-        (next) => {
-          if (next) {
-            activateCreate();
-            return;
-          }
-          if (explicitActive.value || props.modelValue !== undefined) return;
-          createController.value = undefined;
-          emit("view", "list");
-        },
-        { immediate: true },
-      );
+      watchEffect(() => {
+        const object = active.value;
+        if (!object) return;
+        if (!can("view", accessTarget(object))) {
+          close();
+          return;
+        }
+        editController.value =
+          resolvedEditForm.value && object.form && can("edit", accessTarget(object))
+            ? vueReactive(object.form(resolvedEditForm.value))
+            : undefined;
+      });
     onMounted(() => {
       if (props.autoLoad && !rows.value.length) void run(() => listCollection.load());
     });
@@ -1643,6 +1920,7 @@ export const UcResourceView = defineComponent({
         resource,
         collection: listCollection,
         rows: rows.value,
+        can,
         open,
         create: startCreate,
         refresh: () => run(() => listCollection.refresh()),
@@ -1672,17 +1950,21 @@ export const UcResourceView = defineComponent({
           rows.value.map((row) => {
             const key = keyFor(listDefinition, row);
             const selected = props.selectedKeys.includes(key);
+            const canView = can("view", { key, value: row });
             const item = slots["card-item"]?.({
               row,
               key,
               selected,
+              can,
               open: () => open(row),
               toggleSelected: () => toggleSelected(key),
             });
             return (
               item ??
-              h(QItem, { key, clickable: true, active: selected, onClick: () => open(row) }, () =>
-                listLabel(row, key),
+              h(
+                QItem,
+                { key, clickable: canView, active: selected, onClick: () => open(row) },
+                () => listLabel(row, key),
               )
             );
           }),
@@ -1708,6 +1990,7 @@ export const UcResourceView = defineComponent({
                 key,
                 columns: columns.value,
                 selected: item.selected,
+                can,
                 open: () => open(item.row),
                 toggleSelected: () => toggleSelected(key),
               });
@@ -1780,49 +2063,132 @@ export const UcResourceView = defineComponent({
       });
     };
 
-    const defaultAsideHeader = (context: UcResourceViewAsideHeaderContext) =>
-      h(QToolbar, { class: "uc-resource-view__aside-header" }, () => [
-        h(QToolbarTitle, { class: "uc-resource-view__aside-heading" }, () => [
-          h("div", { class: "text-subtitle1" }, context.mode === "create" ? "Create" : "Details"),
-          h("div", { class: "uc-resource-view__aside-caption text-caption" }, context.caption),
-        ]),
-        h(UcCancel, {
-          class: "uc-resource-view__aside-cancel",
-          action: context.close,
-        }),
-      ]);
+    const defaultAsideHeader = (context: UcResourceViewAsideHeaderContext) => {
+      const hasCustomCaption = props.asideCaption !== undefined;
+      const heading = hasCustomCaption
+        ? context.caption
+        : context.mode === "create"
+          ? "Create"
+          : "Details";
+
+      return h(
+        QCardSection,
+        { class: "uc-resource-view__aside-header row items-center no-wrap" },
+        () => [
+          h("div", { class: "uc-resource-view__aside-heading col" }, [
+            h("div", { class: "text-subtitle1" }, heading),
+            ...(hasCustomCaption
+              ? []
+              : [
+                  h(
+                    "div",
+                    { class: "uc-resource-view__aside-caption text-caption" },
+                    context.caption,
+                  ),
+                ]),
+          ]),
+          h(UcButton, {
+            class: "uc-resource-view__aside-cancel",
+            flat: true,
+            round: true,
+            dense: true,
+            icon: icon("close", quasar?.iconSet?.fab?.activeIcon),
+            "aria-label": "Close",
+            onClick: context.close,
+          }),
+        ],
+      );
+    };
 
     return () => {
       const aside = creating.value || Boolean(active.value);
-      const list = slots.list?.(listSlotProps()) ?? [
-        slots["before-list"]?.(listSlotProps()),
-        slots["list-body"]?.(listSlotProps()) ?? defaultListBody(),
-        slots["after-list"]?.(listSlotProps()),
-      ];
       const hasListHeader =
         props.title ||
         slots.caption ||
         slots.tools ||
         slots.filters ||
         slots.header ||
-        slots.actions;
+        slots.actions ||
+        canCreate();
+      const listToolContext = () =>
+        Object.freeze({
+          resource,
+          rows: rows.value,
+          selectedKeys: props.selectedKeys,
+          selectedRows: selectedRows.value,
+          can,
+          create: startCreate,
+          refresh: () => run(() => listCollection.refresh()),
+        });
+      const defaultListTools = () =>
+        canCreate()
+          ? h(UcButton, {
+              label: "Create",
+              icon: icon("create", quasar?.iconSet?.fab?.icon),
+              color: "primary",
+              onClick: startCreate,
+            })
+          : undefined;
+      const listTools = () =>
+        slots.tools?.(listSlotProps()) ?? slots.actions?.(listToolContext()) ?? defaultListTools();
+      const listCaption = () =>
+        slots.caption?.({ resource, rows: rows.value }) ??
+        slots.header?.({ resource, rows: rows.value }) ??
+        (props.title ? h("div", { class: "text-h5" }, props.title) : undefined);
+      const headerCaption = listCaption();
+      const headerTools = listTools();
       const listHeader = hasListHeader
         ? h("header", { class: "uc-resource-view__header" }, [
-            slots.caption?.({ resource, rows: rows.value }) ??
-              slots.header?.({ resource, rows: rows.value }) ??
-              (props.title ? h("div", { class: "text-h5" }, props.title) : undefined),
-            slots.tools?.(listSlotProps()) ??
-              slots.actions?.({
-                resource,
-                rows: rows.value,
-                selectedKeys: props.selectedKeys,
-                selectedRows: selectedRows.value,
-                create: startCreate,
-                refresh: () => run(() => listCollection.refresh()),
-              }),
+            headerCaption || headerTools
+              ? h(
+                  "div",
+                  { class: "uc-resource-view__header-row row items-center q-col-gutter-sm" },
+                  [
+                    h(
+                      "div",
+                      {
+                        class: mergeClasses(
+                          "uc-resource-view__caption col-12 col-md",
+                          compactHeader.value ? "text-center" : undefined,
+                        ),
+                      },
+                      headerCaption,
+                    ),
+                    h(
+                      "div",
+                      {
+                        class: mergeClasses(
+                          "uc-resource-view__tools col-12 col-md-auto row q-gutter-sm",
+                          compactHeader.value ? "justify-center" : "justify-end",
+                        ),
+                      },
+                      headerTools,
+                    ),
+                  ],
+                )
+              : undefined,
             slots.filters?.({ resource, rows: rows.value }),
           ])
         : undefined;
+      const listHeaderSlot = slots["list-header"] ?? slots["before-list"];
+      const listFooterSlot = slots["list-footer"] ?? slots["after-list"];
+      const listHeaderContent = listHeaderSlot?.(listSlotProps());
+      const list = slots.list?.(listSlotProps()) ?? [
+        listHeaderContent
+          ? h(
+              QCardSection,
+              {
+                class: mergeClasses(
+                  "uc-resource-view__list-content-header",
+                  listHeader ? "q-pt-none" : undefined,
+                ),
+              },
+              () => listHeaderContent,
+            )
+          : undefined,
+        slots["list-body"]?.(listSlotProps()) ?? defaultListBody(),
+        listFooterSlot?.(listSlotProps()),
+      ];
       const actions = active.value ? resolvedObjectActions() : [];
       const detailActionSlot = active.value
         ? slots["detail-actions"]?.({
@@ -1830,6 +2196,7 @@ export const UcResourceView = defineComponent({
             object: active.value,
             value: active.value.value,
             actions,
+            can,
             close,
             refresh: () => run(() => active.value!.refresh()),
           })
@@ -1840,6 +2207,8 @@ export const UcResourceView = defineComponent({
       const detail = creating.value
         ? (slots.create?.({
             resource,
+            form: createController.value,
+            can,
             close,
             refresh: () => run(() => listCollection.refresh()),
           }) ??
@@ -1858,6 +2227,8 @@ export const UcResourceView = defineComponent({
                 resource,
                 object: active.value,
                 value: active.value.value,
+                form: editController.value,
+                can,
                 close,
                 refresh: () => run(() => active.value!.refresh()),
               }) ??
@@ -1878,6 +2249,24 @@ export const UcResourceView = defineComponent({
         const context = asideHeaderContext();
         return slots["aside-header"]?.(context) ?? defaultAsideHeader(context);
       })();
+      const listSurface = slots.list
+        ? [listHeader, list]
+        : h(QCard, { class: "uc-resource-view__list-card" }, () => [
+            listHeader
+              ? h(QCardSection, { class: "uc-resource-view__list-header" }, () => listHeader)
+              : undefined,
+            list,
+          ]);
+      const generatedAside = creating.value
+        ? !slots.create
+        : Boolean(active.value) && !slots.detail;
+      const asideSurface = generatedAside
+        ? h(QCard, { class: "uc-resource-view__aside-card" }, () => [
+            asideHeader,
+            h(QSeparator),
+            h(QCardSection, { class: "uc-resource-view__aside-content" }, () => detail),
+          ])
+        : [asideHeader, detail];
       return h(
         UcView,
         {
@@ -1889,21 +2278,8 @@ export const UcResourceView = defineComponent({
           "onUpdate:aside": (open: boolean) => !open && close(),
         },
         {
-          default: () => [
-            listHeader,
-            list,
-            props.create
-              ? h(QPageSticky, { position: "bottom-right", offset: [18, 18] }, () =>
-                  h(UcButton, {
-                    fab: true,
-                    icon: "add",
-                    color: "primary",
-                    onClick: startCreate,
-                  }),
-                )
-              : undefined,
-          ],
-          aside: () => [asideHeader, detail],
+          default: () => listSurface,
+          aside: () => asideSurface,
         },
       );
     };
@@ -2232,10 +2608,12 @@ function listLabel(row: Readonly<Record<string, unknown>>, key: EntityKey): stri
 
 function warnLegacyResourceViewSlots(slots: Readonly<Record<string, unknown>>): void {
   if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
-  const legacy = ["header", "actions", "list"].filter((name) => typeof slots[name] === "function");
+  const legacy = ["header", "actions", "list", "before-list", "after-list"].filter(
+    (name) => typeof slots[name] === "function",
+  );
   if (!legacy.length) return;
   console.warn(
-    `UcResourceView slots ${legacy.map((name) => `#${name}`).join(", ")} are deprecated; use #caption, #tools, and #list-body instead.`,
+    `UcResourceView slots ${legacy.map((name) => `#${name}`).join(", ")} are deprecated; use #caption, #tools, #list-header, #list-body, and #list-footer instead.`,
   );
 }
 
@@ -2521,6 +2899,10 @@ function formView(form: FormLike, view?: ViewLike): Readonly<Record<string, unkn
   return view.shape;
 }
 
+function fieldVisible(form: FormLike, name: string): boolean {
+  return form.visible?.(name) ?? true;
+}
+
 function columnsFor(definition: ResourceLike["definition"]): readonly UcResourceColumn[] {
   return Object.entries(definition.schema.shape).flatMap(([name, field]) => {
     const options = fieldOptions(field);
@@ -2796,7 +3178,7 @@ function richTextMinHeight(rows: number | undefined): string | undefined {
     : `calc(${rows} * 1.5em)`;
 }
 
-function fieldChoices(field: FieldLike): readonly unknown[] | undefined {
+function fieldChoices(field: FieldLike): readonly Choice[] | undefined {
   const choices = field.options?.choices;
   if (!choices) return undefined;
   return typeof choices === "function" ? choices() : choices;
@@ -2868,13 +3250,20 @@ function renderField(
   value: unknown,
   row: Readonly<Record<string, unknown>>,
 ): RenderedField {
-  const field = definition.schema.shape[name];
+  const field = definition.schema.shape[name] as FieldLike | undefined;
+  if (!field) return String(value ?? "");
   const descriptor = fieldOptions(field)?.format as Descriptor | undefined;
   if (!descriptor) return String(value ?? "");
   const options = optionsFor(descriptor);
   const formatter = quasarRenderers.formatter(descriptor);
   if (typeof formatter === "function")
-    return (formatter as FormatterRenderer)(value, options, name, row) as RenderedField;
+    return (formatter as FormatterRenderer)(
+      value,
+      options,
+      name,
+      row,
+      fieldChoices(field),
+    ) as RenderedField;
   const column = columnsFor(definition).find((candidate) => candidate.name === name);
   return column?.format?.(value, row) ?? String(value ?? "");
 }
@@ -2886,6 +3275,7 @@ type FormatterRenderer = (
   options: Readonly<Record<string, unknown>>,
   name: string,
   row: Readonly<Record<string, unknown>>,
+  choices?: readonly Choice[],
 ) => unknown;
 
 function formatText(value: unknown): string {
@@ -2902,10 +3292,46 @@ function formatNumber(value: unknown, options: Readonly<Record<string, unknown>>
     : String(value ?? "");
 }
 
-function formatChoices(value: unknown, options: Readonly<Record<string, unknown>>): string {
-  return Array.isArray(value)
-    ? value.map(String).join(String(options.separator ?? ", "))
-    : String(value ?? "");
+function formatChoice(
+  value: unknown,
+  options: Readonly<Record<string, unknown>>,
+  ...context: readonly unknown[]
+): RenderedField {
+  const choices = formatterChoices(context);
+  const choice = choices.find((candidate) => candidate.value === value);
+  if (!choice) return formatText(value);
+  if (options.presentation !== "badge") return choice.presentation.label;
+  return h(
+    QChip,
+    {
+      class: "uc-choice",
+      ...(choiceTone(choice) ? { color: choiceTone(choice) } : {}),
+      ...(choice.presentation.icon ? { icon: choice.presentation.icon } : {}),
+    },
+    () => choice.presentation.label,
+  );
+}
+
+function formatChoices(
+  value: unknown,
+  options: Readonly<Record<string, unknown>>,
+  ...context: readonly unknown[]
+): RenderedField {
+  if (!Array.isArray(value)) return formatText(value);
+  const separator = String(options.separator ?? ", ");
+  if (options.presentation !== "badge")
+    return value
+      .map((item) => formatChoice(item, options, ...context))
+      .map((item) => (typeof item === "string" ? item : String(item ?? "")))
+      .join(separator);
+  return h("span", { class: "uc-choices" }, () =>
+    value.map((item) => formatChoice(item, options, ...context)),
+  );
+}
+
+function formatterChoices(context: readonly unknown[]): readonly Choice[] {
+  const choices = context[2];
+  return Array.isArray(choices) && choices.every(isChoiceOption) ? choices : [];
 }
 
 function formatDate(value: unknown, options: Readonly<Record<string, unknown>>): string {

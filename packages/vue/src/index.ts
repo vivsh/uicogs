@@ -104,6 +104,7 @@ interface VueRuntimeSource extends Record<never, never> {
   readonly notifications: NotificationController;
   readonly alerts: AlertController;
   readonly auth?: RuntimeAuthController;
+  icon?(name: string): string;
   bindControllerAdapter(adapter: ControllerAdapter): void;
 }
 
@@ -383,15 +384,18 @@ export function useUcFormModel<
 >(controller: TController) {
   const form = vueReactive(controller);
   const fields = computed<readonly UcFieldModel[]>(() =>
-    Object.entries(form.schema.fields.shape).map(([name, field]) => {
+    Object.entries(form.schema.fields.shape).flatMap(([name, field]) => {
+      if (!form.visible(name as never)) return [];
       const options = presentationOptions(field);
-      return Object.freeze({
-        name,
-        ...(options?.editor ? { descriptor: options.editor as Descriptor } : {}),
-        label: typeof options?.label === "string" ? options.label : labelFor(name),
-        ...(typeof options?.help === "string" ? { help: options.help } : {}),
-        state: computed(() => form.field(name as never) as Readonly<Record<string, unknown>>),
-      });
+      return [
+        Object.freeze({
+          name,
+          ...(options?.editor ? { descriptor: options.editor as Descriptor } : {}),
+          label: typeof options?.label === "string" ? options.label : labelFor(name),
+          ...(typeof options?.help === "string" ? { help: options.help } : {}),
+          state: computed(() => form.field(name as never) as Readonly<Record<string, unknown>>),
+        }),
+      ];
     }),
   );
   const summary = computed(() => [

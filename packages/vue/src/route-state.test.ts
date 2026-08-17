@@ -1,4 +1,11 @@
-import { Store, fields, schema } from "@uicogs/core";
+import {
+  Store,
+  createUiCogs,
+  fields,
+  schema,
+  type TransportRequest,
+  type TransportResponse,
+} from "@uicogs/core";
 import { createApp, defineComponent, effectScope, nextTick } from "vue";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { describe, expect, it, vi } from "vitest";
@@ -7,6 +14,7 @@ import {
   useRouteForm,
   useRouteResource,
   useRouteState,
+  withVue,
   type RouteCollectionSource,
 } from "./index.js";
 
@@ -17,7 +25,7 @@ const TaskFilters = schema({
 const TaskParams = schema({ id: fields.ID() });
 const Task = schema({ id: fields.ID(), title: fields.Str({ required: true }) });
 
-function routeHarness() {
+function routeHarness(options: { readonly authenticated?: boolean } = {}) {
   const app = createApp(defineComponent({ setup: () => () => null }));
   const router = createRouter({
     history: createMemoryHistory(),
@@ -26,11 +34,61 @@ function routeHarness() {
         name: "tasks",
         path: "/tasks/:id?",
         component: defineComponent({ setup: () => () => null }),
+        ...(options.authenticated ? { meta: { uicogs: { scopes: [] } } } : {}),
       },
     ],
   });
   app.use(router);
   return { app, router };
+}
+
+function authHarness() {
+  const store = new Store({
+    status: "anonymous",
+    scopes: new Set<string>(),
+    sessionGeneration: 0,
+  });
+  const controller = {
+    get value() {
+      return store.getSnapshot();
+    },
+    get status() {
+      return store.getSnapshot().status;
+    },
+    get scopes() {
+      return store.getSnapshot().scopes;
+    },
+    get sessionGeneration() {
+      return store.getSnapshot().sessionGeneration;
+    },
+    getSnapshot: () => store.getSnapshot(),
+    subscribe: (listener: () => void) => store.subscribe(listener),
+    middleware: () => ({
+      request: async (
+        request: TransportRequest,
+        next: (value: TransportRequest) => Promise<TransportResponse<unknown>>,
+      ) => next(request),
+    }),
+    attach: () => undefined,
+    initialize: async () => undefined,
+    cacheScope: () => "anonymous",
+    subscribeLogout: () => () => undefined,
+    dispose: () => undefined,
+    authenticate: (scopes: readonly string[]) =>
+      store.setSnapshot({
+        status: "authenticated",
+        scopes: new Set(scopes),
+        sessionGeneration: store.getSnapshot().sessionGeneration + 1,
+      }),
+  };
+  return {
+    controller,
+    strategy: {
+      kind: "uicogs-auth-strategy" as const,
+      operations: [],
+      create: () => controller,
+    },
+  };
 }
 
 async function settle(): Promise<void> {
@@ -293,6 +351,144 @@ describe("Vue route state", () => {
     await page?.close();
     expect(router.currentRoute.value.name).toBe("tasks");
     expect(router.currentRoute.value.params).toEqual({});
+    scope.stop();
+  });
+
+  it("replaces a denied detail location without loading its active resource", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "7" }, query: { state: "open" } });
+    const source = new TestCollection();
+    const load = vi.fn(async () => undefined);
+    const resource = Object.assign(source, {
+      definition: { name: "tasks", key: "id", schema: Task },
+      get: (key: number) => ({ key, loading: false, value: undefined, load }),
+    });
+    const permits: Array<readonly [string, number | undefined]> = [];
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+          permit: ({ action, key }) => {
+            permits.push([action, key]);
+            return action !== "view";
+          },
+        }),
+      ),
+    );
+
+    await settle();
+    expect(page?.can("view", { key: 7 })).toBe(false);
+    expect(permits).toContainEqual(["view", 7]);
+    expect(load).not.toHaveBeenCalled();
+    expect(router.currentRoute.value.params).toEqual({});
+    expect(router.currentRoute.value.query).toEqual({ state: "open" });
+    scope.stop();
+  });
+
+  it("replaces a denied create location while retaining route query state", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "new" }, query: { state: "open" } });
+    const source = new TestCollection();
+    const resource = Object.assign(source, {
+      definition: { name: "tasks", key: "id", schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+          scopes: { create: [] },
+        }),
+      ),
+    );
+
+    await settle();
+    expect(page?.can("create")).toBe(false);
+    expect(router.currentRoute.value.params).toEqual({});
+    expect(router.currentRoute.value.query).toEqual({ state: "open" });
+    scope.stop();
+  });
+
+  it("reacts to authenticated scope changes before permitting route-resource creation", async () => {
+    const { app, router } = routeHarness({ authenticated: true });
+    const auth = authHarness();
+    const binding = await withVue(createUiCogs({ auth: auth.strategy }));
+    app.use(binding.uiCogs);
+    const source = new TestCollection();
+    const resource = Object.assign(source, {
+      definition: { name: "tasks", key: "id", schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+          scopes: { create: ["tasks.create"] },
+        }),
+      ),
+    );
+
+    expect(page?.can("create")).toBe(false);
+    auth.controller.authenticate(["tasks.create"]);
+    await settle();
+    expect(page?.can("create")).toBe(true);
+    expect(page?.access.state.value.authenticated).toBe(true);
+    await page?.create();
+    expect(router.currentRoute.value.params).toEqual({ id: "new" });
+    scope.stop();
+  });
+
+  it("fails closed and reports once when a permit callback throws", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "9" } });
+    const source = new TestCollection();
+    const resource = Object.assign(source, {
+      definition: { name: "tasks", key: "id", schema: Task },
+      get: (key: number) => ({
+        key,
+        loading: false,
+        value: undefined,
+        load: async () => undefined,
+      }),
+    });
+    const report = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const scope = effectScope();
+    app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+          permit: () => {
+            throw new Error("Unexpected policy failure");
+          },
+        }),
+      ),
+    );
+
+    await settle();
+    expect(router.currentRoute.value.params).toEqual({});
+    expect(report).toHaveBeenCalledOnce();
+    report.mockRestore();
     scope.stop();
   });
 

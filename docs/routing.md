@@ -154,6 +154,12 @@ const page = useRouteResource({
   route: "tasks",
   resource: tasks,
   filters: TaskFilters,
+  scopes: {
+    view: ["tasks.read"],
+    create: ["tasks.create"],
+    edit: ["tasks.update"],
+  },
+  permit: ({ action, value }) => action !== "edit" || value?.locked !== true,
 });
 ```
 
@@ -166,12 +172,15 @@ successful form navigation to that controller. Page code does not bind the route
 detail key or creation state:
 
 ```vue
-<UcResourceView
-  :route-resource="page"
-  :columns="taskColumns"
-  :create-form="TaskCreate"
-  :edit-form="TaskEdit"
-/>
+<UcResourceView :route-resource="page" :columns="taskColumns" />
+```
+
+`UcResourceView` derives immutable create and edit form definitions from the resource schema
+by default. Supply `create-form` or `edit-form` only when a page needs a narrower schema,
+different write behavior, or form-specific presentation:
+
+```vue
+<UcResourceView :route-resource="page" :create-form="TaskCreate" :edit-form="TaskEdit" />
 ```
 
 `/tasks` is the list, `/tasks/42` is detail key `42`, and `/tasks/new` is creation.
@@ -181,6 +190,22 @@ keys need no route configuration.
 Back/forward, pasted URLs, and refresh restore list, detail, or creation state without
 feedback loops. The route-resource controller remains the one source of truth; do not
 also pass `resource`, `collection`, `v-model`, or `v-model:creating` to that view.
+
+`meta.uicogs.scopes` remains responsible for entering the page route. Route-resource
+`scopes` and `permit` govern the resource surfaces inside it: `view` controls row/detail
+navigation, `create` controls creation, and `edit` controls the generated edit form.
+Omit a capability to leave it unrestricted; `[]` requires any authenticated user; a
+non-empty list requires every scope. `permit` is a synchronous, additional restriction
+which receives the capability, current auth state/scopes, and optional key/value. It can
+close over the application's typed `useUiCogs()` runtime when it needs additional state.
+Form configuration never grants or removes those capabilities. Set a resource form policy to
+`false` only when a generated form is intentionally unavailable; access checks still decide
+whether a route can open or recover.
+
+Denied direct `/:id` and `/new` locations are replaced with the list location while
+preserving the query state. `useRouteResource()` also exposes `can()` for a custom page,
+and accepts `{ history: "replace" }` on `open()`, `create()`, or `close()` when application
+code performs an internal canonicalization rather than a user navigation.
 
 For a non-routed page, keep the explicit controller contract instead:
 

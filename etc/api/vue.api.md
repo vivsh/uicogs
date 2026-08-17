@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `5c1eafd10f19ff6db1e38657e8abe88ed921473386d4aebce742564779739cd5`
+Declaration SHA-256: `674c5807a5fee672d746bfc0cb91d3989daa1d78d0ebf2cedaea3bd4c825d639`
 
 ```ts
 // index.d.ts
@@ -176,6 +176,43 @@ interface RouteKeyOptions<TKey extends EntityKey> {
     readonly parseKey?: (value: string) => TKey;
     readonly formatKey?: (key: TKey) => string;
 }
+/** A resource-view capability which can be guarded by scopes or application policy. */
+type ResourceCapability = "view" | "create" | "edit";
+/** Required scopes for each resource-view capability. */
+type ResourceScopes = Readonly<Partial<Record<ResourceCapability, readonly string[]>>>;
+/** A current resource target supplied to an access rule. */
+interface ResourcePermitTarget<TKey extends EntityKey, TValue extends Readonly<Record<string, unknown>>> {
+    readonly key?: TKey;
+    readonly value?: TValue;
+}
+/** Immutable input supplied to an application-owned resource access rule. */
+interface ResourcePermitContext<TKey extends EntityKey, TValue extends Readonly<Record<string, unknown>>> extends ResourcePermitTarget<TKey, TValue> {
+    readonly action: ResourceCapability;
+    readonly authenticated: boolean;
+    readonly scopes: ReadonlySet<string>;
+}
+/** A synchronous application-owned rule which may further restrict a resource capability. */
+type ResourcePermit<TKey extends EntityKey, TValue extends Readonly<Record<string, unknown>>> = (context: ResourcePermitContext<TKey, TValue>) => boolean;
+/** Declarative and callback-based policy for resource-view capabilities. */
+interface ResourceAccessOptions<TKey extends EntityKey, TValue extends Readonly<Record<string, unknown>>> {
+    readonly scopes?: ResourceScopes;
+    readonly permit?: ResourcePermit<TKey, TValue>;
+}
+/** Reactive, shared evaluator for resource-view capability policy. */
+interface ResourceAccess<TKey extends EntityKey, TValue extends Readonly<Record<string, unknown>>> {
+    readonly state: ComputedRef<Readonly<{
+        readonly authenticated: boolean;
+        readonly scopes: ReadonlySet<string>;
+    }>>;
+    can(action: ResourceCapability, target?: ResourcePermitTarget<TKey, TValue>): boolean;
+}
+/**
+ * Resolves capability access from the installed UiCogs auth controller and an optional policy.
+ *
+ * An absent policy permits access. Scope-protected capabilities fail closed when no UiCogs
+ * runtime is installed, while callback errors are contained and deny access.
+ */
+declare function useResourceAccess<TKey extends EntityKey = EntityKey, TValue extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(options?: ResourceAccessOptions<TKey, TValue>): ResourceAccess<TKey, TValue>;
 /** A resource page composed from route state, route filters, a route list, and active detail state. */
 interface RouteResourceSource extends RouteCollectionSource {
     readonly definition: RouteCollectionMetadata;
@@ -188,6 +225,13 @@ interface RouteResourceSource extends RouteCollectionSource {
 type RouteResourceKey<TResource> = TResource extends {
     get(key: infer TKey): unknown;
 } ? Extract<TKey, EntityKey> : EntityKey;
+type RouteResourceValue<TResource extends RouteResourceSource> = ReturnType<TResource["get"]> extends {
+    readonly value?: infer TValue;
+} ? TValue extends Readonly<Record<string, unknown>> ? TValue : Readonly<Record<string, unknown>> : Readonly<Record<string, unknown>>;
+/** Controls whether one route-resource navigation creates or replaces browser history. */
+interface RouteResourceNavigationOptions {
+    readonly history?: "push" | "replace";
+}
 /** The route-owned surface currently selected by a resource page. */
 type RouteResourceMode = "list" | "detail" | "create";
 /**
@@ -206,9 +250,11 @@ interface RouteResource<TResource extends RouteResourceSource, TFilters extends 
     readonly activeObject: ComputedRef<ReturnType<TResource["get"]> | undefined>;
     readonly creating: WritableComputedRef<boolean>;
     readonly mode: ComputedRef<RouteResourceMode>;
-    open(key: RouteResourceKey<TResource> | undefined): Promise<void>;
-    create(): Promise<void>;
-    close(): Promise<void>;
+    readonly access: ResourceAccess<RouteResourceKey<TResource>, RouteResourceValue<TResource>>;
+    can(action: ResourceCapability, target?: ResourcePermitTarget<RouteResourceKey<TResource>, RouteResourceValue<TResource>>): boolean;
+    open(key: RouteResourceKey<TResource> | undefined, options?: RouteResourceNavigationOptions): Promise<void>;
+    create(options?: RouteResourceNavigationOptions): Promise<void>;
+    close(options?: RouteResourceNavigationOptions): Promise<void>;
 }
 declare function useRouteResource<TResource extends RouteResourceSource, TFilters extends Shape, TFilterContext = unknown>(options: {
     readonly route: string;
@@ -218,6 +264,8 @@ declare function useRouteResource<TResource extends RouteResourceSource, TFilter
     readonly pagination?: RoutePaginationCodec;
     /** Observes a failed URL-driven list load after the resource has updated its error state. */
     readonly onCollectionFailure?: (failure: unknown) => void;
+    readonly scopes?: ResourceScopes;
+    readonly permit?: ResourcePermit<RouteResourceKey<TResource>, RouteResourceValue<TResource>>;
 }): RouteResource<TResource, TFilters, TFilterContext>;
 
 declare function vueReactive<T extends ExternalStore<object>>(controller: T): T;
@@ -247,6 +295,7 @@ interface VueRuntimeSource extends Record<never, never> {
     readonly notifications: NotificationController;
     readonly alerts: AlertController;
     readonly auth?: RuntimeAuthController;
+    icon?(name: string): string;
     bindControllerAdapter(adapter: ControllerAdapter): void;
 }
 type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<T, "context" | "live" | "auth" | "notifications" | "alerts"> & {
@@ -356,5 +405,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type RendererRegistry, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResource, type RouteResourceMode, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueRouteIntegration, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
+export { type RendererRegistry, type ResourceAccess, type ResourceAccessOptions, type ResourceCapability, type ResourcePermit, type ResourcePermitContext, type ResourcePermitTarget, type ResourceScopes, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResource, type RouteResourceMode, type RouteResourceNavigationOptions, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueRouteIntegration, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useResourceAccess, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
 ```

@@ -21,7 +21,7 @@ import {
   ref,
   type PropType,
 } from "vue";
-import { UcFilter, UcForm, UcTable } from "./index.js";
+import { UcErrorPage, UcFilter, UcForm, UcTable } from "./index.js";
 import { quasarEditor } from "./editor-tools.js";
 import { UcNotificationList } from "./notifications.js";
 import { UcStylebookCharts } from "./stylebook-charts.js";
@@ -29,17 +29,44 @@ import type { UcStylebookEntry } from "./stylebook.js";
 
 const filterSchema = schema({
   title: fields.Str({ required: true, label: "Title" }),
-  status: fields.Enum(["open", "review", "done"] as const, { label: "Status" }),
+  status: fields.Enum(
+    [
+      { value: "open", presentation: { label: "Open", icon: "schedule", tone: "info" } },
+      {
+        value: "review",
+        presentation: { label: "Needs review", icon: "rate_review", tone: "warning" },
+      },
+      { value: "done", presentation: { label: "Done", icon: "done", tone: "positive" } },
+    ] as const,
+    { label: "Status" },
+  ),
   owner: fields.Str({ label: "Owner", layout: { filter: { placement: "collapsible" } } }),
 });
 
 const formSchema = schema({
   title: fields.Str({ required: true, label: "Title" }),
-  status: fields.Enum(["open", "review", "done"] as const, { label: "Status" }),
-  audience: fields.EnumList(["internal", "partners", "public"] as const, {
-    label: "Audience",
-    editor: editor.Select({ multiple: true, clearable: true }),
-  }),
+  status: fields.Enum(
+    [
+      { value: "open", presentation: { label: "Open", icon: "schedule", tone: "info" } },
+      {
+        value: "review",
+        presentation: { label: "Needs review", icon: "rate_review", tone: "warning" },
+      },
+      { value: "done", presentation: { label: "Done", icon: "done", tone: "positive" } },
+    ] as const,
+    { label: "Status" },
+  ),
+  audience: fields.EnumList(
+    [
+      { value: "internal", presentation: { label: "Internal", icon: "group" } },
+      { value: "partners", presentation: { label: "Partners", icon: "handshake" } },
+      { value: "public", presentation: { label: "Public", icon: "public" } },
+    ] as const,
+    {
+      label: "Audience",
+      editor: editor.Select({ multiple: true, clearable: true }),
+    },
+  ),
   visibility: fields.Enum(["draft", "review", "published"] as const, {
     label: "Visibility",
     editor: editor.RadioGroup({ inline: true }),
@@ -61,6 +88,7 @@ const overviewIndex = Object.freeze([
   { id: "buttons", label: "Buttons" },
   { id: "cards", label: "Cards and lists" },
   { id: "feedback", label: "Feedback" },
+  { id: "error-pages", label: "Error pages" },
   { id: "forms", label: "Forms" },
   { id: "filters", label: "Filters" },
   { id: "table", label: "Table" },
@@ -239,6 +267,15 @@ const UcStylebookOverview = defineComponent({
             { class: "uc-stylebook__banner" },
             () => "Validation and network feedback are application-owned.",
           ),
+        ]),
+        h("section", { id: "error-pages", class: "uc-stylebook__section" }, [
+          h("h2", { class: "uc-stylebook__section-title" }, "Error pages"),
+          h(
+            "p",
+            { class: "uc-stylebook__section-description" },
+            "Route-friendly defaults use ordinary Quasar primitives and application-owned actions.",
+          ),
+          h(UcErrorPage, { status: 404 }),
         ]),
         h("section", { id: "forms", class: "uc-stylebook__section" }, [
           h("h2", { class: "uc-stylebook__section-title" }, "Form"),

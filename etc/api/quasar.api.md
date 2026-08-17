@@ -1,14 +1,14 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `ee39ab0181b35f7b4d08c3ee96dd6ba4ea0fc12ca809117ff733f911ccc078cd`
+Declaration SHA-256: `4e483f2416cef55e956596d64d6297328e451cafd897829234c97a916f9d3bd3`
 
 ```ts
 // index.d.ts
 import * as vue from 'vue';
 import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
-import { UiCogsNavigationNode } from '@uicogs/vue';
-import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
+import { UiCogsNavigationNode, ResourceAccess, ResourceCapability, ResourcePermitTarget, RouteResourceNavigationOptions, ResourceScopes, ResourcePermit } from '@uicogs/vue';
+import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Choice, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
 import { QEditor, QDialogOptions, QNotifyCreateOptions, QBtnProps } from 'quasar';
 import { RouteLocationRaw } from 'vue-router';
 
@@ -225,6 +225,149 @@ declare const UcAlertHost: vue.DefineComponent<vue.ExtractPropTypes<{
     source: PropType<AlertController>;
 }>> & Readonly<{}>, {}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
+/** Controlled props shared by UiCogs' route-friendly Quasar error pages. */
+interface UcErrorPageProps {
+    /** HTTP-like status used to select the default copy. */
+    readonly status: number;
+    /** Application override for the default page heading. */
+    readonly title?: string;
+    /** Application override for the default explanatory text. */
+    readonly message?: string;
+    /** Shows the built-in retry control when no actions slot replaces it. */
+    readonly retryable?: boolean;
+    /** Disables the built-in retry control while the application retries. */
+    readonly retrying?: boolean;
+    /** Application override for the built-in retry label. */
+    readonly retryLabel?: string;
+}
+/** Slot bindings for application-owned error page actions. */
+interface UcErrorPageActions {
+    readonly retry: () => void;
+    readonly retrying: boolean;
+}
+/** Renders a safe, unstyled default page for a client-visible request failure. */
+declare const UcErrorPage: vue.DefineComponent<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+    status: {
+        type: NumberConstructor;
+        required: boolean;
+    };
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, "retry"[], "retry", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+    status: {
+        type: NumberConstructor;
+        required: boolean;
+    };
+}>> & Readonly<{
+    onRetry?: ((...args: any[]) => any) | undefined;
+}>, {
+    retryable: boolean;
+    retrying: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** Renders the standard UiCogs 401 page. */
+declare const UcUnauthorizedPage: vue.DefineComponent<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, "retry"[], "retry", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>> & Readonly<{
+    onRetry?: ((...args: any[]) => any) | undefined;
+}>, {
+    retryable: boolean;
+    retrying: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** Renders the standard UiCogs 403 page. */
+declare const UcForbiddenPage: vue.DefineComponent<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, "retry"[], "retry", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>> & Readonly<{
+    onRetry?: ((...args: any[]) => any) | undefined;
+}>, {
+    retryable: boolean;
+    retrying: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** Renders the standard UiCogs 404 page. */
+declare const UcNotFoundPage: vue.DefineComponent<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, "retry"[], "retry", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>> & Readonly<{
+    onRetry?: ((...args: any[]) => any) | undefined;
+}>, {
+    retryable: boolean;
+    retrying: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+/** Renders the standard UiCogs 5xx page. Applications may override its status. */
+declare const UcServerErrorPage: vue.DefineComponent<vue.ExtractPropTypes<{
+    status: {
+        type: NumberConstructor;
+        default: number;
+    };
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
+    [key: string]: any;
+}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, "retry"[], "retry", vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+    status: {
+        type: NumberConstructor;
+        default: number;
+    };
+    title: StringConstructor;
+    message: StringConstructor;
+    retryable: BooleanConstructor;
+    retrying: BooleanConstructor;
+    retryLabel: StringConstructor;
+}>> & Readonly<{
+    onRetry?: ((...args: any[]) => any) | undefined;
+}>, {
+    status: number;
+    retryable: boolean;
+    retrying: boolean;
+}, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
+
 /** The supported presentation modes for generated HTML rich-text fields. */
 type QuasarRichTextMode = "edit" | "source" | "preview";
 /** One application-owned command rendered while a Quasar rich-text editor is editable. */
@@ -354,6 +497,7 @@ interface FormLike extends ExternalStore<object> {
     }[];
     set(name: string, value: unknown): void;
     field(name: string): Readonly<Record<string, unknown>>;
+    visible?(name: string): boolean;
     submit(): Promise<unknown>;
 }
 /** Immutable field projection used only to choose automatically rendered controls or columns. */
@@ -372,15 +516,7 @@ interface FieldLike {
         readonly editor?: Descriptor;
         readonly format?: Descriptor;
         readonly sort?: string | Descriptor;
-        readonly choices?: readonly Readonly<{
-            label: string;
-            value: unknown;
-            disabled?: boolean;
-        }>[] | (() => readonly Readonly<{
-            label: string;
-            value: unknown;
-            disabled?: boolean;
-        }>[]);
+        readonly choices?: readonly Choice[] | (() => readonly Choice[]);
         readonly multiple?: boolean;
         readonly readonly?: boolean;
         readonly nullable?: boolean;
@@ -411,7 +547,14 @@ interface ResourceLike extends ExternalStore<object> {
         readonly key: unknown;
         readonly schema: {
             readonly shape: Readonly<Record<string, unknown>>;
+            toForm?(options?: Readonly<{
+                readonly mode?: "create" | "edit";
+            }>): unknown;
         };
+        readonly forms?: Readonly<{
+            readonly create?: false | unknown;
+            readonly edit?: false | unknown;
+        }>;
     };
     readonly loading: boolean;
     readonly error?: {
@@ -539,7 +682,7 @@ declare const UcField: vue.DefineComponent<vue.ExtractPropTypes<{
     label: StringConstructor;
 }>, () => vue.VNode<vue.RendererNode, vue.RendererElement, {
     [key: string]: any;
-}>, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
+}> | undefined, {}, {}, {}, vue.ComponentOptionsMixin, vue.ComponentOptionsMixin, {}, string, vue.PublicProps, Readonly<vue.ExtractPropTypes<{
     name: {
         type: StringConstructor;
         required: true;
@@ -878,9 +1021,11 @@ interface UcRouteResource {
     readonly mode: Readonly<{
         readonly value: "list" | "detail" | "create";
     }>;
-    open(key: EntityKey | undefined): Promise<void>;
-    create(): Promise<void>;
-    close(): Promise<void>;
+    readonly access?: ResourceAccess<EntityKey, Readonly<Record<string, unknown>>>;
+    can?(action: ResourceCapability, target?: ResourcePermitTarget<EntityKey, Readonly<Record<string, unknown>>>): boolean;
+    open(key: EntityKey | undefined, options?: RouteResourceNavigationOptions): Promise<void>;
+    create(options?: RouteResourceNavigationOptions): Promise<void>;
+    close(options?: RouteResourceNavigationOptions): Promise<void>;
 }
 /** Bindings provided to an application-owned `aside-header` slot. */
 interface UcResourceViewAsideHeaderContext {
@@ -915,10 +1060,6 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: BooleanConstructor;
         default: boolean;
     };
-    create: {
-        type: BooleanConstructor;
-        default: boolean;
-    };
     asideWidth: {
         type: StringConstructor;
         default: string;
@@ -934,6 +1075,8 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     createForm: ObjectConstructor;
     editForm: ObjectConstructor;
+    scopes: PropType<ResourceScopes>;
+    permit: PropType<ResourcePermit<EntityKey, Readonly<Record<string, unknown>>>>;
     objectActions: {
         type: PropType<boolean | readonly string[]>;
         default: boolean;
@@ -968,10 +1111,6 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: BooleanConstructor;
         default: boolean;
     };
-    create: {
-        type: BooleanConstructor;
-        default: boolean;
-    };
     asideWidth: {
         type: StringConstructor;
         default: string;
@@ -987,6 +1126,8 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     };
     createForm: ObjectConstructor;
     editForm: ObjectConstructor;
+    scopes: PropType<ResourceScopes>;
+    permit: PropType<ResourcePermit<EntityKey, Readonly<Record<string, unknown>>>>;
     objectActions: {
         type: PropType<boolean | readonly string[]>;
         default: boolean;
@@ -1006,7 +1147,6 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
     "onObject-action-failure"?: ((...args: any[]) => any) | undefined;
     "onObject-action-cancel"?: ((...args: any[]) => any) | undefined;
 }>, {
-    create: boolean;
     mode: "stack" | "auto" | "split" | "dialog";
     asideWidth: string;
     selectedKeys: readonly EntityKey[];
@@ -1209,7 +1349,7 @@ declare const UcDelete: vue.DefineComponent<vue.ExtractPropTypes<{
     confirmMessage: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 
-export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcField, UcFilter, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, type UcResourceViewAsideHeaderContext, type UcResourceViewAsideMode, type UcRouteResource, UcSubmit, type UcSurfaceLayout, UcTable, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
+export { type FieldSkin, type FieldSkinContext, type FieldSkinField, type FieldSkinForm, type FieldSkinResolver, type FormSkin, type QuasarPalette, type QuasarRichTextEditorOptions, type QuasarRichTextMode, type QuasarRichTextTool, UcAction, UcActions, type UcActionsProps, UcAlert, UcAlertFailure, UcAlertHost, UcAlertSuccess, type UcAppBrand, UcAppLayout, type UcAppLayoutActionProps, UcButton, type UcButtonProps, UcCancel, UcConfirm, type UcControlSize, UcDelete, UcErrorPage, type UcErrorPageActions, type UcErrorPageProps, UcField, UcFilter, UcForbiddenPage, UcForm, UcFormAction, type UcFormActionLayout, type UcNavigationBadge, type UcNavigationBadges, UcNavigationTree, UcNotFoundPage, type UcNotification, type UcNotificationAction, type UcNotificationActionEvent, type UcNotificationLevel, UcNotificationList, type UcResourceColumn, UcResourceView, type UcResourceViewAsideHeaderContext, type UcResourceViewAsideMode, type UcRouteResource, UcServerErrorPage, UcSubmit, type UcSurfaceLayout, UcTable, UcUnauthorizedPage, UcView, type UiCogsQuasarFormSkin, type UiCogsQuasarLayout, type UiCogsQuasarSkin, defineSkin, injectSkin, quasarEditor, quasarRenderers };
 
 // stylebook.d.ts
 import { VueRouteIntegration } from '@uicogs/vue';

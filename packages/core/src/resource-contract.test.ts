@@ -81,6 +81,27 @@ describe("resource definitions and operation builders", () => {
     expect(definition.operation("list").name).toBe("list");
   });
 
+  it("preserves immutable create and edit form defaults without changing schema definitions", () => {
+    const { cogs, schema } = fixture();
+    const create = schema.keep("title").toForm({ mode: "create" });
+    const edit = schema.keep("title").toForm({ mode: "edit" });
+    const forms = { create, edit };
+    const definition = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema,
+      key: "id",
+      forms,
+    });
+
+    expect(definition.forms).toEqual(forms);
+    expect(definition.forms).not.toBe(forms);
+    expect(Object.isFrozen(definition.forms)).toBe(true);
+    expect(Object.isFrozen(create)).toBe(true);
+    expect(Object.isFrozen(edit)).toBe(true);
+    expect(schema.shape).toHaveProperty("title");
+  });
+
   it("rejects missing, duplicate, and invalid-view resource definitions", () => {
     const { cogs, schema } = fixture();
     expect(() => cogs.resource("missing")).toThrow("not registered");

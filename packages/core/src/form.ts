@@ -27,12 +27,40 @@ type SchemaInput<T> = T extends { readonly _input: infer V } ? V : never;
 type SchemaOutput<T> = T extends { readonly _output: infer V } ? V : never;
 type SchemaEncoded<T> = T extends { readonly _encoded: infer V } ? V : never;
 
-export type FormMode = "create" | "replace" | "patch" | "query" | "custom";
+/**
+ * The intended mutation semantics for a form definition.
+ *
+ * `edit` is the ergonomic object-update mode used by generated resource views. It has the
+ * same changed-field write behavior as `patch`, while resource objects continue to choose the
+ * transport operation (`update` versus `replace`) from the form mode.
+ */
+export type FormMode = "create" | "replace" | "patch" | "edit" | "query" | "custom";
+
+/** Live values supplied when a form decides whether to present one of its fields. */
+export interface FormFieldPresentationContext<TValues extends Readonly<Record<string, unknown>>> {
+  readonly values: TValues;
+}
+
+/** Form-specific presentation behavior for one declared field. */
+export interface FormFieldPresentation<TValues extends Readonly<Record<string, unknown>>> {
+  /** Returns false when generated form adapters must omit this field from their surface. */
+  readonly visible?: (context: FormFieldPresentationContext<TValues>) => boolean;
+}
+
+/** Presentation behavior keyed by the fields declared in one form definition. */
+export type FormFieldPresentations<TValues extends Readonly<Record<string, unknown>>> = {
+  readonly [K in Extract<keyof TValues, string>]?: FormFieldPresentation<TValues>;
+};
 
 export interface FormSchemaOptions<TSchema extends FormCompatibleSchema, TPayload> {
   readonly mode?: FormMode;
   readonly encoding?: BodyEncoding;
   readonly multipart?: MultipartAdapter;
+  /**
+   * Form-specific presentation behavior. It leaves the source schema and other form
+   * definitions unchanged.
+   */
+  readonly fields?: FormFieldPresentations<SchemaInput<TSchema>>;
   readonly write?: (value: SchemaOutput<TSchema>) => TPayload;
   readonly validate?: (
     value: SchemaOutput<TSchema>,
@@ -50,6 +78,7 @@ export class FormSchema<TSchema extends FormCompatibleSchema, TPayload = SchemaE
   readonly mode: FormMode;
   readonly encoding: BodyEncoding;
   readonly multipart?: MultipartAdapter;
+  readonly presentation: FormFieldPresentations<SchemaInput<TSchema>>;
   readonly validator?: FormSchemaOptions<TSchema, TPayload>["validate"];
   private readonly writer?: FormSchemaOptions<TSchema, TPayload>["write"];
 
@@ -60,18 +89,35 @@ export class FormSchema<TSchema extends FormCompatibleSchema, TPayload = SchemaE
     this.mode = options.mode ?? "patch";
     this.encoding = options.encoding ?? "auto";
     if (options.multipart) this.multipart = options.multipart;
+    this.presentation = freezeFieldPresentations(options.fields);
     if (options.write) this.writer = options.write;
     if (options.validate) this.validator = options.validate;
     Object.freeze(this);
   }
 
-  writeValue(value: SchemaOutput<TSchema>, changed?: ReadonlySet<string>): TPayload {
+  visible(
+    name: Extract<keyof SchemaInput<TSchema>, string>,
+    values: SchemaInput<TSchema>,
+  ): boolean {
+    return this.presentation[name]?.visible?.({ values }) !== false;
+  }
+
+  writeValue(
+    value: SchemaOutput<TSchema>,
+    changed?: ReadonlySet<string>,
+    visible?: ReadonlySet<string>,
+  ): TPayload {
     const payload = this.writer
       ? this.writer(value)
       : (this.fields.write(value) as unknown as TPayload);
-    if (this.writer || this.mode !== "patch" || !isRecord(payload) || !changed) return payload;
+    if (this.writer || !isRecord(payload)) return payload;
+    const selected =
+      (this.mode === "patch" || this.mode === "edit") && changed
+        ? changed
+        : new Set(Object.keys(this.fields.shape));
+    const allowed = visible ? new Set([...selected].filter((name) => visible.has(name))) : selected;
     const wireNames = new Set(
-      [...changed].map((name) => this.fields.shape[name]?.options?.wireName ?? name),
+      [...allowed].map((name) => this.fields.shape[name]?.options?.wireName ?? name),
     );
     return Object.freeze(
       Object.fromEntries(Object.entries(payload).filter(([name]) => wireNames.has(name))),
@@ -85,6 +131,7 @@ export class FormSchema<TSchema extends FormCompatibleSchema, TPayload = SchemaE
       mode: this.mode,
       encoding: this.encoding,
       ...(this.multipart ? { multipart: this.multipart } : {}),
+      fields: bindFieldPresentations(this.presentation, fields),
       ...(this.writer
         ? {
             write: this.writer as unknown as (value: SchemaOutput<TNextSchema>) => TPayload,
@@ -277,9 +324,17 @@ export class FormController<
       touched: state.touched.has(name),
       dirty: !Object.is(state.values[name], state.initialValues[name]),
       enabled: state.enabled.has(name),
+      visible: this.visible(name),
       pending: state.pending.has(name),
       issues: state.issues.filter((issue) => issue.path[0] === name),
     });
+  }
+
+  visible<K extends keyof FormValues<TForm>>(name: K): boolean {
+    return this.schema.visible(
+      String(name) as Extract<keyof FormValues<TForm>, string>,
+      this.values,
+    );
   }
 
   async validate(): Promise<ValidationResult> {
@@ -337,10 +392,10 @@ export class FormController<
       progress: { ...idleProgress, active: true },
     }));
     try {
-      const value = this.schema.fields.parse(this.values);
+      const value = this.schema.fields.parse(this.visibleValues());
       const changed = changedNames(this.values, this.initialValues);
       const result = await this.submitter(
-        this.schema.writeValue(value, changed) as FormPayload<TForm>,
+        this.schema.writeValue(value, changed, this.visibleNames()) as FormPayload<TForm>,
         {
           signal: this.submission.signal,
           encoding: this.schema.encoding,
@@ -496,7 +551,9 @@ export class FormController<
     this.validation = new AbortController();
     const generation = ++this.validationGeneration;
     const enabled = new Set([...this.store.getSnapshot().enabled].map(String));
-    const selected = names ?? enabled;
+    const visible = this.visibleNames();
+    const active = new Set([...enabled].filter((name) => visible.has(name)));
+    const selected = new Set([...(names ?? active)].filter((name) => active.has(name)));
     this.store.update((state) => ({
       ...state,
       validating: true,
@@ -505,7 +562,7 @@ export class FormController<
     const issues: ValidationIssue[] = [];
     let value: Readonly<Record<string, unknown>> | undefined;
     try {
-      value = this.schema.fields.parse(this.values);
+      value = this.schema.fields.parse(this.visibleValues());
     } catch (error) {
       if (!(error instanceof ParseError)) throw error;
       issues.push(...error.issues);
@@ -516,7 +573,7 @@ export class FormController<
           ),
         );
         const parseable = Object.fromEntries(
-          Object.entries(this.values).filter(([name]) => !rejected.has(name)),
+          Object.entries(this.visibleValues()).filter(([name]) => !rejected.has(name)),
         );
         try {
           value = this.schema.fields.materialize(this.schema.fields.parsePartial(parseable));
@@ -537,7 +594,7 @@ export class FormController<
     const filtered = issues.filter((issue) => {
       const name = issue.path[0];
       return (
-        name === undefined || (typeof name === "string" && enabled.has(name) && selected.has(name))
+        name === undefined || (typeof name === "string" && active.has(name) && selected.has(name))
       );
     });
     const result = Object.freeze({
@@ -562,6 +619,21 @@ export class FormController<
     return result;
   }
 
+  private visibleNames(): ReadonlySet<string> {
+    return new Set(
+      Object.keys(this.schema.fields.shape).filter((name) =>
+        this.schema.visible(name as Extract<keyof FormValues<TForm>, string>, this.values),
+      ),
+    );
+  }
+
+  private visibleValues(): FormValues<TForm> {
+    const visible = this.visibleNames();
+    return Object.freeze(
+      Object.fromEntries(Object.entries(this.values).filter(([name]) => visible.has(name))),
+    ) as FormValues<TForm>;
+  }
+
   private updateProgress(generation: number, progress: UploadProgress): void {
     if (generation !== this.submissionGeneration) return;
     this.store.update((state) => ({
@@ -583,6 +655,30 @@ export type FormValues<TForm> = TForm extends { readonly _values?: infer T }
   ? Extract<T, Readonly<Record<string, unknown>>>
   : never;
 export type FormPayload<TForm> = TForm extends { readonly _payload?: infer T } ? T : never;
+
+function freezeFieldPresentations<TValues extends Readonly<Record<string, unknown>>>(
+  fields: FormFieldPresentations<TValues> | undefined,
+): FormFieldPresentations<TValues> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(fields ?? {}).map(([name, presentation]) => [
+        name,
+        Object.freeze({ ...presentation }),
+      ]),
+    ),
+  ) as FormFieldPresentations<TValues>;
+}
+
+function bindFieldPresentations<TSchema extends FormCompatibleSchema>(
+  fields: FormFieldPresentations<Readonly<Record<string, unknown>>>,
+  schema: TSchema,
+): FormFieldPresentations<SchemaInput<TSchema>> {
+  return freezeFieldPresentations(
+    Object.fromEntries(
+      Object.entries(fields).filter(([name]) => name in schema.shape),
+    ) as FormFieldPresentations<SchemaInput<TSchema>>,
+  );
+}
 
 function shallowEqual(
   left: Readonly<Record<string, unknown>>,

@@ -10,6 +10,7 @@ import {
   toQuasarDateRange,
   toQuasarTime,
 } from "./date-codecs.js";
+import { useUcIcon } from "./icons.js";
 
 const baseFieldProps = {
   label: String,
@@ -33,7 +34,7 @@ export const UcDateEditor = defineComponent({
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
     const calendar = computed(() => toCalendarDate(props.modelValue));
-    const icon = temporalIcon("today");
+    const icon = temporalIcon("date", useUcIcon());
     return () =>
       pickerInput({
         attrs,
@@ -72,7 +73,7 @@ export const UcTimeEditor = defineComponent({
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
     const clock = computed(() => toQuasarTime(props.modelValue));
-    const icon = temporalIcon("now");
+    const icon = temporalIcon("time", useUcIcon());
     return () =>
       pickerInput({
         attrs,
@@ -116,7 +117,7 @@ export const UcDateRangeEditor = defineComponent({
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
     const range = computed(() => toQuasarDateRange(props.modelValue));
-    const icon = temporalIcon("today");
+    const icon = temporalIcon("dateRange", useUcIcon());
     return () =>
       pickerInput({
         attrs,
@@ -161,8 +162,9 @@ export const UcDateTimeEditor = defineComponent({
   emits: ["update:modelValue"],
   setup(props, { attrs, emit }) {
     const parts = computed(() => toDateTimeParts(props.modelValue));
-    const dateIcon = temporalIcon("today");
-    const timeIcon = temporalIcon("now");
+    const resolveIcon = useUcIcon();
+    const dateIcon = temporalIcon("date", resolveIcon);
+    const timeIcon = temporalIcon("time", resolveIcon);
     const update = (date: string | undefined, time: string | undefined): void => {
       const next = fromDateTimeParts(date, time);
       if (next) emit("update:modelValue", next);
@@ -266,10 +268,13 @@ function dateOptions(min: string | undefined, max: string | undefined) {
   return (value: string) => isDateAllowed(value, min, max);
 }
 
-/** Resolves an icon through the application's configured Quasar icon set. */
-function temporalIcon(kind: "today" | "now"): string {
-  const icon = getCurrentInstance()?.proxy?.$q?.iconSet.datetime?.[kind];
-  return icon ?? (kind === "today" ? "today" : "access_time");
+/** Resolves runtime overrides before retaining the configured Quasar datetime icon fallback. */
+function temporalIcon(
+  name: "date" | "dateRange" | "time",
+  icon: (name: string, fallback?: string) => string,
+): string {
+  const kind = name === "time" ? "now" : "today";
+  return icon(name, getCurrentInstance()?.proxy?.$q?.iconSet.datetime?.[kind]);
 }
 
 function isDateAllowed(value: string, min: string | undefined, max: string | undefined): boolean {

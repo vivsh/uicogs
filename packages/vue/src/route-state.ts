@@ -4,6 +4,7 @@ import {
   type FormController,
   type FormSchema,
   type Infer,
+  isLoggedIn,
   type Schema,
   type Shape,
   type ValidationIssue,
@@ -13,6 +14,7 @@ import {
   onScopeDispose,
   ref,
   watch,
+  watchEffect,
   type ComputedRef,
   type WritableComputedRef,
 } from "vue";
@@ -24,6 +26,7 @@ import {
   type RouteLocationNormalizedLoaded,
   type RouteParamsRaw,
 } from "vue-router";
+import { useUiCogs } from "./index.js";
 
 type EmptyShape = Readonly<Record<never, never>>;
 type RouteUrlValue =
@@ -332,6 +335,141 @@ export interface RouteKeyOptions<TKey extends EntityKey> {
   readonly formatKey?: (key: TKey) => string;
 }
 
+/** A resource-view capability which can be guarded by scopes or application policy. */
+export type ResourceCapability = "view" | "create" | "edit";
+
+/** Required scopes for each resource-view capability. */
+export type ResourceScopes = Readonly<Partial<Record<ResourceCapability, readonly string[]>>>;
+
+/** A current resource target supplied to an access rule. */
+export interface ResourcePermitTarget<
+  TKey extends EntityKey,
+  TValue extends Readonly<Record<string, unknown>>,
+> {
+  readonly key?: TKey;
+  readonly value?: TValue;
+}
+
+/** Immutable input supplied to an application-owned resource access rule. */
+export interface ResourcePermitContext<
+  TKey extends EntityKey,
+  TValue extends Readonly<Record<string, unknown>>,
+> extends ResourcePermitTarget<TKey, TValue> {
+  readonly action: ResourceCapability;
+  readonly authenticated: boolean;
+  readonly scopes: ReadonlySet<string>;
+}
+
+/** A synchronous application-owned rule which may further restrict a resource capability. */
+export type ResourcePermit<
+  TKey extends EntityKey,
+  TValue extends Readonly<Record<string, unknown>>,
+> = (context: ResourcePermitContext<TKey, TValue>) => boolean;
+
+/** Declarative and callback-based policy for resource-view capabilities. */
+export interface ResourceAccessOptions<
+  TKey extends EntityKey,
+  TValue extends Readonly<Record<string, unknown>>,
+> {
+  readonly scopes?: ResourceScopes;
+  readonly permit?: ResourcePermit<TKey, TValue>;
+}
+
+/** Reactive, shared evaluator for resource-view capability policy. */
+export interface ResourceAccess<
+  TKey extends EntityKey,
+  TValue extends Readonly<Record<string, unknown>>,
+> {
+  readonly state: ComputedRef<
+    Readonly<{ readonly authenticated: boolean; readonly scopes: ReadonlySet<string> }>
+  >;
+  can(action: ResourceCapability, target?: ResourcePermitTarget<TKey, TValue>): boolean;
+}
+
+const emptyScopes: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Resolves capability access from the installed UiCogs auth controller and an optional policy.
+ *
+ * An absent policy permits access. Scope-protected capabilities fail closed when no UiCogs
+ * runtime is installed, while callback errors are contained and deny access.
+ */
+export function useResourceAccess<
+  TKey extends EntityKey = EntityKey,
+  TValue extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>,
+>(options: ResourceAccessOptions<TKey, TValue> = {}): ResourceAccess<TKey, TValue> {
+  const cogs = installedUiCogs();
+  const reportedFailures = new Set<string>();
+  const state = computed(() => {
+    const auth = cogs?.auth;
+    void auth?.status;
+    void auth?.scopes;
+    return Object.freeze({
+      authenticated: isLoggedIn(auth),
+      scopes: auth?.scopes ?? emptyScopes,
+    });
+  });
+
+  const can = (
+    action: ResourceCapability,
+    target?: ResourcePermitTarget<TKey, TValue>,
+  ): boolean => {
+    const access = state.value;
+    const required = options.scopes?.[action];
+    if (!permitsScopes(required, access)) return false;
+    if (!options.permit) return true;
+    try {
+      return options.permit(
+        Object.freeze({
+          action,
+          authenticated: access.authenticated,
+          scopes: access.scopes,
+          ...(target?.key === undefined ? {} : { key: target.key }),
+          ...(target?.value === undefined ? {} : { value: target.value }),
+        }),
+      );
+    } catch (failure) {
+      reportPermitFailure(reportedFailures, action, target?.key, failure);
+      return false;
+    }
+  };
+  return Object.freeze({ state, can });
+}
+
+function installedUiCogs(): ReturnType<typeof useUiCogs> | undefined {
+  try {
+    return useUiCogs();
+  } catch (failure) {
+    if (
+      failure instanceof Error &&
+      failure.message === "withVue() has not been called for the current Vue application"
+    )
+      return undefined;
+    throw failure;
+  }
+}
+
+function permitsScopes(
+  required: readonly string[] | undefined,
+  access: Readonly<{ readonly authenticated: boolean; readonly scopes: ReadonlySet<string> }>,
+): boolean {
+  if (required === undefined) return true;
+  return access.authenticated && required.every((scope) => access.scopes.has(scope));
+}
+
+function reportPermitFailure(
+  reported: Set<string>,
+  action: ResourceCapability,
+  key: EntityKey | undefined,
+  failure: unknown,
+): void {
+  if (typeof process !== "undefined" && process.env.NODE_ENV === "production") return;
+  const signature = `${action}:${key === undefined ? "" : String(key)}`;
+  if (reported.has(signature)) return;
+  reported.add(signature);
+  console.error("UiCogs resource permit failed; access denied", failure);
+}
+
 /** A resource page composed from route state, route filters, a route list, and active detail state. */
 export interface RouteResourceSource extends RouteCollectionSource {
   readonly definition: RouteCollectionMetadata;
@@ -345,6 +483,18 @@ export interface RouteResourceSource extends RouteCollectionSource {
 type RouteResourceKey<TResource> = TResource extends { get(key: infer TKey): unknown }
   ? Extract<TKey, EntityKey>
   : EntityKey;
+
+type RouteResourceValue<TResource extends RouteResourceSource> =
+  ReturnType<TResource["get"]> extends { readonly value?: infer TValue }
+    ? TValue extends Readonly<Record<string, unknown>>
+      ? TValue
+      : Readonly<Record<string, unknown>>
+    : Readonly<Record<string, unknown>>;
+
+/** Controls whether one route-resource navigation creates or replaces browser history. */
+export interface RouteResourceNavigationOptions {
+  readonly history?: "push" | "replace";
+}
 
 /** The route-owned surface currently selected by a resource page. */
 export type RouteResourceMode = "list" | "detail" | "create";
@@ -371,9 +521,17 @@ export interface RouteResource<
   readonly activeObject: ComputedRef<ReturnType<TResource["get"]> | undefined>;
   readonly creating: WritableComputedRef<boolean>;
   readonly mode: ComputedRef<RouteResourceMode>;
-  open(key: RouteResourceKey<TResource> | undefined): Promise<void>;
-  create(): Promise<void>;
-  close(): Promise<void>;
+  readonly access: ResourceAccess<RouteResourceKey<TResource>, RouteResourceValue<TResource>>;
+  can(
+    action: ResourceCapability,
+    target?: ResourcePermitTarget<RouteResourceKey<TResource>, RouteResourceValue<TResource>>,
+  ): boolean;
+  open(
+    key: RouteResourceKey<TResource> | undefined,
+    options?: RouteResourceNavigationOptions,
+  ): Promise<void>;
+  create(options?: RouteResourceNavigationOptions): Promise<void>;
+  close(options?: RouteResourceNavigationOptions): Promise<void>;
 }
 
 export function useRouteResource<
@@ -388,6 +546,8 @@ export function useRouteResource<
   readonly pagination?: RoutePaginationCodec;
   /** Observes a failed URL-driven list load after the resource has updated its error state. */
   readonly onCollectionFailure?: (failure: unknown) => void;
+  readonly scopes?: ResourceScopes;
+  readonly permit?: ResourcePermit<RouteResourceKey<TResource>, RouteResourceValue<TResource>>;
 }): RouteResource<TResource, TFilters, TFilterContext> {
   const route = useRouteState({ route: options.route, query: options.filters });
   const filterForm = useRouteForm({ route, schema: options.filters });
@@ -403,6 +563,10 @@ export function useRouteResource<
   const activeKeyValue = ref<RouteResourceKey<TResource>>();
   const parseKey = detailParser(options.resource, options.key);
   const formatKey = detailFormatter(options.resource, options.key);
+  const access = useResourceAccess<RouteResourceKey<TResource>, RouteResourceValue<TResource>>({
+    ...(options.scopes === undefined ? {} : { scopes: options.scopes }),
+    ...(options.permit === undefined ? {} : { permit: options.permit }),
+  });
   const syncActive = () => {
     const raw = location.params.id;
     const value = Array.isArray(raw) ? raw[0] : raw;
@@ -410,8 +574,11 @@ export function useRouteResource<
       typeof value === "string" && value !== "" && value !== "new" ? parseKey(value) : undefined;
   };
   watch(() => location.params.id, syncActive, { immediate: true });
-  const navigateDetail = async (key: RouteResourceKey<TResource> | undefined): Promise<void> => {
-    await router.push({
+  const navigateDetail = async (
+    key: RouteResourceKey<TResource> | undefined,
+    navigation: RouteResourceNavigationOptions = {},
+  ): Promise<void> => {
+    await router[navigation.history ?? "push"]({
       name: options.route,
       params: {
         ...location.params,
@@ -426,8 +593,8 @@ export function useRouteResource<
       void navigateDetail(key);
     },
   });
-  const navigateCreate = async (): Promise<void> => {
-    await router.push({
+  const navigateCreate = async (navigation: RouteResourceNavigationOptions = {}): Promise<void> => {
+    await router[navigation.history ?? "push"]({
       name: options.route,
       params: { ...location.params, id: "new" },
       query: location.query,
@@ -444,16 +611,68 @@ export function useRouteResource<
       ? undefined
       : (options.resource.get(activeKey.value as never) as ReturnType<TResource["get"]>),
   );
+  const activeRevision = ref(0);
   watch(
     activeObject,
-    (object) => {
-      if (object && !object.value && !object.loading) void object.load();
+    (object, _previous, onCleanup) => {
+      activeRevision.value += 1;
+      if (!isSubscribable(object)) return;
+      const unsubscribe = object.subscribe(() => {
+        activeRevision.value += 1;
+      });
+      onCleanup(unsubscribe);
     },
     { immediate: true },
   );
+  watchEffect(() => {
+    void activeRevision.value;
+    const object = activeObject.value;
+    const key = activeKey.value;
+    if (
+      object &&
+      key !== undefined &&
+      !object.value &&
+      !object.loading &&
+      access.can("view", { key })
+    )
+      void object.load();
+  });
   const mode = computed<RouteResourceMode>(() => {
     if (creating.value) return "create";
     return activeKey.value === undefined ? "list" : "detail";
+  });
+  const recoveredRoute = ref<string>();
+  watchEffect(() => {
+    void activeRevision.value;
+    const currentMode = mode.value;
+    const key = activeKey.value;
+    const object = activeObject.value;
+    const action =
+      currentMode === "create" ? "create" : currentMode === "detail" ? "view" : undefined;
+    if (!action) {
+      recoveredRoute.value = undefined;
+      return;
+    }
+    if (
+      access.can(
+        action,
+        key === undefined
+          ? undefined
+          : {
+              key,
+              ...(object?.value === undefined
+                ? {}
+                : { value: object.value as RouteResourceValue<TResource> }),
+            },
+      )
+    ) {
+      recoveredRoute.value = undefined;
+      return;
+    }
+    const signature = `${action}:${key === undefined ? "" : String(key)}`;
+    if (recoveredRoute.value === signature) return;
+    recoveredRoute.value = signature;
+    void navigateDetail(undefined, { history: "replace" });
   });
   return Object.freeze({
     resource: options.resource,
@@ -464,10 +683,22 @@ export function useRouteResource<
     activeObject,
     creating,
     mode,
+    access,
+    can: access.can,
     open: navigateDetail,
     create: navigateCreate,
-    close: () => navigateDetail(undefined),
+    close: (navigation: RouteResourceNavigationOptions = {}) =>
+      navigateDetail(undefined, navigation),
   });
+}
+
+function isSubscribable(value: unknown): value is { subscribe(listener: () => void): () => void } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "subscribe" in value &&
+    typeof value.subscribe === "function"
+  );
 }
 
 function parseLocation<S extends Shape, TContext>(

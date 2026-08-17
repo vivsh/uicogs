@@ -7,6 +7,8 @@ import {
   type UcActionsProps,
   type UcButtonProps,
   type UcControlSize,
+  type UcErrorPageActions,
+  type UcErrorPageProps,
   type UcFormActionLayout,
   type UcNavigationBadge,
   type UcNotification,
@@ -52,6 +54,9 @@ expectAssignable<UcButtonProps>({
 expectAssignable<UcActionsProps>({ inline: true });
 expectAssignable<UcFormActionLayout>("inline");
 expectError<UcFormActionLayout>("sideways");
+expectAssignable<UcErrorPageProps>({ status: 503, retryable: true, retryLabel: "Retry" });
+expectError<UcErrorPageProps>({ status: "503" });
+expectAssignable<UcErrorPageActions>({ retry: () => undefined, retrying: false });
 expectAssignable<UcResourceViewAsideMode>("create");
 expectError<UcResourceViewAsideMode>("aside");
 expectAssignable<UcResourceViewAsideHeaderContext>({

@@ -18,9 +18,15 @@ import type {
 import { isLoggedIn } from "./auth.js";
 import { ContextStoreController } from "./context.js";
 import type { PersistenceOptions } from "./persistence.js";
+import {
+  createUiCogsIconRegistry,
+  type UiCogsIconOverrides,
+  type UiCogsIconRegistry,
+} from "./icons.js";
 import type {
   FormCompatibleSchema,
   FormController,
+  FormMode,
   FormSchema,
   FormSubmitOptions,
   SubmitResult,
@@ -462,6 +468,24 @@ function freezeActionDefinitions<T extends Readonly<Record<string, unknown>>>(ac
   ) as T;
 }
 
+function freezeResourceForms<TForms extends ResourceForms>(forms: TForms): TForms {
+  for (const form of [forms.create, forms.edit]) {
+    if (form !== undefined && form !== false && !isResourceFormDefinition(form))
+      throw new TypeError("Resource forms must be FormSchema definitions or false");
+  }
+  return Object.freeze({ ...forms }) as TForms;
+}
+
+function isResourceFormDefinition(value: unknown): value is ResourceFormDefinition {
+  return (
+    isRecord(value) &&
+    typeof value.mode === "string" &&
+    isRecord(value.fields) &&
+    isRecord(value.fields.shape) &&
+    typeof value.writeValue === "function"
+  );
+}
+
 type ViewMap<TContext> = Readonly<Record<string, ViewLike<TContext>>>;
 type QueryMap<TContext> = Readonly<
   Record<string, QueryDefinition<SchemaLike<TContext>, string | undefined, TContext>>
@@ -487,6 +511,7 @@ export interface ResourceDefinitionOptions<
   TQueries extends QueryMap<TContext>,
   TActions extends ActionMap<TContext, Infer<TSchema>, TKey>,
   TContext,
+  TForms extends ResourceForms = ResourceForms,
 > {
   readonly name: string;
   readonly url?: string;
@@ -499,10 +524,29 @@ export interface ResourceDefinitionOptions<
   readonly queries?: TQueries;
   readonly actions?: TActions;
   readonly operations?: TActions;
+  /**
+   * Optional presentation defaults for generated resource create and edit surfaces.
+   *
+   * Omitted entries are derived from the resource schema by framework adapters. `false`
+   * intentionally disables that generated surface without changing authorization.
+   */
+  readonly forms?: TForms;
   readonly pagination?: PaginationAdapter;
   readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
+}
+
+/** The stable structural portion of an immutable form definition used by resource presentation. */
+export interface ResourceFormDefinition {
+  readonly mode: FormMode;
+  readonly fields: Readonly<{ readonly shape: Readonly<Record<string, unknown>> }>;
+}
+
+/** Immutable create/edit form defaults owned by one resource definition. */
+export interface ResourceForms {
+  readonly create?: false | ResourceFormDefinition;
+  readonly edit?: false | ResourceFormDefinition;
 }
 
 export class ResourceDefinition<
@@ -512,6 +556,7 @@ export class ResourceDefinition<
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
   TActions extends ActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>,
   TContext = unknown,
+  TForms extends ResourceForms = ResourceForms,
 > {
   declare readonly _entity?: Infer<TSchema>;
   readonly resourceName: string;
@@ -532,13 +577,14 @@ export class ResourceDefinition<
   readonly queries: TQueries;
   readonly actions: TActions;
   readonly operations: TActions;
+  readonly forms?: TForms;
   readonly pagination: PaginationAdapter;
   readonly responseAdapter?: ResponseAdapter;
   readonly ttl: number;
   readonly errorAdapters: readonly ErrorAdapter[];
 
   constructor(
-    options: ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>,
+    options: ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>,
   ) {
     this.resourceName = options.name;
     this.name = options.name;
@@ -556,6 +602,7 @@ export class ResourceDefinition<
       ...(options.operations ?? {}),
     }) as TActions;
     this.actions = this.operations;
+    if (options.forms) this.forms = freezeResourceForms(options.forms);
     this.pagination = options.pagination ?? pagination.page();
     if (options.pagination) configuredPagination.set(this, options.pagination);
     if (options.responseAdapter) this.responseAdapter = options.responseAdapter;
@@ -682,6 +729,7 @@ export function resource<
     Extract<Infer<TSchema>[TKeyName], EntityKey>
   > = Readonly<Record<never, never>>,
   TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown,
+  TForms extends ResourceForms = ResourceForms,
 >(
   options: Omit<
     ResourceDefinitionOptions<
@@ -690,7 +738,8 @@ export function resource<
       TViews,
       TQueries,
       TActions,
-      TContext
+      TContext,
+      TForms
     >,
     "key" | "name"
   > & { readonly name: TName; readonly key: TKeyName },
@@ -702,7 +751,8 @@ export function resource<
     TViews,
     TQueries,
     TActions,
-    TContext
+    TContext,
+    TForms
   >
 >;
 export function resource<
@@ -713,14 +763,15 @@ export function resource<
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
   TActions extends ActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>,
   TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown,
+  TForms extends ResourceForms = ResourceForms,
 >(
   options: Omit<
-    ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>,
+    ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>,
     "name"
   > & { readonly name: TName },
 ): NamedResourceDefinition<
   TName,
-  ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext>
+  ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>
 >;
 export function resource(options: unknown): unknown {
   if (!isResourceOptions(options)) throw new Error("Invalid resource definition");
@@ -748,6 +799,7 @@ interface UiCogsBaseOptions<
   TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
 > {
   readonly context?: TContext;
+  readonly icons?: UiCogsIconOverrides;
   readonly resources?: TResources;
   readonly services?: TServices;
   readonly auth?: TAuth;
@@ -976,6 +1028,8 @@ export class UiCogs<
 > {
   /** Resolves after context, authentication, and the active persistent cache scope initialize. */
   readonly ready: Promise<void>;
+  /** Immutable application icon-pack mappings for UiCogs semantic and presentation icon names. */
+  readonly icons: UiCogsIconRegistry;
   readonly cache: CacheStore;
   readonly requests = new RequestCoordinator();
   readonly live: LiveHubController<TContext>;
@@ -1000,6 +1054,7 @@ export class UiCogs<
   constructor(
     options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources, TServices>,
   ) {
+    this.icons = createUiCogsIconRegistry(options.icons);
     this.controllerAdapter = options.adapter ?? identityAdapter;
     this.auth = options.auth?.create();
     const cachePersistence = options.persistence?.cache !== false;
@@ -1177,6 +1232,11 @@ export class UiCogs<
       });
     }
     this.ready = this.initializeRuntime();
+  }
+
+  /** Resolves an application override, preserving an unknown presentation icon name unchanged. */
+  icon(name: string): string {
+    return this.icons[name] ?? name;
   }
 
   /** Binds future controllers to one framework-owned reactive adapter. */

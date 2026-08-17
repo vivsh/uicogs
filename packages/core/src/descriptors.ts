@@ -5,11 +5,26 @@ export interface Descriptor<TKind extends string = string, TOptions = unknown> {
   readonly options?: Readonly<TOptions>;
 }
 
-export interface Choice<TValue = string | number> {
+/** Framework-neutral presentation hints for a finite choice. */
+export interface ChoicePresentation {
+  /** Human-readable text used by generated editors and formatters. */
   readonly label: string;
-  readonly value: TValue;
-  readonly disabled?: boolean;
+  /** Optional supporting text for choice-capable editors. */
   readonly description?: string;
+  /** Semantic icon name. Framework adapters may ignore unsupported icons. */
+  readonly icon?: string;
+  /** Semantic presentation role. Framework adapters may map known values to native roles. */
+  readonly tone?: string;
+  /** Prevents selection in generated editors without invalidating an existing value. */
+  readonly disabled?: boolean;
+}
+
+/** A finite raw value with framework-neutral presentation and application meta. */
+export interface Choice<TValue = string | number, TMeta = unknown> {
+  readonly value: TValue;
+  readonly presentation: ChoicePresentation;
+  /** Application-owned information excluded from UiCogs parsing and serialization. */
+  readonly meta?: TMeta;
 }
 
 export interface EditorDescriptorMap {
@@ -55,8 +70,8 @@ export interface FormatterDescriptorMap {
   text: { readonly empty?: string };
   boolean: { readonly trueLabel?: string; readonly falseLabel?: string };
   number: Intl.NumberFormatOptions;
-  choice: Readonly<Record<never, never>>;
-  choices: { readonly separator?: string };
+  choice: { readonly presentation?: "label" | "badge" };
+  choices: { readonly separator?: string; readonly presentation?: "label" | "badge" };
   date: Intl.DateTimeFormatOptions;
   time: Intl.DateTimeFormatOptions;
   datetime: Intl.DateTimeFormatOptions;
@@ -147,7 +162,7 @@ export const format = {
   Text: (options: FormatterDescriptorMap["text"] = {}) => descriptor("text", options),
   Boolean: (options: FormatterDescriptorMap["boolean"] = {}) => descriptor("boolean", options),
   Number: (options: FormatterDescriptorMap["number"] = {}) => descriptor("number", options),
-  Choice: () => descriptor("choice", {}),
+  Choice: (options: FormatterDescriptorMap["choice"] = {}) => descriptor("choice", options),
   Choices: (options: FormatterDescriptorMap["choices"] = {}) => descriptor("choices", options),
   Date: (options: FormatterDescriptorMap["date"] = {}) => descriptor("date", options),
   Time: (options: FormatterDescriptorMap["time"] = {}) => descriptor("time", options),

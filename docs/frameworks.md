@@ -223,6 +223,11 @@ UcAlert
 UcConfirm
 UcAlertSuccess
 UcAlertFailure
+UcErrorPage
+UcUnauthorizedPage
+UcForbiddenPage
+UcNotFoundPage
+UcServerErrorPage
 UcNavigationTree
 UcNotificationList
 stylebook (from @uicogs/quasar/stylebook)
@@ -231,6 +236,28 @@ quasarEditor
 ```
 
 There is no `UcViewset` export.
+
+### Error pages
+
+`UcErrorPage` provides a safe, router-neutral default page for client-visible failures.
+`UcUnauthorizedPage`, `UcForbiddenPage`, `UcNotFoundPage`, and `UcServerErrorPage` provide the
+usual 401, 403, 404, and 5xx defaults. Declare them as ordinary Vue Router components; UiCogs
+does not add routes or assume a login or home destination:
+
+```ts
+import { UcForbiddenPage, UcNotFoundPage, UcServerErrorPage } from "@uicogs/quasar";
+
+const routes = [
+  { path: "/forbidden", component: UcForbiddenPage },
+  { path: "/unavailable", component: UcServerErrorPage },
+  { path: "/:pathMatch(.*)*", component: UcNotFoundPage },
+] satisfies RouteRecordRaw[];
+```
+
+Messages are rendered as text and never interpret server HTML. Set `retryable` to render the
+default retry control and handle its `@retry` event in the application. Use `#actions` to replace
+that region with application-owned sign-in, home, or support links; the slot receives `retry()`
+and `retrying`. The pages use only default Quasar primitives and stable `uc-error-page*` hooks.
 
 ## Quasar Application Layout
 
@@ -275,6 +302,12 @@ controlled drawer click behavior; consumers cannot accidentally replace it.
 Header content is ordered as navigation toggle, brand, `topbar-before`, generated
 topbar links, notification toggle, then `topbar-actions`. This makes
 `topbar-actions` the app-specific extension point after the built-in controls.
+
+The shell, generated buttons, date/time controls, navigation icons, notifications, action
+presentation, and generated enum-choice controls resolve string icon names through `api.icon()`.
+Add semantic or application-specific replacements to `createUiCogs({ icons: ... })`; see
+[Bootstrap](bootstrap.md#semantic-icons). Explicit `navigation-toggle-props.icon` and
+`notifications-toggle-props.icon` remain valid and are resolved through the same map.
 
 `UcNotificationList` reads `useUiCogs().notifications` by default. Pass `items` or a
 `source` only for a controlled alternate inbox, tests, or Storybook. It emits open,
@@ -452,29 +485,57 @@ object state, create/edit forms, actions, and controlled selection. Its regions 
 always rendered in this order:
 
 ```text
-header: caption, tools, filters
-list: before-list, list-body, after-list
+header row: caption (left), tools (right)
+header: filters
+list: list-header, list-body, list-footer
 aside: create or detail, detail-actions
 ```
 
+The caption and tools share one responsive header row: from `md` upward the caption
+grows on the left and tools are right-aligned; below that they wrap into separate,
+centered rows. This matches `mode="auto"`, which uses the dialog detail surface below
+`md`.
+Resource schemas supply generated create and edit forms by default. When the `create`
+capability is allowed, the default tools region therefore contains a primary `Create` button.
+Supply `#tools` to replace that region and call its `create()` binding when the application
+wants a different control. There is no floating create button or `create` boolean prop.
+
+Generated list/table, create, and detail surfaces use standard Quasar card structure:
+`QCard` contains the default list surface, while the generated aside uses a `QCard` with
+a compact `QCardSection` header, a `QSeparator`, and a `QCardSection` for its form or
+detail content. `UcTable` and `UcForm` remain surface-neutral. A full `#list`, `#create`,
+or `#detail` slot owns its markup and adds `QCard/QCardSection` itself when it wants the
+same treatment.
+
+The dedicated `#filters` region belongs in the header section. `#list-header` is wrapped
+in a padded `QCardSection` when UiCogs renders the default list surface, so a filter form
+placed there retains normal left, right, and bottom card spacing. It follows the header
+without adding a second top gutter.
+
 In split mode, the header belongs to the list pane. The create/detail aside starts
 at the same top edge as that pane, rather than below the caption, tools, or filters.
-Stack and dialog modes retain the normal responsive aside behavior.
+Stack mode retains the normal responsive aside behavior. Dialog mode uses Quasar's standard
+centered dialog position. Its carrier is intentionally transparent and padding-free: a
+generated `UcResourceView` aside supplies its own `QCard`, while a custom aside slot owns
+its own dialog surface.
 
-When an aside is active, `UcResourceView` renders a native Quasar toolbar with a state
-heading (`Create` or `Details`), a small resource caption, and a neutral flat `Cancel`
-button. The button closes the active create or detail state; it does not submit or mutate
-the resource. Set `aside-caption` when the resource/list title is not the right label.
-Use `aside-header` to replace that complete toolbar. The slot receives `mode`, `caption`,
+When an aside is active, `UcResourceView` renders a compact native Quasar card header with
+a state heading (`Create` or `Details`), a small resource caption, and a neutral round
+close icon with an accessible `Close` label. The icon follows the installed Quasar icon set
+(including Material Symbols), rather than assuming a particular icon font. It closes the
+active create or detail state; it does not submit or mutate the resource. Set
+`aside-caption` to replace the generated state heading; the secondary resource caption is
+then omitted.
+Use `aside-header` to replace that complete header. The slot receives `mode`, `caption`,
 and `close`.
 
 ```vue
 <UcResourceView :resource="tasks" aside-caption="Task workspace">
   <template #aside-header="{ mode, caption, close }">
-    <QToolbar>
-      <QToolbarTitle>{{ mode === "create" ? "New task" : caption }}</QToolbarTitle>
+    <QCardSection class="row items-center no-wrap">
+      <div class="col text-subtitle1">{{ mode === "create" ? "New task" : caption }}</div>
       <UcButton flat round icon="close" aria-label="Close task" @click="close()" />
-    </QToolbar>
+    </QCardSection>
   </template>
 </UcResourceView>
 ```
@@ -509,13 +570,77 @@ and `close`.
 For a `route-resource` view this means navigating back to the list URL; no page-level
 success forwarding is needed.
 
-`UcResourceView` receives controllers and form definitions. A regular page supplies
-`resource` (and optionally `collection`) plus explicit active/create models. A routed
-page instead supplies only the `useRouteResource()` result through `route-resource`:
+The `create` and `detail` slots receive the resolved reactive `form` controller. UiCogs uses
+an explicit `create-form`/`edit-form` prop first, then the resource's `forms` policy, then an
+immutable definition derived from `resource.schema`. This is the escape hatch for a custom form
+layout; `UcField` still honors the form definition's conditional-field rules.
+
+To intentionally omit generated forms, use resource form policy. `forms.create = false` hides
+the generated Create control, while `forms.edit = false` leaves a selected object readable but
+without a generated edit form. A custom `#create` or `#detail` slot remains available either
+way and receives `form: undefined` when a surface is explicitly disabled. Custom `#create`,
+`#detail`, list, and action slots receive `can(action)` so they can use the exact same
+capability policy as generated controls.
+
+```ts
+const AuditEvents = resource({
+  name: "audit-events",
+  url: "audit-events/",
+  schema: AuditEvent,
+  key: "id",
+  forms: { create: false, edit: false },
+});
+```
 
 ```vue
-<UcResourceView :route-resource="taskPage" :create-form="TaskCreate" :edit-form="TaskEdit" />
+<UcResourceView :route-resource="brokerAccounts" :create-form="BrokerAccountForm">
+  <template #create="{ form }">
+    <UcForm v-if="form" :form="form">
+      <UcField name="kind" />
+      <UcField name="secretRef" />
+    </UcForm>
+  </template>
+</UcResourceView>
 ```
+
+For a route-backed view, declare capability policy on `useRouteResource()` so that the
+controller owns both URL recovery and permission checks:
+
+```ts
+const brokerAccounts = useRouteResource({
+  route: "broker-accounts",
+  resource: accounts,
+  filters: BrokerAccountFilters,
+  scopes: {
+    view: ["broker-accounts.read"],
+    create: ["broker-accounts.create"],
+    edit: ["broker-accounts.update"],
+  },
+  permit: ({ action, value }) => action !== "edit" || value?.kind !== "paper",
+});
+```
+
+For a non-routed view, pass the same `scopes` and `permit` props directly to
+`UcResourceView`. Scope arrays use the existing all-of rule: omitted is unrestricted,
+`[]` requires authentication, and non-empty arrays require every scope. `permit` is a
+synchronous additional restriction. It receives the capability (`view`, `create`, or
+`edit`), authenticated state, effective scopes, and an optional object key/value. It is
+client-side presentation policy only; server endpoints remain authoritative. Form policy and
+access policy are independent: a disabled form is not an authorization denial, and a denied
+capability does not become available merely because a form definition exists.
+
+Here `secretRef` can be declared with `visible: ({ values }) => values.kind !== "paper"`
+in `BrokerAccountForm`; no page-level `v-if` is needed.
+
+`UcResourceView` receives controllers and optional form overrides. A regular page supplies
+`resource` (and optionally `collection`) plus explicit active/create models. A routed page
+instead supplies only the `useRouteResource()` result through `route-resource`:
+
+```vue
+<UcResourceView :route-resource="taskPage" />
+```
+
+Use `:create-form` and `:edit-form` only to override schema-derived or resource-level forms.
 
 In that form, `UcResourceView` uses the controller's resource, route-aware collection,
 detail key, and create state, and invokes its `open`, `create`, and `close` operations.
@@ -555,15 +680,18 @@ minimal; provide `card-item` for application-owned card markup:
 </UcResourceView>
 ```
 
-`list-body` replaces only the table/list body, leaving `before-list` and `after-list`
-in place. It takes precedence over `display`, `row-item`, and `card-item`. `row-item`
-owns custom Quasar table-row markup in table mode; `card-item` owns item/card markup in
-list mode. Both receive `row`, `key`, `selected`, `open`, and `toggleSelected`.
+`list-header`, `list-body`, and `list-footer` are the ordered list-surface regions.
+`list-body` replaces only the table/list body and takes precedence over `display`,
+`row-item`, and `card-item`. `row-item` owns custom Quasar table-row markup in table mode;
+`card-item` owns item/card markup in list mode. Both receive `row`, `key`, `selected`,
+`open`, and `toggleSelected`.
 
-For one release cycle, the legacy `header`, `actions`, and `list` slots are retained.
-They warn in development: `header` acts as `caption`, `actions` as `tools`, and `list`
-remains a full-list replacement with precedence over the explicit list regions. Migrate
-to `caption`, `tools`, and `list-body` before the next breaking release.
+For one release cycle, the legacy `header`, `actions`, `list`, `before-list`, and
+`after-list` slots are retained. They warn in development: `header` acts as `caption`,
+`actions` as `tools`, `list` remains a full-list replacement with precedence over the
+explicit list regions, and `before-list`/`after-list` map to `list-header`/`list-footer`.
+Migrate to `caption`, `tools`, `list-header`, `list-body`, and `list-footer` before the
+next breaking release.
 
 Object-specific actions belong in `detail-actions`. This keeps them inside the responsive detail surface.
 

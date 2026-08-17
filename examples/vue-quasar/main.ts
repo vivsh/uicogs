@@ -456,7 +456,6 @@ const app = defineComponent({
               selection: "multiple",
               createForm: TaskCreate,
               editForm: TaskEdit,
-              create: false,
               mode: "auto",
               "onUpdate:modelValue": (key: string | number | undefined) => {
                 activeKey.value = typeof key === "number" ? key : undefined;
@@ -492,7 +491,7 @@ const app = defineComponent({
                   confirmMessage: "",
                   onSuccess: () => undefined,
                 }),
-              "after-list": () =>
+              "list-footer": () =>
                 h("div", { class: "workflow-status", "data-testid": "workflow-status" }, [
                   h("span", activeProject.value),
                   h("span", lastEvent.value),

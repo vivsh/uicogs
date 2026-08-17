@@ -12,6 +12,7 @@ import { UcNotificationList, type UcNotification } from "./notifications.js";
 
 const navigation = ref<Record<string, readonly object[]>>({});
 const cogs = {
+  icon: vi.fn((name: string) => name),
   navigation: vi.fn((placement: string) => computed(() => navigation.value[placement] ?? [])),
   notifications: new NotificationController(false),
   alerts: new AlertController(),
@@ -24,6 +25,7 @@ vi.mock("@uicogs/vue", async () => {
 
 describe("Quasar application shell", () => {
   afterEach(() => {
+    cogs.icon.mockImplementation((name: string) => name);
     cogs.notifications = new NotificationController(false);
   });
   it("renders nested navigation nodes, active state, and application-provided badges", () => {
@@ -247,6 +249,30 @@ describe("Quasar application shell", () => {
       "notifications",
     );
   });
+
+  it("resolves built-in and declared presentation icons through the UiCogs runtime", () => {
+    cogs.icon.mockImplementation(
+      (name: string) =>
+        ({ menu: "bars", notifications: "bell", campaign: "bullhorn" })[name] ?? name,
+    );
+    navigation.value = {
+      sidebar: [
+        { kind: "route", id: "home", label: "Home", icon: "menu", to: "/", current: false },
+      ],
+    };
+    const layout = mount(UcAppLayout, {
+      props: { notifications: [] },
+      global: { stubs: quasarStubs },
+    });
+    const notifications = mount(UcNotificationList, {
+      props: { items: [{ id: "release", title: "Release", icon: "campaign" }] },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(layout.find(".uc-app-layout__navigation-toggle").attributes("icon")).toBe("bars");
+    expect(layout.find(".uc-app-layout__notifications-toggle").attributes("icon")).toBe("bell");
+    expect(notifications.findComponent({ name: "QIconStub" }).props("name")).toBe("bullhorn");
+  });
 });
 
 const buttonStub = defineComponent({
@@ -281,7 +307,13 @@ const quasarStubs = {
   QItemSection: simpleStub("QItemSectionStub"),
   QItemLabel: simpleStub("QItemLabelStub"),
   QBadge: simpleStub("QBadgeStub"),
-  QIcon: defineComponent({ name: "QIconStub", setup: () => () => h("i", { "data-q-icon": true }) }),
+  QIcon: defineComponent({
+    name: "QIconStub",
+    props: { name: String },
+    setup(props) {
+      return () => h("i", { "data-q-icon": true, "data-icon": props.name });
+    },
+  }),
   QAvatar: simpleStub("QAvatarStub"),
   QBanner: simpleStub("QBannerStub"),
   QInnerLoading: defineComponent({
