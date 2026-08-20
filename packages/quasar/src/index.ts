@@ -281,7 +281,7 @@ interface ResourceObjectLike extends ExternalStore<object> {
   readonly key: EntityKey;
   readonly value?: Readonly<Record<string, unknown>>;
   readonly loading: boolean;
-  readonly error?: { readonly message?: string };
+  readonly error?: NormalizedFailure;
   load(): Promise<unknown>;
   refresh(): Promise<unknown>;
   form?(schema: unknown): FormLike;
@@ -563,6 +563,7 @@ const UcChoiceSelectEditor = defineComponent({
   props: { options: { type: Array as PropType<readonly unknown[]>, default: () => [] } },
   setup(props, { attrs }) {
     const icon = useUcIcon();
+    const multiple = attrs.multiple === true || attrs.multiple === "";
     return () =>
       h(
         QSelect,
@@ -592,6 +593,7 @@ const UcChoiceSelectEditor = defineComponent({
           }) => {
             const choice = scope.opt;
             if (!isChoiceOption(choice)) return choiceOptionLabel(choice);
+            if (!multiple) return choice.presentation.label;
             return h(
               QChip,
               {
@@ -1251,6 +1253,8 @@ export const UcView = defineComponent({
     title: String,
     aside: { type: Boolean, default: false },
     asideWidth: { type: String, default: "24rem" },
+    asideSticky: { type: Boolean, default: false },
+    asideStickyOffset: { type: String, default: "0px" },
     mode: {
       type: String as PropType<"auto" | "split" | "stack" | "dialog">,
       default: "auto",
@@ -1279,6 +1283,7 @@ export const UcView = defineComponent({
       const dialog =
         props.mode === "dialog" ||
         (props.mode === "auto" && Boolean(quasar?.screen.lt.md) && !stack);
+      const stickyAside = props.asideSticky && hasAside && !dialog && !stack;
       const body = h(
         "div",
         {
@@ -1294,6 +1299,7 @@ export const UcView = defineComponent({
               class: [
                 "uc-view__aside",
                 dialog && "uc-view__dialog",
+                stickyAside && "uc-view__aside--sticky",
                 props.padding && !dialog && "q-pa-md",
               ],
               style: dialog
@@ -1303,7 +1309,19 @@ export const UcView = defineComponent({
                     maxHeight: "calc(100vh - 32px)",
                     overflow: "auto",
                   }
-                : { flex: `0 0 ${props.asideWidth}`, minWidth: 0 },
+                : {
+                    flex: `0 0 ${props.asideWidth}`,
+                    minWidth: 0,
+                    ...(stickyAside
+                      ? {
+                          alignSelf: "flex-start",
+                          position: "sticky",
+                          top: props.asideStickyOffset,
+                          maxHeight: `calc(100dvh - ${props.asideStickyOffset})`,
+                          overflowY: "auto",
+                        }
+                      : {}),
+                  },
             },
             slots.aside?.({ close }),
           )
@@ -1617,6 +1635,8 @@ export const UcResourceView = defineComponent({
     display: { type: String as PropType<"table" | "list">, default: "table" },
     autoLoad: { type: Boolean, default: true },
     asideWidth: { type: String, default: "32rem" },
+    asideSticky: { type: Boolean, default: false },
+    asideStickyOffset: { type: String, default: "0px" },
     asideCaption: String,
     mode: {
       type: String as PropType<"auto" | "split" | "stack" | "dialog">,
@@ -1780,6 +1800,7 @@ export const UcResourceView = defineComponent({
         key === undefined ? undefined : vueReactive(resourceObject(resource, key));
       editController.value =
         resolvedEditForm.value &&
+        explicitActive.value?.value !== undefined &&
         explicitActive.value?.form &&
         can("edit", accessTarget(explicitActive.value))
           ? vueReactive(explicitActive.value.form(resolvedEditForm.value))
@@ -1877,6 +1898,7 @@ export const UcResourceView = defineComponent({
       editController.value =
         mode === "detail" &&
         resolvedEditForm.value &&
+        active.value?.value !== undefined &&
         active.value?.form &&
         can("edit", accessTarget(active.value))
           ? vueReactive(active.value.form(resolvedEditForm.value))
@@ -1907,7 +1929,10 @@ export const UcResourceView = defineComponent({
           return;
         }
         editController.value =
-          resolvedEditForm.value && object.form && can("edit", accessTarget(object))
+          resolvedEditForm.value &&
+          object.value !== undefined &&
+          object.form &&
+          can("edit", accessTarget(object))
             ? vueReactive(object.form(resolvedEditForm.value))
             : undefined;
       });
@@ -2028,7 +2053,7 @@ export const UcResourceView = defineComponent({
     ): ReturnType<typeof h> | undefined => {
       if (!actions.length) return undefined;
       return h(
-        "div",
+        UcActions,
         { class: "uc-resource-view__object-actions" },
         actions.map((action) =>
           action.requiresInput
@@ -2189,18 +2214,20 @@ export const UcResourceView = defineComponent({
         slots["list-body"]?.(listSlotProps()) ?? defaultListBody(),
         listFooterSlot?.(listSlotProps()),
       ];
-      const actions = active.value ? resolvedObjectActions() : [];
-      const detailActionSlot = active.value
-        ? slots["detail-actions"]?.({
-            resource,
-            object: active.value,
-            value: active.value.value,
-            actions,
-            can,
-            close,
-            refresh: () => run(() => active.value!.refresh()),
-          })
-        : undefined;
+      const selectedDetailReady = active.value?.value !== undefined;
+      const actions = selectedDetailReady ? resolvedObjectActions() : [];
+      const detailActionSlot =
+        active.value && selectedDetailReady
+          ? slots["detail-actions"]?.({
+              resource,
+              object: active.value,
+              value: active.value.value,
+              actions,
+              can,
+              close,
+              refresh: () => run(() => active.value!.refresh()),
+            })
+          : undefined;
       const scopedDetailActionSlot = detailActionSlot
         ? h(UcResourceViewDetailActionScope, { onDeleteSuccess: close }, () => detailActionSlot)
         : undefined;
@@ -2222,27 +2249,34 @@ export const UcResourceView = defineComponent({
               })
             : undefined))
         : active.value
-          ? [
-              slots.detail?.({
-                resource,
-                object: active.value,
-                value: active.value.value,
-                form: editController.value,
-                can,
+          ? selectedDetailReady
+            ? [
+                slots.detail?.({
+                  resource,
+                  object: active.value,
+                  value: active.value.value!,
+                  form: editController.value,
+                  can,
+                  close,
+                  refresh: () => run(() => active.value!.refresh()),
+                }) ??
+                  (editController.value
+                    ? h(UcForm, {
+                        form: editController.value,
+                        onSuccess: () => {
+                          refreshAfterMutation();
+                        },
+                        onFailure: (failure: unknown) => emit("failure", failure),
+                      })
+                    : defaultDetail(resource, active.value, columns.value)),
+                scopedDetailActionSlot ?? defaultObjectActions(actions),
+              ]
+            : selectedDetailState(
+                active.value,
                 close,
-                refresh: () => run(() => active.value!.refresh()),
-              }) ??
-                (editController.value
-                  ? h(UcForm, {
-                      form: editController.value,
-                      onSuccess: () => {
-                        refreshAfterMutation();
-                      },
-                      onFailure: (failure: unknown) => emit("failure", failure),
-                    })
-                  : defaultDetail(resource, active.value, columns.value)),
-              scopedDetailActionSlot ?? defaultObjectActions(actions),
-            ]
+                () => run(() => active.value!.refresh()),
+                props,
+              )
           : undefined;
       const asideHeader = (() => {
         if (!aside) return undefined;
@@ -2259,7 +2293,7 @@ export const UcResourceView = defineComponent({
           ]);
       const generatedAside = creating.value
         ? !slots.create
-        : Boolean(active.value) && !slots.detail;
+        : Boolean(active.value) && (!selectedDetailReady || !slots.detail);
       const asideSurface = generatedAside
         ? h(QCard, { class: "uc-resource-view__aside-card" }, () => [
             asideHeader,
@@ -2272,6 +2306,8 @@ export const UcResourceView = defineComponent({
         {
           aside,
           asideWidth: props.asideWidth,
+          asideSticky: props.asideSticky,
+          asideStickyOffset: props.asideStickyOffset,
           mode: props.mode,
           loading: listCollection.loading,
           refresh: () => listCollection.refresh(),
@@ -3407,4 +3443,29 @@ function defaultDetail(
       }),
     ),
   ]);
+}
+
+function selectedDetailState(
+  object: ResourceObjectLike,
+  close: () => void,
+  retry: () => void,
+  props: Readonly<{ readonly failureMessage?: string }>,
+) {
+  if (!object.error)
+    return h(QInnerLoading, { showing: true, class: "uc-resource-view__detail-loading" });
+  const message =
+    object.error.kind === "not-found" || object.error.status === 404
+      ? "This record no longer exists."
+      : (failureMessage(object.error) ?? props.failureMessage ?? "Unable to load this record.");
+  return h(
+    QBanner,
+    { class: "uc-resource-view__detail-failure bg-negative text-white" },
+    {
+      default: () => message,
+      action: () => [
+        h(UcButton, { flat: true, label: "Retry", onClick: retry }),
+        h(UcButton, { flat: true, label: "Close", onClick: close }),
+      ],
+    },
+  );
 }

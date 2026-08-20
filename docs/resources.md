@@ -7,7 +7,7 @@ This guide describes resource definitions and runtime controllers.
 A resource definition is the canonical identity of one entity type.
 
 ```ts
-import { operation, resource } from "@uicogs/core";
+import { operation, pagination, resource } from "@uicogs/core";
 
 const Tasks = resource({
   name: "tasks",
@@ -43,6 +43,34 @@ The resource owns:
 - resource-level error adapters.
 
 Operations own relative request behavior. Operations do not own a base URL.
+
+## List-Only Keyed Resources
+
+Some endpoints return complete keyed rows from one collection URL but intentionally have no
+per-item URL. Disable only the inferred retrieve operation explicitly:
+
+```ts
+const CrawlerSources = resource({
+  name: "crawler-sources",
+  url: "news/sources/status",
+  schema: CrawlerSourceStatus,
+  key: "sourceId",
+  operations: {
+    list: operation.list({ pagination: pagination.client() }),
+    retrieve: false,
+  },
+});
+```
+
+`resource.get(key).load()` then rejects with a structured `operation-disabled` failure and
+never constructs an item URL. `retrieve: false` is opt-in: omitting `retrieve` keeps the normal
+`{resource.url}/{key}/` retrieve convention.
+
+For a Vue route such as `/sources/:id?`, `useRouteResource()` waits for the list collection,
+then resolves the selected row from normalized cache data. Selecting a row still updates the URL,
+and a pasted or refreshed detail URL works without a second request. If the loaded list does not
+contain the key, the active detail becomes a structured 404/not-found state for `UcResourceView`'s
+standard Retry/Close surface.
 
 ## Registry
 

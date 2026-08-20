@@ -18,6 +18,8 @@ import {
   type FieldSkinContext,
   type UcSurfaceLayout,
   type UiCogsQuasarSkin,
+  UcResourceView,
+  UcView,
   quasarEditor,
 } from "@uicogs/quasar";
 
@@ -52,6 +54,14 @@ expectAssignable<UcButtonProps>({
   type: "submit",
 });
 expectAssignable<UcActionsProps>({ inline: true });
+expectAssignable<InstanceType<typeof UcView>["$props"]>({
+  asideSticky: true,
+  asideStickyOffset: "4rem",
+});
+expectAssignable<InstanceType<typeof UcResourceView>["$props"]>({
+  asideSticky: true,
+  asideStickyOffset: "4rem",
+});
 expectAssignable<UcFormActionLayout>("inline");
 expectError<UcFormActionLayout>("sideways");
 expectAssignable<UcErrorPageProps>({ status: 503, retryable: true, retryLabel: "Retry" });

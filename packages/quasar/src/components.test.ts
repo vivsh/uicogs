@@ -205,6 +205,44 @@ describe("Quasar forms and fields", () => {
     expect(form.values.account).toBe("live");
   });
 
+  it("renders a single enum selection as text and reserves chips for multi-select values", () => {
+    const choices = [{ value: "paper", presentation: { label: "Paper account" } }] as const;
+    const schema = defineSchema({
+      account: fields.Enum(choices),
+      audience: fields.EnumList(choices),
+    });
+    const form = createFormController(schema.toForm(), {
+      account: "paper",
+      audience: ["paper"],
+    });
+    const SelectStub = defineComponent({
+      name: "QSelect",
+      props: { options: Array, multiple: Boolean },
+      setup(props, { slots }) {
+        return () =>
+          h(
+            "div",
+            { class: props.multiple ? "choice-select--multiple" : "choice-select--single" },
+            slots["selected-item"]?.({ opt: props.options?.[0], index: 0 }),
+          );
+      },
+    });
+    const ChipStub = defineComponent({
+      name: "QChip",
+      setup(_props, { slots }) {
+        return () => h("span", { class: "choice-chip" }, slots.default?.());
+      },
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: { ...quasarStubs, QSelect: SelectStub, QChip: ChipStub } },
+    });
+
+    expect(wrapper.find(".choice-select--single").text()).toBe("Paper account");
+    expect(wrapper.find(".choice-select--single .choice-chip").exists()).toBe(false);
+    expect(wrapper.find(".choice-select--multiple .choice-chip").text()).toBe("Paper account");
+  });
+
   it("retains direct UcField select options outside enum catalogues", () => {
     const form = createFormController(defineSchema({ state: fields.Str() }).toForm(), {
       state: "open",
@@ -515,7 +553,14 @@ describe("Quasar forms and fields", () => {
 describe("Quasar views and tables", () => {
   it("renders split, stack, and dialog views and closes with Escape", async () => {
     const wrapper = mount(UcView, {
-      props: { title: "Tasks", aside: true, mode: "split", loading: true },
+      props: {
+        title: "Tasks",
+        aside: true,
+        mode: "split",
+        loading: true,
+        asideSticky: true,
+        asideStickyOffset: "4rem",
+      },
       slots: { default: "List", aside: "Detail" },
       global: { stubs: quasarStubs },
     });
@@ -524,6 +569,9 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("Detail");
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(true);
     expect(wrapper.find(".uc-view__aside").classes()).toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).toContain("uc-view__aside--sticky");
+    expect(wrapper.find(".uc-view__aside").attributes("style")).toContain("position: sticky");
+    expect(wrapper.find(".uc-view__aside").attributes("style")).toContain("top: 4rem");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await nextTick();
     expect(wrapper.emitted("update:aside")?.[0]).toEqual([false]);
@@ -535,6 +583,7 @@ describe("Quasar views and tables", () => {
     expect(wrapper.find("[data-q-dialog]").exists()).toBe(true);
     expect(wrapper.find("[data-q-dialog]").attributes("data-position")).toBe("standard");
     expect(wrapper.find(".uc-view__aside").classes()).not.toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("uc-view__aside--sticky");
     expect(wrapper.find(".uc-view__aside").classes()).not.toContain("bg-white");
     expect(wrapper.find(".uc-view__aside").classes()).not.toContain("shadow-2");
     wrapper.unmount();

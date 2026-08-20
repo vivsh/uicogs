@@ -1,6 +1,6 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `674c5807a5fee672d746bfc0cb91d3989daa1d78d0ebf2cedaea3bd4c825d639`
+Declaration SHA-256: `86eb6f289fbafe9dcefe6312a6897b84ab7bca3b3e9a3a33ea4a491f428ecf8c`
 
 ```ts
 // index.d.ts
@@ -215,7 +215,9 @@ interface ResourceAccess<TKey extends EntityKey, TValue extends Readonly<Record<
 declare function useResourceAccess<TKey extends EntityKey = EntityKey, TValue extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>>(options?: ResourceAccessOptions<TKey, TValue>): ResourceAccess<TKey, TValue>;
 /** A resource page composed from route state, route filters, a route list, and active detail state. */
 interface RouteResourceSource extends RouteCollectionSource {
-    readonly definition: RouteCollectionMetadata;
+    readonly definition: RouteCollectionMetadata & {
+        readonly operations?: Readonly<Record<string, unknown>>;
+    };
     get(...args: never[]): {
         readonly value?: Readonly<Record<string, unknown>>;
         readonly loading: boolean;

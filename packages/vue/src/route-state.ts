@@ -5,6 +5,8 @@ import {
   type FormSchema,
   type Infer,
   isLoggedIn,
+  normalizeFailure,
+  type NormalizedFailure,
   type Schema,
   type Shape,
   type ValidationIssue,
@@ -472,7 +474,9 @@ function reportPermitFailure(
 
 /** A resource page composed from route state, route filters, a route list, and active detail state. */
 export interface RouteResourceSource extends RouteCollectionSource {
-  readonly definition: RouteCollectionMetadata;
+  readonly definition: RouteCollectionMetadata & {
+    readonly operations?: Readonly<Record<string, unknown>>;
+  };
   get(...args: never[]): {
     readonly value?: Readonly<Record<string, unknown>>;
     readonly loading: boolean;
@@ -606,11 +610,41 @@ export function useRouteResource<
       void (next ? navigateCreate() : navigateDetail(undefined));
     },
   });
-  const activeObject = computed<ReturnType<TResource["get"]> | undefined>(() =>
+  const selectedObject = computed<ReturnType<TResource["get"]> | undefined>(() =>
     activeKey.value === undefined
       ? undefined
       : (options.resource.get(activeKey.value as never) as ReturnType<TResource["get"]>),
   );
+  const listOnly = retrieveIsDisabled(options.resource);
+  const selectedFailure = ref<NormalizedFailure>();
+  let resolvingSelection: string | undefined;
+  const resolveListOnlySelection = async (refresh = false): Promise<unknown> => {
+    const key = activeKey.value;
+    const object = selectedObject.value;
+    if (key === undefined || !object) return undefined;
+    const signature = String(key);
+    if (!refresh && resolvingSelection === signature) return undefined;
+    resolvingSelection = signature;
+    selectedFailure.value = undefined;
+    try {
+      const result = await (refresh ? collection.refresh() : collection.load());
+      if (Object.is(activeKey.value, key) && object.value === undefined)
+        selectedFailure.value = missingListItemFailure(key);
+      return result;
+    } catch (failure) {
+      if (Object.is(activeKey.value, key)) selectedFailure.value = normalizeFailure(failure);
+      throw failure;
+    } finally {
+      if (resolvingSelection === signature) resolvingSelection = undefined;
+    }
+  };
+  const activeObject = computed<ReturnType<TResource["get"]> | undefined>(() => {
+    const object = selectedObject.value;
+    const failure = selectedFailure.value;
+    return object && failure
+      ? routeSelectionFailureObject(object, failure, () => resolveListOnlySelection(true))
+      : object;
+  });
   const activeRevision = ref(0);
   watch(
     activeObject,
@@ -626,16 +660,19 @@ export function useRouteResource<
   );
   watchEffect(() => {
     void activeRevision.value;
-    const object = activeObject.value;
+    const object = selectedObject.value;
     const key = activeKey.value;
-    if (
-      object &&
-      key !== undefined &&
-      !object.value &&
-      !object.loading &&
-      access.can("view", { key })
-    )
-      void object.load();
+    if (!object || key === undefined || !access.can("view", { key })) return;
+    if (listOnly) {
+      if (object.value !== undefined) {
+        selectedFailure.value = undefined;
+        return;
+      }
+      if (selectedFailure.value) return;
+      void resolveListOnlySelection().catch(() => undefined);
+      return;
+    }
+    if (!object.value && !object.loading) void object.load().catch(() => undefined);
   });
   const mode = computed<RouteResourceMode>(() => {
     if (creating.value) return "create";
@@ -689,6 +726,36 @@ export function useRouteResource<
     create: navigateCreate,
     close: (navigation: RouteResourceNavigationOptions = {}) =>
       navigateDetail(undefined, navigation),
+  });
+}
+
+function retrieveIsDisabled(resource: RouteResourceSource): boolean {
+  return resource.definition.operations?.retrieve === false;
+}
+
+function missingListItemFailure(key: EntityKey): NormalizedFailure {
+  return Object.freeze({
+    kind: "not-found",
+    status: 404,
+    message: `This record is not available in the loaded list: ${String(key)}`,
+    issues: Object.freeze([]),
+    retryable: false,
+  });
+}
+
+function routeSelectionFailureObject<TObject extends object>(
+  object: TObject,
+  failure: NormalizedFailure,
+  retry: () => Promise<unknown>,
+): TObject {
+  return new Proxy(object, {
+    get(target, property) {
+      if (property === "error") return failure;
+      if (property === "loading") return false;
+      if (property === "load" || property === "refresh") return retry;
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
   });
 }
 

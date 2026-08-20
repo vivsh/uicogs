@@ -741,7 +741,14 @@ describe("Quasar views and tables", () => {
 
   it("renders split, stack, and dialog views and closes with Escape", async () => {
     const wrapper = mount(UcView, {
-      props: { title: "Tasks", aside: true, mode: "split", loading: true },
+      props: {
+        title: "Tasks",
+        aside: true,
+        mode: "split",
+        loading: true,
+        asideSticky: true,
+        asideStickyOffset: "4rem",
+      },
       slots: { default: "List", aside: "Detail" },
       global: { stubs: quasarStubs },
     });
@@ -750,6 +757,9 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("Detail");
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(true);
     expect(wrapper.find(".uc-view__aside").classes()).toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).toContain("uc-view__aside--sticky");
+    expect(wrapper.find(".uc-view__aside").attributes("style")).toContain("position: sticky");
+    expect(wrapper.find(".uc-view__aside").attributes("style")).toContain("top: 4rem");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await nextTick();
     expect(wrapper.emitted("update:aside")?.[0]).toEqual([false]);
@@ -761,6 +771,7 @@ describe("Quasar views and tables", () => {
     expect(wrapper.find("[data-q-dialog]").exists()).toBe(true);
     expect(wrapper.find("[data-q-dialog]").attributes("data-position")).toBe("standard");
     expect(wrapper.find(".uc-view__aside").classes()).not.toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("uc-view__aside--sticky");
     expect(wrapper.find(".uc-view__aside").classes()).not.toContain("bg-white");
     expect(wrapper.find(".uc-view__aside").classes()).not.toContain("shadow-2");
     expect(wrapper.find("[data-q-dialog] > aside.uc-view__dialog").exists()).toBe(true);
@@ -1074,6 +1085,80 @@ describe("Quasar views and tables", () => {
     expect(wrapper.emitted("update:creating")).toBeUndefined();
   });
 
+  it("waits for a route-selected object before invoking a custom detail slot", async () => {
+    const selected = routeObjectController({ loading: true });
+    const { routeResource } = routeDetailFixture(selected.object);
+    const detail = vi.fn(({ value }: { readonly value: Readonly<Record<string, unknown>> }) =>
+      h("div", { class: "route-detail" }, String(value.title)),
+    );
+    const wrapper = mount(UcResourceView, {
+      props: { routeResource, autoLoad: false, mode: "auto" },
+      slots: { detail },
+      global: {
+        stubs: quasarStubs,
+        config: { globalProperties: { $q: { screen: { lt: { md: false } } } } } as never,
+      },
+    });
+
+    expect(detail).not.toHaveBeenCalled();
+    expect(wrapper.find(".uc-resource-view__detail-loading").exists()).toBe(true);
+    expect(wrapper.find(".uc-view__dialog").exists()).toBe(false);
+
+    selected.set({ loading: false, value: { id: 1, title: "Loaded task" } });
+    await nextTick();
+    expect(detail).toHaveBeenCalledWith(
+      expect.objectContaining({ value: { id: 1, title: "Loaded task" } }),
+    );
+    expect(wrapper.find(".route-detail").text()).toBe("Loaded task");
+  });
+
+  it("contains a route-selected retrieve failure, retries it, and closes its mobile dialog", async () => {
+    const selected = routeObjectController({
+      error: { kind: "not-found", status: 404, issues: [], retryable: false },
+    });
+    selected.refresh.mockImplementation(async () => {
+      selected.set({ error: undefined, loading: false, value: { id: 1, title: "Recovered" } });
+    });
+    const { routeResource, close } = routeDetailFixture(selected.object);
+    const detail = vi.fn(({ value }: { readonly value: Readonly<Record<string, unknown>> }) =>
+      h("div", { class: "route-detail" }, String(value.title)),
+    );
+    const wrapper = mount(UcResourceView, {
+      props: { routeResource, autoLoad: false, mode: "auto" },
+      slots: { detail },
+      global: {
+        stubs: quasarStubs,
+        config: { globalProperties: { $q: { screen: { lt: { md: true } } } } } as never,
+      },
+    });
+
+    expect(detail).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("This record no longer exists.");
+    expect(wrapper.find(".uc-view__dialog").exists()).toBe(true);
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Retry")
+      ?.trigger("click");
+    await flushPromises();
+    expect(selected.refresh).toHaveBeenCalledOnce();
+    expect(detail).toHaveBeenCalledOnce();
+    expect(wrapper.text()).toContain("Recovered");
+
+    selected.set({
+      value: undefined,
+      error: { kind: "server", issues: [], retryable: true },
+    });
+    await nextTick();
+    expect(wrapper.text()).toContain("Unable to load this record.");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Close")
+      ?.trigger("click");
+    await flushPromises();
+    expect(close).toHaveBeenCalledOnce();
+    expect(wrapper.find(".uc-view__dialog").exists()).toBe(false);
+  });
+
   it("rejects route-resource mixed with explicit resource state", () => {
     const resource = externalResource({ rows: [] });
     const routeResource = {
@@ -1103,6 +1188,8 @@ describe("Quasar views and tables", () => {
         title: "Tasks",
         modelValue: 1,
         mode: "split",
+        asideSticky: true,
+        asideStickyOffset: "3rem",
         autoLoad: false,
       },
       global: { stubs: quasarStubs },
@@ -1116,6 +1203,8 @@ describe("Quasar views and tables", () => {
     expect(listPane.find(".uc-resource-view__list-card").exists()).toBe(true);
     expect(header.element.parentElement?.parentElement).toBe(listPane.element.firstElementChild);
     expect(aside.element.parentElement).toBe(listPane.element.parentElement);
+    expect(aside.classes()).toContain("uc-view__aside--sticky");
+    expect(aside.attributes("style")).toContain("top: 3rem");
   });
 
   it("composes explicit caption, tools, filters, and list regions in order", () => {
@@ -1804,6 +1893,7 @@ describe("Quasar views and tables", () => {
 
   it("forwards resource-view table and slot workflows", async () => {
     const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    resource.get = () => objectController({ value: { id: 1, title: "One" } });
     const wrapper = mount(UcResourceView, {
       props: {
         resource,
@@ -1862,7 +1952,18 @@ describe("Quasar views and tables", () => {
   });
 
   it("renders resource detail loading, failure, and missing states", async () => {
-    for (const state of [{ loading: true }, { error: { message: "Object unavailable" } }, {}]) {
+    for (const state of [
+      { loading: true },
+      {
+        error: {
+          kind: "unknown" as const,
+          message: "Object unavailable",
+          issues: [],
+          retryable: false,
+        },
+      },
+      {},
+    ]) {
       const resource = externalResource({ rows: [{ id: 1 }] });
       resource.get = () => objectController(state);
       const wrapper = mount(UcResourceView, {
@@ -2502,7 +2603,7 @@ function actionController(result: unknown) {
 function objectController(
   state: {
     readonly loading?: boolean;
-    readonly error?: { readonly message?: string };
+    readonly error?: NormalizedFailure;
     readonly value?: Readonly<Record<string, unknown>>;
   } = {},
 ) {
@@ -2516,6 +2617,67 @@ function objectController(
     refresh: async () => undefined,
     getSnapshot: () => store.getSnapshot(),
     subscribe: (listener: () => void) => store.subscribe(listener),
+  };
+}
+
+function routeObjectController(
+  initial: {
+    readonly loading?: boolean;
+    readonly error?: NormalizedFailure;
+    readonly value?: Readonly<Record<string, unknown>>;
+  } = {},
+) {
+  let state = { loading: initial.loading ?? false, error: initial.error, value: initial.value };
+  const store = new Store({ revision: 0 });
+  const set = (next: Partial<typeof state>): void => {
+    state = { ...state, ...next };
+    store.update((snapshot) => ({ ...snapshot, revision: snapshot.revision + 1 }));
+  };
+  const refresh = vi.fn(async () => undefined);
+  return {
+    object: {
+      key: 1,
+      get loading() {
+        return state.loading;
+      },
+      get error() {
+        return state.error;
+      },
+      get value() {
+        return state.value;
+      },
+      load: refresh,
+      refresh,
+      getSnapshot: () => store.getSnapshot(),
+      subscribe: (listener: () => void) => store.subscribe(listener),
+    },
+    refresh,
+    set,
+  };
+}
+
+function routeDetailFixture(object: ReturnType<typeof routeObjectController>["object"]) {
+  const resource = externalResource({ rows: [] });
+  const activeKey = ref<number | undefined>(1);
+  const activeObject = ref<typeof object | undefined>(object);
+  const creating = ref(false);
+  const close = vi.fn(async () => {
+    activeKey.value = undefined;
+    activeObject.value = undefined;
+  });
+  return {
+    close,
+    routeResource: {
+      resource,
+      collection: { ...resource, resource: resource.definition },
+      activeKey,
+      activeObject,
+      creating,
+      mode: computed<"list" | "detail">(() => (activeKey.value === undefined ? "list" : "detail")),
+      open: vi.fn(async () => undefined),
+      create: vi.fn(async () => undefined),
+      close,
+    },
   };
 }
 

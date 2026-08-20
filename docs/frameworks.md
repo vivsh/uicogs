@@ -467,10 +467,23 @@ It supports:
 - responsive aside content;
 - controlled aside visibility.
 
+Set `aside-sticky` to keep the desktop split aside in view while the main content scrolls.
+`aside-sticky-offset` defaults to `"0px"` and lets an application account for a fixed header.
+The aside uses its own vertical scrolling when it exceeds the available viewport height. Sticky
+behavior is deliberately inactive for `stack` and dialog modes; `mode="auto"` therefore remains
+a normal sticky aside on desktop and a normal modal dialog on mobile. The active desktop aside
+also carries the stable `uc-view__aside--sticky` hook.
+
 It contains no router behavior.
 
 ```vue
-<UcView v-model:aside="detailsOpen" title="Tasks" :refresh="() => tasks.refresh()">
+<UcView
+  v-model:aside="detailsOpen"
+  title="Tasks"
+  aside-sticky
+  aside-sticky-offset="4rem"
+  :refresh="() => tasks.refresh()"
+>
   <TaskList />
   <template #aside="{ close }">
     <TaskDetails @close="close" />
@@ -491,6 +504,10 @@ list: list-header, list-body, list-footer
 aside: create or detail, detail-actions
 ```
 
+It forwards `aside-sticky` and `aside-sticky-offset` to its `UcView` shell, so routed and
+non-routed detail asides can remain visible beside a long list without changing their route or
+selection behavior.
+
 The caption and tools share one responsive header row: from `md` upward the caption
 grows on the left and tools are right-aligned; below that they wrap into separate,
 centered rows. This matches `mode="auto"`, which uses the dialog detail surface below
@@ -506,6 +523,14 @@ a compact `QCardSection` header, a `QSeparator`, and a `QCardSection` for its fo
 detail content. `UcTable` and `UcForm` remain surface-neutral. A full `#list`, `#create`,
 or `#detail` slot owns its markup and adds `QCard/QCardSection` itself when it wants the
 same treatment.
+
+For an active detail route, `UcResourceView` owns retrieve state before it considers a
+`#detail` slot. It renders its standard loading aside while the selected object is pending,
+and does not call `#detail` until `value` exists. A failed retrieve renders a generated
+failure aside instead: 404 says `This record no longer exists.`, while other failures use the
+view's `failure-message` fallback. Its Retry reloads the selected object and Close uses the
+route-resource controller to return to the list URL. This keeps a custom detail layout from
+turning an unavailable record into an empty or crashing surface.
 
 The dedicated `#filters` region belongs in the header section. `#list-header` is wrapped
 in a padded `QCardSection` when UiCogs renders the default list surface, so a filter form

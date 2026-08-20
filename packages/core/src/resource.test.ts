@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { createUiCogs } from "./factory.js";
 import { fields } from "./field.js";
 import { CacheConflictError, operation } from "./resource.js";
+import { RequestError } from "./issues.js";
 import type { Transport, TransportRequest } from "./transport.js";
 
 class DeferredTransport implements Transport {
@@ -19,6 +20,46 @@ class DeferredTransport implements Transport {
 }
 
 describe("resource instances", () => {
+  it("does not infer a retrieve request when retrieve is explicitly disabled", async () => {
+    const requests: TransportRequest[] = [];
+    const transport: Transport = {
+      request: async (request) => {
+        requests.push(request);
+        return { status: 200, data: request.url === "tasks/1/" ? { id: 1 } : [] };
+      },
+    };
+    const cogs = createUiCogs({ context: undefined, transport });
+    const source = defineSchema({ sourceId: fields.Str({ required: true }) });
+    const Sources = registerResource(cogs)({
+      name: "sources",
+      url: "news/sources/status",
+      schema: source,
+      key: "sourceId",
+      operations: { list: operation.list(), retrieve: false },
+    });
+
+    const object = cogs.resource(Sources).get("moneycontrol-web");
+    await expect(object.load()).rejects.toMatchObject({
+      failure: {
+        kind: "operation-disabled",
+        message: "Operation retrieve is disabled on resource sources",
+        retryable: false,
+        issues: [],
+      },
+    } satisfies Partial<RequestError>);
+    expect(object.error).toMatchObject({ kind: "operation-disabled" });
+    expect(requests).toEqual([]);
+
+    const Tasks = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks",
+      schema: defineSchema({ id: fields.ID() }),
+      key: "id",
+    });
+    await cogs.resource(Tasks).get(1).load();
+    expect(requests.at(-1)?.url).toBe("tasks/1/");
+  });
+
   it("keeps controller state local while sharing data and requests", async () => {
     const transport = new DeferredTransport();
     const cogs = createUiCogs({ context: undefined, transport });

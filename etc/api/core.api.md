@@ -1,6 +1,6 @@
 # @uicogs/core API
 
-Declaration SHA-256: `8d1f7f9fa383bdd7b2f95dae826eeff61d33ffae69577ac887705b06cf543af0`
+Declaration SHA-256: `7a9636adc8d7becb568c263917e3c3cfb79c55d80b6fe99ff4549563ffde7ef8`
 
 ```ts
 // index.d.ts
@@ -210,7 +210,7 @@ declare class ParseError extends Error {
     readonly issues: readonly ValidationIssue[];
     constructor(issues: readonly ValidationIssue[]);
 }
-type FailureKind = "validation" | "authentication" | "permission" | "not-found" | "conflict" | "rate-limit" | "network" | "server" | "unknown";
+type FailureKind = "validation" | "authentication" | "permission" | "not-found" | "operation-disabled" | "conflict" | "rate-limit" | "network" | "server" | "unknown";
 interface NormalizedFailure {
     readonly kind: FailureKind;
     readonly status?: number;
@@ -1711,6 +1711,7 @@ interface RuntimeDefinition<TContext> {
     readonly views: Readonly<Record<string, RuntimeSchema<TContext>>>;
     readonly queries: Readonly<Record<string, RuntimeQuery<TContext>>>;
     readonly actions: Readonly<Record<string, RuntimeAction<TContext>>>;
+    readonly disabledOperations?: readonly string[];
     readonly pagination: PaginationAdapter;
     readonly configuredPagination?: PaginationAdapter;
     readonly responseAdapter?: ResponseAdapter;
@@ -1935,7 +1936,9 @@ declare const operation: {
 type ViewMap<TContext> = Readonly<Record<string, ViewLike<TContext>>>;
 type QueryMap<TContext> = Readonly<Record<string, QueryDefinition<SchemaLike<TContext>, string | undefined, TContext>>>;
 type ActionMap<TContext, TValue = unknown, TKey extends EntityKey = EntityKey> = Readonly<Record<string, ActionDefinition<SchemaLike<TContext> | undefined, SchemaLike<TContext> | undefined, string | undefined, TContext, TValue, TKey>>>;
-interface ResourceDefinitionOptions<TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext>, TQueries extends QueryMap<TContext>, TActions extends ActionMap<TContext, Infer<TSchema>, TKey>, TContext, TForms extends ResourceForms = ResourceForms> {
+/** Resource operations may explicitly disable the inferred item retrieve endpoint. */
+type ResourceActionMap<TContext, TValue = unknown, TKey extends EntityKey = EntityKey> = Readonly<Record<string, ActionDefinition<SchemaLike<TContext> | undefined, SchemaLike<TContext> | undefined, string | undefined, TContext, TValue, TKey> | false>>;
+interface ResourceDefinitionOptions<TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext>, TQueries extends QueryMap<TContext>, TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey>, TContext, TForms extends ResourceForms = ResourceForms> {
     readonly name: string;
     readonly url?: string;
     readonly source?: ResourceSource<TContext>;
@@ -1970,7 +1973,7 @@ interface ResourceForms {
     readonly create?: false | ResourceFormDefinition;
     readonly edit?: false | ResourceFormDefinition;
 }
-declare class ResourceDefinition<TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>, TContext = unknown, TForms extends ResourceForms = ResourceForms> {
+declare class ResourceDefinition<TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>, TContext = unknown, TForms extends ResourceForms = ResourceForms> {
     readonly _entity?: Infer<TSchema>;
     readonly resourceName: string;
     readonly name: string;
@@ -2044,11 +2047,11 @@ type NamedServiceDefinition<TName extends string, TDefinition> = TDefinition & {
     readonly name: TName;
     readonly serviceName: TName;
 };
-declare function resource<const TName extends string, TSchema extends SchemaLike<TContext>, TKeyName extends keyof Infer<TSchema> & string, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ActionMap<TContext, Infer<TSchema>, Extract<Infer<TSchema>[TKeyName], EntityKey>> = Readonly<Record<never, never>>, TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown, TForms extends ResourceForms = ResourceForms>(options: Omit<ResourceDefinitionOptions<TSchema, Extract<Infer<TSchema>[TKeyName], EntityKey>, TViews, TQueries, TActions, TContext, TForms>, "key" | "name"> & {
+declare function resource<const TName extends string, TSchema extends SchemaLike<TContext>, TKeyName extends keyof Infer<TSchema> & string, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ResourceActionMap<TContext, Infer<TSchema>, Extract<Infer<TSchema>[TKeyName], EntityKey>> = Readonly<Record<never, never>>, TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown, TForms extends ResourceForms = ResourceForms>(options: Omit<ResourceDefinitionOptions<TSchema, Extract<Infer<TSchema>[TKeyName], EntityKey>, TViews, TQueries, TActions, TContext, TForms>, "key" | "name"> & {
     readonly name: TName;
     readonly key: TKeyName;
 }): NamedResourceDefinition<TName, ResourceDefinition<TSchema, Extract<Infer<TSchema>[TKeyName], EntityKey>, TViews, TQueries, TActions, TContext, TForms>>;
-declare function resource<const TName extends string, TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>, TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown, TForms extends ResourceForms = ResourceForms>(options: Omit<ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>, "name"> & {
+declare function resource<const TName extends string, TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext> = Readonly<Record<never, never>>, TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>, TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey> = Readonly<Record<never, never>>, TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown, TForms extends ResourceForms = ResourceForms>(options: Omit<ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>, "name"> & {
     readonly name: TName;
 }): NamedResourceDefinition<TName, ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>>;
 declare function service<const TName extends string, TActions extends ActionMap<TContext> = Readonly<Record<never, never>>, TContext = unknown>(options: Omit<ServiceDefinitionOptions<TActions, TContext>, "name"> & {
@@ -2199,7 +2202,7 @@ declare class UiCogs<TContext, TResources extends readonly ResourceDefinitionIde
     protected currentContext(): TContext;
     dispose(): void;
 }
-declare class Resource<TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext>, TQueries extends QueryMap<TContext>, TActions extends ActionMap<TContext, Infer<TSchema>, TKey>, TContext> implements ExternalStore<ControllerState> {
+declare class Resource<TSchema extends SchemaLike<TContext>, TKey extends EntityKey, TViews extends ViewMap<TContext>, TQueries extends QueryMap<TContext>, TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey>, TContext> implements ExternalStore<ControllerState> {
     private readonly runtime;
     readonly definition: ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext>;
     readonly _entity?: Infer<TSchema>;
@@ -2284,12 +2287,12 @@ interface ObjectSnapshot<T> extends ControllerState {
     readonly value?: Readonly<T>;
     readonly stale: boolean;
 }
-interface ObjectActionExecutor<TKey extends EntityKey, TActions extends ActionMap<TContext, TValue, TKey>, TContext, TValue> {
+interface ObjectActionExecutor<TKey extends EntityKey, TActions extends ResourceActionMap<TContext, TValue, TKey>, TContext, TValue> {
     execute<K extends keyof TActions & string>(name: K, key: TKey, input: ActionInput<TActions[K]>, options?: MutationRequestOptions): Promise<unknown>;
     operation<K extends keyof TActions & string>(name: K, key: TKey, input: ActionInput<TActions[K]>): ActionController<unknown>;
     form<K extends keyof TActions & string, TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>>(name: K, key: TKey, schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>, initial?: Partial<FormValues<TFormSchema>>): FormController<TFormSchema>;
 }
-declare class ResourceObject<T, TKey extends EntityKey, TContext, TActions extends ActionMap<TContext, T, TKey> = ActionMap<TContext, T, TKey>> implements ExternalStore<ObjectSnapshot<T>> {
+declare class ResourceObject<T, TKey extends EntityKey, TContext, TActions extends ResourceActionMap<TContext, T, TKey> = ResourceActionMap<TContext, T, TKey>> implements ExternalStore<ObjectSnapshot<T>> {
     private readonly runtime;
     private readonly definition;
     private readonly keySource;

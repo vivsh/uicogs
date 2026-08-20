@@ -2,6 +2,9 @@ import {
   Store,
   createUiCogs,
   fields,
+  operation,
+  pagination,
+  resource,
   schema,
   type TransportRequest,
   type TransportResponse,
@@ -24,6 +27,10 @@ const TaskFilters = schema({
 });
 const TaskParams = schema({ id: fields.ID() });
 const Task = schema({ id: fields.ID(), title: fields.Str({ required: true }) });
+const CrawlerSourceStatus = schema({
+  sourceId: fields.Str({ required: true }),
+  label: fields.Str({ required: true }),
+});
 
 function routeHarness(options: { readonly authenticated?: boolean } = {}) {
   const app = createApp(defineComponent({ setup: () => () => null }));
@@ -152,6 +159,130 @@ class TestCollection implements RouteCollectionSource {
 }
 
 describe("Vue route state", () => {
+  it("selects a loaded list-only resource through the URL without a retrieve request", async () => {
+    const { app, router } = routeHarness();
+    const requests: TransportRequest[] = [];
+    const Sources = resource({
+      name: "sources",
+      url: "news/sources/status",
+      schema: CrawlerSourceStatus,
+      key: "sourceId",
+      operations: { list: operation.list({ pagination: pagination.client() }), retrieve: false },
+    });
+    const cogs = createUiCogs({
+      resources: [Sources],
+      transport: {
+        request: async (request) => {
+          requests.push(request);
+          return {
+            status: 200,
+            data: [{ sourceId: "moneycontrol-web", label: "Moneycontrol" }],
+          };
+        },
+      },
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource: cogs.resource(Sources),
+          filters: TaskFilters,
+        }),
+      ),
+    );
+
+    await settle();
+    await page?.open("moneycontrol-web");
+    await settle();
+
+    expect(router.currentRoute.value.params).toEqual({ id: "moneycontrol-web" });
+    expect(page?.activeObject.value?.value).toEqual({
+      sourceId: "moneycontrol-web",
+      label: "Moneycontrol",
+    });
+    expect(requests.map((request) => request.url)).toEqual(["news/sources/status"]);
+    scope.stop();
+  });
+
+  it("resolves a direct list-only detail route after its collection loads", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "moneycontrol-web" } });
+    const requests: TransportRequest[] = [];
+    const Sources = resource({
+      name: "sources",
+      url: "news/sources/status",
+      schema: CrawlerSourceStatus,
+      key: "sourceId",
+      operations: { list: operation.list({ pagination: pagination.client() }), retrieve: false },
+    });
+    const cogs = createUiCogs({
+      resources: [Sources],
+      transport: {
+        request: async (request) => {
+          requests.push(request);
+          return {
+            status: 200,
+            data: [{ sourceId: "moneycontrol-web", label: "Moneycontrol" }],
+          };
+        },
+      },
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource: cogs.resource(Sources),
+          filters: TaskFilters,
+        }),
+      ),
+    );
+
+    await settle();
+
+    expect(page?.activeObject.value?.value?.sourceId).toBe("moneycontrol-web");
+    expect(requests.map((request) => request.url)).toEqual(["news/sources/status"]);
+    scope.stop();
+  });
+
+  it("exposes a structured not-found state for an unknown list-only detail key", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "unknown-source" } });
+    const Sources = resource({
+      name: "sources",
+      url: "news/sources/status",
+      schema: CrawlerSourceStatus,
+      key: "sourceId",
+      operations: { list: operation.list({ pagination: pagination.client() }), retrieve: false },
+    });
+    const cogs = createUiCogs({
+      resources: [Sources],
+      transport: {
+        request: async () => ({
+          status: 200,
+          data: [{ sourceId: "moneycontrol-web", label: "Moneycontrol" }],
+        }),
+      },
+    });
+    const scope = effectScope();
+    const page = app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource: cogs.resource(Sources),
+          filters: TaskFilters,
+        }),
+      ),
+    );
+
+    await settle();
+
+    expect(page?.activeObject.value?.value).toBeUndefined();
+    expect(page?.activeObject.value?.error).toMatchObject({ kind: "not-found", status: 404 });
+    scope.stop();
+  });
+
   it("hydrates valid values, retains foreign query values, and replaces malformed owned values", async () => {
     const { app, router } = routeHarness();
     await router.push({
@@ -279,6 +410,33 @@ describe("Vue route state", () => {
     await settle();
     expect(router.currentRoute.value.params).toEqual({ id: "4" });
     expect(page?.activeKey.value).toBe(4);
+    scope.stop();
+  });
+
+  it("contains URL-driven detail retrieve rejections in the selected object state", async () => {
+    const { app, router } = routeHarness();
+    await router.push({ name: "tasks", params: { id: "4" } });
+    const source = new TestCollection();
+    const load = vi.fn(async () => {
+      throw new Error("Selected record unavailable");
+    });
+    const resource = Object.assign(source, {
+      definition: { name: "tasks", key: "id", schema: Task },
+      get: (key: number) => ({ key, loading: false, value: undefined, load }),
+    });
+    const scope = effectScope();
+    app.runWithContext(() =>
+      scope.run(() =>
+        useRouteResource({
+          route: "tasks",
+          resource,
+          filters: TaskFilters,
+        }),
+      ),
+    );
+
+    await settle();
+    expect(load).toHaveBeenCalledOnce();
     scope.stop();
   });
 

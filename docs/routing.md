@@ -175,6 +175,10 @@ detail key or creation state:
 <UcResourceView :route-resource="page" :columns="taskColumns" />
 ```
 
+When a keyed resource declares `operations.retrieve: false`, the same controller resolves an
+active `:id` from its route-bound list collection instead of requesting an inferred item endpoint.
+The list is loaded first; an absent key becomes the view's standard not-found detail state.
+
 `UcResourceView` derives immutable create and edit form definitions from the resource schema
 by default. Supply `create-form` or `edit-form` only when a page needs a narrower schema,
 different write behavior, or form-specific presentation:

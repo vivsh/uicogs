@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `4e483f2416cef55e956596d64d6297328e451cafd897829234c97a916f9d3bd3`
+Declaration SHA-256: `6668ff215ab524d26dd28d441154214e1ddc8faedc5a02b646c116f5681f6d3a`
 
 ```ts
 // index.d.ts
@@ -8,7 +8,7 @@ import * as vue from 'vue';
 import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
 import { UiCogsNavigationNode, ResourceAccess, ResourceCapability, ResourcePermitTarget, RouteResourceNavigationOptions, ResourceScopes, ResourcePermit } from '@uicogs/vue';
-import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Choice, FieldLayout, ResponsiveFieldLayout, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
+import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Choice, FieldLayout, ResponsiveFieldLayout, NormalizedFailure, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
 import { QEditor, QDialogOptions, QNotifyCreateOptions, QBtnProps } from 'quasar';
 import { RouteLocationRaw } from 'vue-router';
 
@@ -534,9 +534,7 @@ interface ResourceObjectLike extends ExternalStore<object> {
     readonly key: EntityKey;
     readonly value?: Readonly<Record<string, unknown>>;
     readonly loading: boolean;
-    readonly error?: {
-        readonly message?: string;
-    };
+    readonly error?: NormalizedFailure;
     load(): Promise<unknown>;
     refresh(): Promise<unknown>;
     form?(schema: unknown): FormLike;
@@ -862,6 +860,14 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    asideSticky: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    asideStickyOffset: {
+        type: StringConstructor;
+        default: string;
+    };
     mode: {
         type: PropType<"auto" | "split" | "stack" | "dialog">;
         default: string;
@@ -884,6 +890,14 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
         default: boolean;
     };
     asideWidth: {
+        type: StringConstructor;
+        default: string;
+    };
+    asideSticky: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    asideStickyOffset: {
         type: StringConstructor;
         default: string;
     };
@@ -910,6 +924,8 @@ declare const UcView: vue.DefineComponent<vue.ExtractPropTypes<{
     mode: "stack" | "auto" | "split" | "dialog";
     aside: boolean;
     asideWidth: string;
+    asideSticky: boolean;
+    asideStickyOffset: string;
 }, {}, {}, {}, string, vue.ComponentProvideOptions, true, {}, any>;
 declare const UcTable: vue.DefineComponent<vue.ExtractPropTypes<{
     resource: PropType<ResourceLike>;
@@ -1064,6 +1080,14 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    asideSticky: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    asideStickyOffset: {
+        type: StringConstructor;
+        default: string;
+    };
     asideCaption: StringConstructor;
     mode: {
         type: PropType<"auto" | "split" | "stack" | "dialog">;
@@ -1115,6 +1139,14 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
         type: StringConstructor;
         default: string;
     };
+    asideSticky: {
+        type: BooleanConstructor;
+        default: boolean;
+    };
+    asideStickyOffset: {
+        type: StringConstructor;
+        default: string;
+    };
     asideCaption: StringConstructor;
     mode: {
         type: PropType<"auto" | "split" | "stack" | "dialog">;
@@ -1149,6 +1181,8 @@ declare const UcResourceView: vue.DefineComponent<vue.ExtractPropTypes<{
 }>, {
     mode: "stack" | "auto" | "split" | "dialog";
     asideWidth: string;
+    asideSticky: boolean;
+    asideStickyOffset: string;
     selectedKeys: readonly EntityKey[];
     selection: "none" | "multiple" | "single";
     autoLoad: boolean;

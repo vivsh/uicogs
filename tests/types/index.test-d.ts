@@ -210,6 +210,15 @@ expectType<"list">(StandardUsers.operation("list").name);
 expectType<"retrieve">(StandardUsers.operation("retrieve").name);
 expectError(StandardUsers.operation("publish"));
 
+const ListOnlyUsers = resource({
+  name: "list-only-users",
+  url: "list-only-users",
+  schema: PureUser,
+  key: "id",
+  operations: { list: operation.list(), retrieve: false },
+});
+expectType<false>(ListOnlyUsers.operations.retrieve);
+
 const PasswordLogin = schema({
   username: fields.Str({ required: true }),
   password: fields.Password({ required: true }),
