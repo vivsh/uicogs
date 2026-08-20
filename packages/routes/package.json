@@ -1,7 +1,7 @@
 {
-  "name": "@uicogs/vue-router",
+  "name": "@uicogs/routes",
   "version": "0.1.0",
-  "description": "Optional Vue Router bindings for UiCogs resource workflows.",
+  "description": "Framework-neutral scope resolution for UiCogs framework bindings.",
   "license": "MIT",
   "author": "UiCogs",
   "type": "module",
@@ -25,13 +25,10 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --external vue"
+    "build": "tsup src/index.ts --format esm,cjs --dts"
   },
   "engines": {
     "node": ">=22"
-  },
-  "peerDependencies": {
-    "vue": "^3.5.0"
   },
   "publishConfig": {
     "access": "public"

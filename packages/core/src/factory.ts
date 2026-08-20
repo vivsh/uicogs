@@ -14,6 +14,7 @@ import {
   local,
   UiCogs,
   type ResourceDefinitionIdentity,
+  type ServiceDefinitionIdentity,
   type UiCogsOptions,
 } from "./resource.js";
 import { EventBus } from "./store.js";
@@ -24,7 +25,8 @@ export class Cogs<
   TEvents extends object = Readonly<Record<never, never>>,
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
-> extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources> {
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
+> extends UiCogs<UiCogsContext<TApplicationContext, TAuth>, TResources, TServices> {
   declare readonly auth: AuthControllerOf<TAuth>;
   readonly context: RuntimeContextStore<
     TApplicationContext,
@@ -41,12 +43,13 @@ export class Cogs<
   readonly pagination: typeof pagination = pagination;
   readonly events = new EventBus<TEvents>();
 
-  constructor(options: CogsOptions<TApplicationContext, TAuth, TResources>) {
+  constructor(options: CogsOptions<TApplicationContext, TAuth, TResources, TServices>) {
     super(
       options as unknown as UiCogsOptions<
         UiCogsContext<TApplicationContext, TAuth>,
         TAuth,
-        TResources
+        TResources,
+        TServices
       >,
     );
     this.context = this.contextController as unknown as RuntimeContextStore<
@@ -60,10 +63,21 @@ export type CogsOptions<
   TApplicationContext,
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
 > =
-  UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources> extends infer TOptions
-    ? TOptions extends UiCogsOptions<UiCogsContext<TApplicationContext, TAuth>, TAuth, TResources>
-      ? Omit<TOptions, "context" | "persistence"> & {
+  UiCogsOptions<
+    UiCogsContext<TApplicationContext, TAuth>,
+    TAuth,
+    TResources,
+    TServices
+  > extends infer TOptions
+    ? TOptions extends UiCogsOptions<
+        UiCogsContext<TApplicationContext, TAuth>,
+        TAuth,
+        TResources,
+        TServices
+      >
+      ? Omit<TOptions, "context" | "persistence" | "adapter"> & {
           readonly context?: ApplicationContext<TApplicationContext>;
           readonly persistence?: TOptions extends { readonly cache: CacheStore }
             ? Omit<PersistenceOptions<NoInfer<TApplicationContext>>, "cache"> & {
@@ -80,12 +94,15 @@ export function createUiCogs<
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   const TResources extends readonly ResourceDefinitionIdentity[] =
     readonly ResourceDefinitionIdentity[],
+  const TServices extends readonly ServiceDefinitionIdentity[] =
+    readonly ServiceDefinitionIdentity[],
 >(
-  options: CogsOptions<TApplicationContext, TAuth, TResources> = {} as CogsOptions<
+  options: CogsOptions<TApplicationContext, TAuth, TResources, TServices> = {} as CogsOptions<
     TApplicationContext,
     TAuth,
-    TResources
+    TResources,
+    TServices
   >,
-): Cogs<TApplicationContext, TEvents, TAuth, TResources> {
-  return new Cogs<TApplicationContext, TEvents, TAuth, TResources>(options);
+): Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices> {
+  return new Cogs<TApplicationContext, TEvents, TAuth, TResources, TServices>(options);
 }

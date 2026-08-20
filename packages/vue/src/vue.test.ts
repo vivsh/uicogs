@@ -1,11 +1,18 @@
 import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { describe, expect, it, vi } from "vitest";
-import { effectScope, nextTick, ref, watchEffect } from "vue";
-import { Store, createFormController, editor, fields, type LiveSource } from "@uicogs/core";
+import { createApp, defineComponent, effectScope, nextTick, ref, watchEffect } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
+import {
+  createUiCogs as createCoreUiCogs,
+  Store,
+  createFormController,
+  editor,
+  fields,
+  type LiveSource,
+} from "@uicogs/core";
 import {
   createRendererRegistry,
-  createUiCogs,
   useUcAction,
   useUcCollection,
   useUcController,
@@ -17,11 +24,24 @@ import {
   useUcSnapshot,
   useUcTableModel,
   vueReactive,
+  withVue,
 } from "./index.js";
+
+async function createUiCogs(options: Parameters<typeof createCoreUiCogs>[0]) {
+  const core = createCoreUiCogs(options);
+  const app = createApp(defineComponent({ setup: () => () => null }));
+  const binding = await withVue(core);
+  app.use(createRouter({ history: createMemoryHistory(), routes: [] })).use(binding.uiCogs);
+  return app.runWithContext(() => binding.useUiCogs()) as unknown as typeof core;
+}
 
 describe("Vue controller integration", () => {
   it("reacts to runtime context updates", async () => {
-    const api = createUiCogs({ context: { locale: "en" } });
+    const core = createCoreUiCogs({ context: { locale: "en" } });
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const binding = await withVue(core);
+    app.use(createRouter({ history: createMemoryHistory(), routes: [] })).use(binding.uiCogs);
+    const api = app.runWithContext(() => binding.useUiCogs());
     const values: string[] = [];
     const stop = watchEffect(() => {
       values.push(api.context.value.locale);
@@ -124,7 +144,7 @@ describe("Vue controller integration", () => {
   });
 
   it("creates Vue-adapted UiCogs resources", async () => {
-    const cogs = createUiCogs({
+    const cogs = await createUiCogs({
       context: undefined,
       transport: { request: async () => ({ status: 200, data: [{ id: 1, name: "One" }] }) },
     });
@@ -137,7 +157,7 @@ describe("Vue controller integration", () => {
   });
 
   it("rerenders local resources after synchronous cache facade writes", async () => {
-    const cogs = createUiCogs({ context: undefined });
+    const cogs = await createUiCogs({ context: undefined });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str({ required: true }) });
     const definition = registerResource(cogs)({
       name: "local-vue-items",
@@ -184,7 +204,7 @@ describe("Vue controller integration", () => {
         },
       }),
     };
-    const cogs = createUiCogs({ context: undefined, live });
+    const cogs = await createUiCogs({ context: undefined, live });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
     const Items = registerResource(cogs)({
       name: "live-vue-items",
@@ -238,6 +258,24 @@ describe("Vue controller integration", () => {
     });
     expect(model.fields.value[0]?.state.value.value).toBe("Ada");
     expect(model.summary.value.map((issue) => issue.message)).toEqual(["General", "Unknown"]);
+  });
+
+  it("derives only fields visible to the current reactive form values", () => {
+    const schema = defineSchema({
+      kind: fields.Enum(["paper", "broker"] as const, { required: true }),
+      secretRef: fields.Str(),
+    });
+    const form = createFormController(
+      schema.toForm({
+        fields: { secretRef: { visible: ({ values }) => values.kind !== "paper" } },
+      }),
+      { kind: "paper", secretRef: "saved-reference" },
+    );
+    const model = useUcFormModel(form);
+
+    expect(model.fields.value.map((field) => field.name)).toEqual(["kind"]);
+    form.set("kind", "broker");
+    expect(model.fields.value.map((field) => field.name)).toEqual(["kind", "secretRef"]);
   });
 
   it("derives table columns, rows, descriptors, sorting, and hidden fields", async () => {

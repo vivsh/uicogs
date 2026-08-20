@@ -15,6 +15,14 @@ describe("resource definitions and operation builders", () => {
     expect(operation.replace()).toEqual({ kind: "replace", method: "PUT" });
     expect(operation.patch()).toEqual({ kind: "patch", method: "PATCH" });
     expect(operation.remove()).toEqual({ kind: "remove", method: "DELETE" });
+    expect(operation.all()).toEqual({
+      list: { kind: "list", method: "GET" },
+      retrieve: { kind: "retrieve", method: "GET" },
+      create: { kind: "create", method: "POST" },
+      replace: { kind: "replace", method: "PUT" },
+      patch: { kind: "patch", method: "PATCH" },
+      remove: { kind: "remove", method: "DELETE" },
+    });
     expect(operation.action({ path: "publish/" })).toEqual({
       kind: "action",
       method: "POST",
@@ -24,8 +32,16 @@ describe("resource definitions and operation builders", () => {
       kind: "action",
       method: "POST",
       bulk: {},
+      target: "bulk",
+    });
+    expect(operation.object({ path: "archive/" })).toEqual({
+      kind: "action",
+      method: "POST",
+      path: "archive/",
+      target: "object",
     });
     expect(Object.isFrozen(operation.list())).toBe(true);
+    expect(Object.isFrozen(operation.all())).toBe(true);
 
     const { cogs, schema } = fixture();
     const definition = registerResource(cogs)({
@@ -42,6 +58,48 @@ describe("resource definitions and operation builders", () => {
     expect(definition).toMatchObject({ resourceName: "tasks", name: "tasks", ttl: 500 });
     expect(Object.isFrozen(definition)).toBe(true);
     expect(Object.isFrozen(definition.actions)).toBe(true);
+  });
+
+  it("declares every standard resource operation through operation.all", () => {
+    const { cogs, schema } = fixture();
+    const definition = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema,
+      key: "id",
+      operations: operation.all(),
+    });
+
+    expect(Object.keys(definition.operations)).toEqual([
+      "list",
+      "retrieve",
+      "create",
+      "replace",
+      "patch",
+      "remove",
+    ]);
+    expect(definition.operation("list").name).toBe("list");
+  });
+
+  it("preserves immutable create and edit form defaults without changing schema definitions", () => {
+    const { cogs, schema } = fixture();
+    const create = schema.keep("title").toForm({ mode: "create" });
+    const edit = schema.keep("title").toForm({ mode: "edit" });
+    const forms = { create, edit };
+    const definition = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema,
+      key: "id",
+      forms,
+    });
+
+    expect(definition.forms).toEqual(forms);
+    expect(definition.forms).not.toBe(forms);
+    expect(Object.isFrozen(definition.forms)).toBe(true);
+    expect(Object.isFrozen(create)).toBe(true);
+    expect(Object.isFrozen(edit)).toBe(true);
+    expect(schema.shape).toHaveProperty("title");
   });
 
   it("rejects missing, duplicate, and invalid-view resource definitions", () => {
@@ -63,17 +121,17 @@ describe("resource definitions and operation builders", () => {
     ).toThrow("must include key id");
   });
 
-  it("uses custom key functions, key encoders, controller adapters, and context updates", async () => {
+  it("uses custom key functions, key encoders, bound controller adapters, and context updates", async () => {
     const adapted: object[] = [];
     const cogs = createUiCogs({
       context: { version: 1 },
       transport: {
         request: async () => ({ status: 200, data: { code: "one", title: "Task" } }),
       },
-      adapter: (controller) => {
-        adapted.push(controller);
-        return controller;
-      },
+    });
+    cogs.bindControllerAdapter((controller) => {
+      adapted.push(controller);
+      return controller;
     });
     const schema = defineSchema({
       code: fields.Str({ required: true }),
@@ -222,7 +280,9 @@ describe("collections and queries", () => {
     });
     const resource = cogs.resource(definition);
     const collection = resource.query("search", {});
-    await expect(collection.load()).rejects.toThrow("Request failed");
+    await expect(collection.load()).rejects.toThrow(
+      "The server encountered an error. Please try again.",
+    );
     expect(collection.error).toMatchObject({ kind: "server", status: 503, retryable: true });
     collection.clearError();
     expect(collection.error).toBeUndefined();
@@ -294,7 +354,7 @@ describe("objects and cache policies", () => {
       },
     });
     const object = cogs.resource(definition).get(2);
-    await expect(object.load()).rejects.toThrow("Request failed");
+    await expect(object.load()).rejects.toThrow("The requested record could not be found.");
     expect(requests[0]).toMatchObject({ method: "POST", url: "tasks/find/2/" });
     expect(object.error).toMatchObject({ kind: "not-found", retryable: false });
     object.clearError();

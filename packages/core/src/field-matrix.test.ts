@@ -20,6 +20,11 @@ describe("field catalog", () => {
     expect(fields.Float().parse("8.5", path)).toBe(8.5);
     expect(fields.Bool().parse("yes", path)).toBe(true);
     expect(fields.Bool().parse("off", path)).toBe(false);
+    expect(fields.Bool({ nullable: true }).parse(null, path)).toBeNull();
+    const nullableBoolean = defineSchema({ featured: fields.Bool({ nullable: true }) });
+    const nullableValue = nullableBoolean.parse({ featured: null });
+    expect(nullableBoolean.write(nullableValue)).toEqual({ featured: null });
+    expect(nullableBoolean.toQuery(nullableValue)).toEqual({});
 
     const date = fields.Date().parse("2026-01-02", path);
     const dateTime = fields.DateTime().parse("2026-01-02T03:04:05Z", path);
@@ -41,6 +46,56 @@ describe("field catalog", () => {
     const json: JsonValue = { nested: [1, true, null] };
     expect(fields.JSON().parse(json, path)).toEqual(json);
     expect(fields.Unknown().parse(Symbol.for("value"), path)).toBe(Symbol.for("value"));
+  });
+
+  it("keeps rich enum presentation and meta out of parsed and written values", () => {
+    const kinds = [
+      {
+        value: "paper",
+        presentation: { label: "Paper account", icon: "science", tone: "info" },
+        meta: { requiresCredential: false },
+      },
+      {
+        value: "live",
+        presentation: {
+          label: "Live account",
+          description: "Places real orders",
+          disabled: true,
+        },
+        meta: { requiresCredential: true },
+      },
+    ] as const;
+    const field = fields.Enum(kinds);
+    const list = fields.EnumList(kinds);
+
+    expect(field.parse("paper", path)).toBe("paper");
+    expect(field.write("live", undefined)).toBe("live");
+    expect(list.parse(["paper", "live"], path)).toEqual(["paper", "live"]);
+    expect(field.options.choices[0]?.presentation.label).toBe("Paper account");
+    expect(field.options.choices[1]?.meta).toEqual({ requiresCredential: true });
+    expect(Object.isFrozen(field.options.choices)).toBe(true);
+    expect(Object.isFrozen(field.options.choices[0]?.presentation)).toBe(true);
+  });
+
+  it("rejects duplicate rich enum values at definition time", () => {
+    expect(() =>
+      fields.Enum([
+        { value: "open", presentation: { label: "Open" } },
+        { value: "open", presentation: { label: "Again" } },
+      ] as const),
+    ).toThrow("declared more than once");
+  });
+
+  it("rejects the legacy enum metadata property at definition time", () => {
+    expect(() =>
+      fields.Enum([
+        {
+          value: "paper",
+          presentation: { label: "Paper" },
+          metadata: { legacy: true },
+        },
+      ] as const),
+    ).toThrow("renamed to meta");
   });
 
   it("parses nested objects and object lists and delegates validation", async () => {
@@ -99,6 +154,24 @@ describe("field catalog", () => {
     expect(field.parse(null, path)).toBeNull();
     expect(field.toQuery("value", { allowed: true })).toBe("VALUE");
     expect(field.modify({ help: "Help" }).options.help).toBe("Help");
+  });
+
+  it("preserves immutable form and filter layout declarations", () => {
+    const field = fields.Str({
+      layout: {
+        form: { xs: 12, md: 6 },
+        filter: { xs: 12, md: 4, placement: "collapsible" },
+      },
+    });
+    expect(field.options.layout).toEqual({
+      form: { xs: 12, md: 6 },
+      filter: { xs: 12, md: 4, placement: "collapsible" },
+    });
+    expect(Object.isFrozen(field.options.layout)).toBe(true);
+    expect(field.modify({ layout: { form: { xs: "grow" } } }).options.layout).toEqual({
+      form: { xs: "grow" },
+    });
+    expect(field.describe()).toMatchObject({ layout: field.options.layout });
   });
 
   it("covers semantic editor, formatter, filter, and sorter factories", () => {

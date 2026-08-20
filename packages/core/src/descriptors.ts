@@ -5,22 +5,49 @@ export interface Descriptor<TKind extends string = string, TOptions = unknown> {
   readonly options?: Readonly<TOptions>;
 }
 
-export interface Choice<TValue = string | number> {
+/** Framework-neutral presentation hints for a finite choice. */
+export interface ChoicePresentation {
+  /** Human-readable text used by generated editors and formatters. */
   readonly label: string;
-  readonly value: TValue;
-  readonly disabled?: boolean;
+  /** Optional supporting text for choice-capable editors. */
   readonly description?: string;
+  /** Semantic icon name. Framework adapters may ignore unsupported icons. */
+  readonly icon?: string;
+  /** Semantic presentation role. Framework adapters may map known values to native roles. */
+  readonly tone?: string;
+  /** Prevents selection in generated editors without invalidating an existing value. */
+  readonly disabled?: boolean;
+}
+
+/** A finite raw value with framework-neutral presentation and application meta. */
+export interface Choice<TValue = string | number, TMeta = unknown> {
+  readonly value: TValue;
+  readonly presentation: ChoicePresentation;
+  /** Application-owned information excluded from UiCogs parsing and serialization. */
+  readonly meta?: TMeta;
 }
 
 export interface EditorDescriptorMap {
   text: { readonly autocomplete?: string; readonly inputMode?: string };
-  textarea: { readonly rows?: number; readonly autogrow?: boolean };
-  "rich-text": { readonly toolbar?: readonly string[] };
+  textarea: {
+    readonly rows?: number;
+    readonly autogrow?: boolean;
+    /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
+    readonly resize?: EditorResize;
+  };
+  "rich-text": {
+    readonly toolbar?: readonly string[];
+    /** Approximate minimum number of editable text rows. */
+    readonly rows?: number;
+    /** Native drag direction for the editable content area. */
+    readonly resize?: EditorResize;
+  };
   email: { readonly autocomplete?: string };
   password: { readonly autocomplete?: string; readonly revealable?: boolean };
   number: { readonly step?: number; readonly prefix?: string; readonly suffix?: string };
-  checkbox: { readonly labelPosition?: "before" | "after" };
-  switch: { readonly labelPosition?: "before" | "after" };
+  checkbox: { readonly labelPosition?: "before" | "after"; readonly toggleIndeterminate?: boolean };
+  switch: { readonly labelPosition?: "before" | "after"; readonly toggleIndeterminate?: boolean };
+  "radio-group": { readonly inline?: boolean };
   select: { readonly multiple?: boolean; readonly clearable?: boolean };
   autocomplete: { readonly multiple?: boolean; readonly minimumCharacters?: number };
   date: { readonly min?: string; readonly max?: string };
@@ -36,12 +63,15 @@ export interface EditorDescriptorMap {
   hidden: Readonly<Record<never, never>>;
 }
 
+/** Native resizing choices for generated multiline editors. */
+export type EditorResize = "vertical" | "both" | false;
+
 export interface FormatterDescriptorMap {
   text: { readonly empty?: string };
   boolean: { readonly trueLabel?: string; readonly falseLabel?: string };
   number: Intl.NumberFormatOptions;
-  choice: Readonly<Record<never, never>>;
-  choices: { readonly separator?: string };
+  choice: { readonly presentation?: "label" | "badge" };
+  choices: { readonly separator?: string; readonly presentation?: "label" | "badge" };
   date: Intl.DateTimeFormatOptions;
   time: Intl.DateTimeFormatOptions;
   datetime: Intl.DateTimeFormatOptions;
@@ -108,6 +138,8 @@ export const editor = {
   Number: (options: EditorDescriptorMap["number"] = {}) => descriptor("number", options),
   Checkbox: (options: EditorDescriptorMap["checkbox"] = {}) => descriptor("checkbox", options),
   Switch: (options: EditorDescriptorMap["switch"] = {}) => descriptor("switch", options),
+  RadioGroup: (options: EditorDescriptorMap["radio-group"] = {}) =>
+    descriptor("radio-group", options),
   Select: (options: EditorDescriptorMap["select"] = {}) => descriptor("select", options),
   Autocomplete: (options: EditorDescriptorMap["autocomplete"] = {}) =>
     descriptor("autocomplete", options),
@@ -130,7 +162,7 @@ export const format = {
   Text: (options: FormatterDescriptorMap["text"] = {}) => descriptor("text", options),
   Boolean: (options: FormatterDescriptorMap["boolean"] = {}) => descriptor("boolean", options),
   Number: (options: FormatterDescriptorMap["number"] = {}) => descriptor("number", options),
-  Choice: () => descriptor("choice", {}),
+  Choice: (options: FormatterDescriptorMap["choice"] = {}) => descriptor("choice", options),
   Choices: (options: FormatterDescriptorMap["choices"] = {}) => descriptor("choices", options),
   Date: (options: FormatterDescriptorMap["date"] = {}) => descriptor("date", options),
   Time: (options: FormatterDescriptorMap["time"] = {}) => descriptor("time", options),

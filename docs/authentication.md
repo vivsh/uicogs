@@ -24,26 +24,52 @@ The application does not install auth middleware manually.
 
 The application does not copy auth state into its application context.
 
-## Operation References
+## Safe Startup And Login State
 
-Auth lifecycle requests use resource operation references.
+Await the common runtime boundary before mounting the application or resolving the
+first route:
 
 ```ts
-const login = Sessions.operation("login");
-const refresh = Sessions.operation("refresh");
-const logout = Sessions.operation("logout");
+await api.ready;
+```
+
+It restores persistent context, resolves JWT or cookie authentication, then hydrates
+the active cache scope. Components therefore do not need to handle a startup auth
+state. Check login state with the core helper:
+
+```ts
+import { isLoggedIn } from "@uicogs/core";
+
+const loggedIn = isLoggedIn(api.auth);
+```
+
+This is client-side state for rendering and navigation only; endpoint authorization
+remains the server's responsibility.
+
+## Operation References
+
+Auth lifecycle requests use resource or service operation references. Use a service when
+login, refresh, and logout do not represent cached entities.
+
+```ts
+const login = Authentication.operation("login");
+const refresh = Authentication.operation("refresh");
+const logout = Authentication.operation("logout");
 const currentUser = Users.operation("current");
 ```
 
-An operation reference is immutable. It contains the resource definition and operation name. It contains no runtime or transport state.
+An operation reference is immutable. It contains its resource or service definition and
+operation name. It contains no runtime or transport state.
 
-Every referenced resource must be registered in the runtime.
+Every referenced resource or service must be registered in the runtime.
 
 ## JWT Definitions
 
-Define the wire schemas and resources first.
+Define the wire schemas, resources, and services first.
 
 ```ts
+import { fields, operation, resource, schema, service } from "@uicogs/core";
+
 const Credentials = schema({
   email: fields.Email({ required: true }),
   password: fields.Password({ required: true }),
@@ -57,17 +83,15 @@ const Tokens = schema({
 const Claims = schema({
   sub: fields.Str({ required: true }),
   tenant: fields.Str({ required: true }),
-  permissions: fields.StrList({ required: true }),
+  scopes: fields.StrList({ required: true }),
   exp: fields.Int(),
   nbf: fields.Int(),
 });
 
-const Sessions = resource({
-  name: "sessions",
+const Authentication = service({
+  name: "authentication",
   url: "sessions/",
-  schema: User,
-  key: "id",
-  operations: {
+  actions: {
     login: operation.action({
       path: "login/",
       input: Credentials,
@@ -92,13 +116,13 @@ import { jwtAuth, memoryAuthStorage } from "@uicogs/auth";
 
 const auth = jwtAuth({
   claims: Claims,
-  login: Sessions.operation("login"),
-  refresh: Sessions.operation("refresh"),
-  logout: Sessions.operation("logout"),
+  login: Authentication.operation("login"),
+  refresh: Authentication.operation("refresh"),
+  logout: Authentication.operation("logout"),
   currentUser: Users.operation("current"),
   storage: memoryAuthStorage(),
   state: () => ({ selectedProject: undefined as number | undefined }),
-  permissions: ({ claims }) => claims.permissions,
+  scopes: ({ claims }) => claims.scopes,
   cacheScope: ({ claims }) => ({
     subject: claims.sub,
     tenant: claims.tenant,
@@ -111,11 +135,33 @@ Create the runtime.
 ```ts
 const api = createUiCogs({
   baseUrl: "/api/",
-  resources: [Users, Sessions],
+  resources: [Users],
+  services: [Authentication],
   auth,
   context: { locale: "en", timeZone: "UTC" },
 });
 ```
+
+## Route Scopes And Roles
+
+Vue Router records consume the effective `api.auth.scopes` set through
+`meta.uicogs.scopes`. A matched chain with no scope declaration is guest-only;
+`scopes: []` means any authenticated user; every listed scope is required. Parent and
+child declarations combine.
+
+Role-based applications should map roles to stable capabilities in the strategy:
+
+```ts
+scopes: ({ user }) => user.roles.flatMap((role) => roleScopes[role] ?? []);
+```
+
+The Vue and React bindings use that set to hide unavailable links and block client
+navigation. Endpoint authorization must still be enforced by the server.
+
+`UcResourceView` and `useRouteResource()` use the same effective set for their optional
+`view`, `create`, and `edit` capability policies. Those policies govern surfaces inside an
+already-entered page route; unlike route metadata, an omitted capability is unrestricted.
+Use a route record's `meta.uicogs.scopes` to protect page entry itself.
 
 ## JWT Behavior
 
@@ -164,8 +210,8 @@ Cookie auth lets the browser own an HttpOnly session cookie.
 import { cookieAuth } from "@uicogs/auth";
 
 const auth = cookieAuth({
-  login: Sessions.operation("login"),
-  logout: Sessions.operation("logout"),
+  login: Authentication.operation("login"),
+  logout: Authentication.operation("logout"),
   session: Users.operation("current"),
   credentials: "same-origin",
   csrf: {
@@ -173,7 +219,7 @@ const auth = cookieAuth({
     token: () => readCookie("csrftoken"),
   },
   state: () => ({ selectedProject: undefined as number | undefined }),
-  permissions: ({ user }) => user.permissions,
+  scopes: ({ user }) => user.scopes,
   subject: ({ user }) => user.id,
   cacheScope: ({ user }) => ({
     subject: user.id,
@@ -207,7 +253,7 @@ Protected requests wait for initialization.
 
 Operations with `auth: "none"` do not wait.
 
-Local resources do not wait.
+Local resources and services do not wait.
 
 A cookie session `401` produces anonymous state. Other initialization failures produce error state.
 
@@ -223,7 +269,7 @@ Shared JWT and cookie state:
 api.auth.value;
 api.auth.status;
 api.auth.user;
-api.auth.permissions;
+api.auth.scopes;
 api.auth.state;
 api.auth.error;
 api.auth.sessionGeneration;

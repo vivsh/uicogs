@@ -106,6 +106,24 @@ export interface ErrorAdapter {
   adapt(response: TransportResponse<unknown>): NormalizedFailure | undefined;
 }
 
+/** Identifies how a successful response will be consumed by the runtime. */
+export type ResponseKind = "entity" | "collection" | "action";
+
+/** Describes the resource or operation receiving a successful response. */
+export interface ResponseDecodeContext {
+  readonly kind: ResponseKind;
+  readonly resource?: string;
+  readonly operation?: string;
+}
+
+/** Decodes successful responses and supplies related pagination and failure behavior. */
+export interface ResponseAdapter {
+  readonly name: string;
+  decode?(response: TransportResponse<unknown>, context: ResponseDecodeContext): unknown;
+  readonly pagination?: PaginationAdapter;
+  readonly errorAdapter?: ErrorAdapter;
+}
+
 export interface PageInfo {
   readonly index?: number;
   readonly size?: number;
@@ -265,6 +283,13 @@ export const pagination = {
   },
   custom(adapter: PaginationAdapter): PaginationAdapter {
     return Object.freeze(adapter);
+  },
+};
+
+/** Framework-neutral response adapter builders. */
+export const responseAdapters = {
+  custom(adapter: ResponseAdapter): ResponseAdapter {
+    return Object.freeze({ ...adapter });
   },
 };
 

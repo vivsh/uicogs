@@ -3,7 +3,13 @@ import { defineSchema, registerResource } from "./test-utils.js";
 import { describe, expect, it, vi } from "vitest";
 import { createUiCogs } from "./factory.js";
 import { fields } from "./field.js";
-import { LiveSourceError, type LiveFrame, type LiveOpenOptions, type LiveSource } from "./live.js";
+import {
+  LiveSourceError,
+  NotificationController,
+  type LiveFrame,
+  type LiveOpenOptions,
+  type LiveSource,
+} from "./live.js";
 
 class FrameQueue implements AsyncIterable<LiveFrame> {
   private readonly frames: LiveFrame[] = [];
@@ -164,6 +170,79 @@ describe("live source", () => {
     await vi.waitFor(() => expect(tasks.get(2).value?.title).toBe("Batch"));
     expect(tasks.stale).toBe(true);
     cogs.dispose();
+  });
+
+  it("isolates sources and applies adapter notification and alert effects", async () => {
+    const failing = new FrameQueue();
+    const notifications = new FrameQueue();
+    const cogs = createUiCogs({
+      context: undefined,
+      live: {
+        sources: [
+          {
+            name: "failing",
+            retry: { initialMs: 60_000, maximumMs: 60_000, jitter: 0 },
+            open: async () => ({ status: 503, frames: failing }),
+          },
+          controlledLive(notifications),
+        ],
+        adapters: [
+          {
+            map: ({ event: type, payload }) => {
+              if (type !== "inbox") return undefined;
+              const item = payload as { readonly id: string; readonly title: string };
+              return [
+                { kind: "notification" as const, mutation: { action: "upsert" as const, item } },
+                { kind: "alert" as const, alert: { message: item.title, level: "info" as const } },
+              ];
+            },
+          },
+        ],
+        notifications: { maximumItems: 1 },
+      },
+    });
+    await vi.waitFor(() => expect(cogs.live.status).toBe("open"));
+    expect(cogs.live.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "failing", status: "reconnecting" }),
+      ]),
+    );
+    notifications.push(event("inbox", { id: "one", title: "First" }, "one"));
+    await vi.waitFor(() => expect(cogs.notifications.items).toHaveLength(1));
+    expect(cogs.notifications.unreadCount).toBe(1);
+    expect(cogs.alerts.consume()).toMatchObject({ message: "First" });
+    notifications.push(event("inbox", { id: "two", title: "Second" }, "two"));
+    await vi.waitFor(() => expect(cogs.notifications.items[0]?.id).toBe("two"));
+    expect(cogs.notifications.items).toHaveLength(1);
+    cogs.dispose();
+  });
+
+  it("updates persistent inbox state atomically without inventing backend commands", () => {
+    const cogs = createUiCogs({ context: undefined, live: { sources: [] } });
+    expect(cogs.notifications.status).toBe("disabled");
+    cogs.dispose();
+  });
+
+  it("replaces, marks, and removes bounded inbox items with correct unread state", () => {
+    const inbox = new NotificationController(true, 2);
+    inbox.apply({
+      action: "replace",
+      items: [
+        { id: "one", title: "One" },
+        { id: "two", title: "Two", read: true },
+        { id: "three", title: "Three" },
+      ],
+      unreadCount: 7,
+    });
+    expect(inbox.items.map((item) => item.id)).toEqual(["one", "two"]);
+    expect(inbox.unreadCount).toBe(7);
+    inbox.apply({ action: "mark-read", id: "one" });
+    expect(inbox.unreadCount).toBe(0);
+    inbox.apply({ action: "upsert", item: { id: "three", title: "Three" } });
+    expect(inbox.items.map((item) => item.id)).toEqual(["three", "one"]);
+    expect(inbox.unreadCount).toBe(1);
+    inbox.apply({ action: "remove", id: "three" });
+    expect(inbox.items.map((item) => item.id)).toEqual(["one"]);
   });
 
   it("reconnects retryable statuses, retry directives, EOF, and thrown failures", async () => {

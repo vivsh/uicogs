@@ -26,6 +26,7 @@ export type FailureKind =
   | "authentication"
   | "permission"
   | "not-found"
+  | "operation-disabled"
   | "conflict"
   | "rate-limit"
   | "network"

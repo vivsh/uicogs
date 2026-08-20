@@ -1,15 +1,20 @@
 import {
   LiveSourceError,
   pagination as corePagination,
+  RequestError,
+  responseAdapters as coreResponseAdapters,
   type ErrorAdapter,
   type LiveFrame,
-  type LiveMutation,
+  type LiveEffectResult,
   type LiveOpenOptions,
   type LiveRetryOptions,
   type LiveSource,
   type LiveVersion,
   type NormalizedFailure,
   type PaginationAdapter,
+  type PageState,
+  type ResponseAdapter,
+  type ResponseDecodeContext,
   type TransportResponse,
   type ValidationIssue,
 } from "@uicogs/core";
@@ -36,11 +41,7 @@ export interface SseOptions<TContext> {
     readonly event: string;
     readonly payload: unknown;
     readonly source: { readonly type: string; readonly data: string; readonly id?: string };
-  }) =>
-    | LiveMutation
-    | readonly LiveMutation[]
-    | undefined
-    | Promise<LiveMutation | readonly LiveMutation[] | undefined>;
+  }) => LiveEffectResult | Promise<LiveEffectResult>;
   readonly onUnhandled?: (event: {
     readonly type: string;
     readonly data: string;
@@ -76,6 +77,91 @@ export function sse<TContext = unknown>(options: SseOptions<TContext>): LiveSour
   });
 }
 
+export interface WebSocketMessage {
+  readonly data: string;
+}
+
+export interface LiveWebSocket {
+  readonly readyState?: number;
+  close(code?: number, reason?: string): void;
+  addEventListener?(
+    type: "open" | "message" | "error" | "close",
+    listener: (event: unknown) => void,
+  ): void;
+  removeEventListener?(
+    type: "open" | "message" | "error" | "close",
+    listener: (event: unknown) => void,
+  ): void;
+  onopen?: (() => void) | null;
+  onmessage?: ((event: WebSocketMessage) => void) | null;
+  onerror?: (() => void) | null;
+  onclose?: (() => void) | null;
+}
+
+export interface WebSocketOptions<TContext> extends Omit<SseOptions<TContext>, "url"> {
+  readonly url: string;
+  readonly createSocket?: (url: string) => LiveWebSocket;
+}
+
+/** Creates an injected-or-browser WebSocket live source without exposing browser APIs to core. */
+export function websocket<TContext = unknown>(
+  options: WebSocketOptions<TContext>,
+): LiveSource<TContext> {
+  return Object.freeze({
+    ...(options.retry ? { retry: options.retry } : {}),
+    ...(options.enabled ? { enabled: options.enabled } : {}),
+    ...(options.version ? { version: options.version } : {}),
+    ...(options.map ? { map: options.map } : {}),
+    ...(options.onUnhandled ? { onUnhandled: options.onUnhandled } : {}),
+    async open(connection: LiveOpenOptions<TContext>) {
+      const createSocket = options.createSocket ?? browserSocket();
+      if (!createSocket) throw new LiveSourceError("No WebSocket implementation is available");
+      const socket = createSocket(joinUrl(connection.baseUrl, options.url));
+      await awaitSocketOpen(socket, connection.signal);
+      const frames = socketFrames(socket, connection.signal);
+      return { status: 200, frames };
+    },
+  });
+}
+
+export interface PollOptions<TContext> extends Omit<SseOptions<TContext>, "url"> {
+  readonly intervalMs: number;
+  request(options: {
+    readonly context: TContext;
+    readonly scope: string;
+    readonly transport: LiveOpenOptions<TContext>["transport"];
+    readonly baseUrl: string;
+    readonly signal: AbortSignal;
+  }): Promise<LiveEventResult | readonly LiveEventResult[] | undefined>;
+}
+
+export interface LiveEventResult {
+  readonly type: string;
+  readonly data: string;
+  readonly id?: string;
+}
+
+/** Polls one non-overlapping request per live connection; controller retry schedules the next poll. */
+export function poll<TContext = unknown>(options: PollOptions<TContext>): LiveSource<TContext> {
+  if (!Number.isSafeInteger(options.intervalMs) || options.intervalMs < 1)
+    throw new Error("poll.intervalMs must be a positive integer");
+  return Object.freeze({
+    retry: { initialMs: options.intervalMs, maximumMs: options.intervalMs, jitter: 0 },
+    ...(options.enabled ? { enabled: options.enabled } : {}),
+    ...(options.version ? { version: options.version } : {}),
+    ...(options.map ? { map: options.map } : {}),
+    ...(options.onUnhandled ? { onUnhandled: options.onUnhandled } : {}),
+    async open(connection: LiveOpenOptions<TContext>) {
+      const result = await options.request(connection);
+      const events = result === undefined ? [] : Array.isArray(result) ? result : [result];
+      return {
+        status: 200,
+        frames: pollFrames(events),
+      };
+    },
+  });
+}
+
 export async function* parseEventStream(body: AsyncIterable<Uint8Array>): AsyncIterable<LiveFrame> {
   const decoder = new TextDecoder();
   let pending: LiveFrame[] = [];
@@ -103,6 +189,126 @@ export async function* parseEventStream(body: AsyncIterable<Uint8Array>): AsyncI
   const remaining = decoder.decode();
   if (remaining) parser.feed(remaining);
   yield* pending;
+}
+
+function browserSocket(): ((url: string) => LiveWebSocket) | undefined {
+  const constructor = globalThis.WebSocket;
+  return constructor ? (url) => new constructor(url) as unknown as LiveWebSocket : undefined;
+}
+
+async function* pollFrames(events: readonly LiveEventResult[]): AsyncIterable<LiveFrame> {
+  for (const event of events) yield { kind: "event", event };
+}
+
+function awaitSocketOpen(socket: LiveWebSocket, signal: AbortSignal): Promise<void> {
+  if (socket.readyState === 1) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const open = () => settle(resolve);
+    const failed = () =>
+      settle(() => reject(new LiveSourceError("WebSocket connection failed", true)));
+    const aborted = () => settle(() => reject(new DOMException("Aborted", "AbortError")));
+    const settle = (done: () => void) => {
+      removeSocketListener(socket, "open", open);
+      removeSocketListener(socket, "error", failed);
+      removeSocketListener(socket, "close", failed);
+      signal.removeEventListener("abort", aborted);
+      done();
+    };
+    addSocketListener(socket, "open", open);
+    addSocketListener(socket, "error", failed);
+    addSocketListener(socket, "close", failed);
+    signal.addEventListener("abort", aborted, { once: true });
+  });
+}
+
+async function* socketFrames(socket: LiveWebSocket, signal: AbortSignal): AsyncIterable<LiveFrame> {
+  const queue = new AsyncFrameQueue();
+  const message = (event: unknown) => {
+    if (!isSocketMessage(event)) return;
+    queue.push({ kind: "event", event: { type: "message", data: event.data } });
+  };
+  const close = () => queue.close();
+  const abort = () => {
+    socket.close();
+    queue.close();
+  };
+  addSocketListener(socket, "message", message);
+  addSocketListener(socket, "close", close);
+  addSocketListener(socket, "error", close);
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    yield* queue;
+  } finally {
+    signal.removeEventListener("abort", abort);
+    removeSocketListener(socket, "message", message);
+    removeSocketListener(socket, "close", close);
+    removeSocketListener(socket, "error", close);
+    socket.close();
+  }
+}
+
+class AsyncFrameQueue implements AsyncIterable<LiveFrame> {
+  private readonly frames: LiveFrame[] = [];
+  private readonly waiters: ((result: IteratorResult<LiveFrame>) => void)[] = [];
+  private closed = false;
+
+  push(frame: LiveFrame): void {
+    if (this.closed) return;
+    const waiter = this.waiters.shift();
+    if (waiter) waiter({ done: false, value: frame });
+    else this.frames.push(frame);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) waiter({ done: true, value: undefined });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<LiveFrame> {
+    return {
+      next: () => {
+        const frame = this.frames.shift();
+        if (frame) return Promise.resolve({ done: false, value: frame });
+        if (this.closed) return Promise.resolve({ done: true, value: undefined });
+        return new Promise((resolve) => this.waiters.push(resolve));
+      },
+    };
+  }
+}
+
+function addSocketListener(
+  socket: LiveWebSocket,
+  type: "open" | "message" | "error" | "close",
+  listener: (event: unknown) => void,
+): void {
+  if (socket.addEventListener) socket.addEventListener(type, listener);
+  else if (type === "open") socket.onopen = () => listener(undefined);
+  else if (type === "message") socket.onmessage = listener as (event: WebSocketMessage) => void;
+  else if (type === "close") socket.onclose = () => listener(undefined);
+  else if (type === "error") socket.onerror = () => listener(undefined);
+}
+
+function removeSocketListener(
+  socket: LiveWebSocket,
+  type: "open" | "message" | "error" | "close",
+  listener: (event: unknown) => void,
+): void {
+  socket.removeEventListener?.(type, listener);
+  if (socket.removeEventListener) return;
+  if (type === "open") socket.onopen = null;
+  else if (type === "message") socket.onmessage = null;
+  else if (type === "error") socket.onerror = null;
+  else socket.onclose = null;
+}
+
+function isSocketMessage(value: unknown): value is WebSocketMessage {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "data" in value &&
+    typeof (value as { readonly data?: unknown }).data === "string"
+  );
 }
 
 export const pagination = {
@@ -153,8 +359,307 @@ export const pagination = {
   }),
 };
 
+/** Options for JSON:API pagination metadata and request parameters. */
+export interface JsonApiResponseOptions {
+  readonly countKey?: string;
+  readonly pageParam?: string;
+  readonly sizeParam?: string;
+}
+
+/** Options for locating and paging a GraphQL connection response. */
+export interface GraphqlConnectionResponseOptions {
+  readonly connection: string | readonly (string | number)[];
+  readonly cursorParam?: string;
+  readonly sizeParam?: string;
+}
+
+/** Common response profiles for documented HTTP API contracts. */
+export const responseAdapters = {
+  custom: coreResponseAdapters.custom,
+
+  /** Handles Vyuh direct responses, Page envelopes, and ErrorReport failures. */
+  vyuh(): ResponseAdapter {
+    return profile("vyuh", vyuhPagination(), vyuhErrors());
+  },
+
+  /** Handles Django REST Framework page envelopes and error dictionaries. */
+  drf(): ResponseAdapter {
+    return profile("drf", pagination.drf(), drfErrors());
+  },
+
+  /** Handles Laravel paginator envelopes and validation failures. */
+  laravel(): ResponseAdapter {
+    return profile("laravel", laravelPagination(), laravelErrors());
+  },
+
+  /** Handles Spring Data Page envelopes and Problem Details failures. */
+  springData(): ResponseAdapter {
+    return profile("spring-data", springDataPagination(), problemDetailsErrors());
+  },
+
+  /** Handles JSON:API primary data, pagination links, and errors. */
+  jsonApi(options: JsonApiResponseOptions = {}): ResponseAdapter {
+    return Object.freeze({
+      name: "json-api",
+      pagination: jsonApiPagination(options),
+      errorAdapter: jsonApiErrors(),
+      decode: decodeJsonApi,
+    });
+  },
+
+  /** Handles an explicitly located GraphQL connection and GraphQL errors. */
+  graphqlConnection(options: GraphqlConnectionResponseOptions): ResponseAdapter {
+    const path = normalizePath(options.connection);
+    return Object.freeze({
+      name: "graphql-connection",
+      pagination: graphqlConnectionPagination(options),
+      errorAdapter: graphqlErrors(),
+      decode(response: TransportResponse<unknown>, context: ResponseDecodeContext) {
+        const failure = graphqlErrors().adapt(response);
+        if (failure) throw new RequestError(failure);
+        return context.kind === "collection" ? valueAtPath(response.data, path) : response.data;
+      },
+    });
+  },
+};
+
+function profile(
+  name: string,
+  paginationAdapter: PaginationAdapter,
+  errorAdapter: ErrorAdapter,
+): ResponseAdapter {
+  return Object.freeze({ name, pagination: paginationAdapter, errorAdapter });
+}
+
+function vyuhPagination(): PaginationAdapter {
+  return Object.freeze({
+    name: "vyuh",
+    request: (page: PageState) => ({ page: page.index, per_page: page.size }),
+    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+      if (Array.isArray(response.data)) return boundedPage(response.data, page);
+      const data = asRecord(response.data);
+      const items = Array.isArray(data.items) ? data.items : [];
+      const index = positiveNumber(data.page) ?? page.index;
+      const size = positiveNumber(data.per_page) ?? page.size;
+      const count = nonNegativeNumber(data.total);
+      const totalPages = nonNegativeNumber(data.total_pages);
+      return {
+        items,
+        pageInfo: Object.freeze({
+          index,
+          size,
+          ...(count !== undefined ? { count } : {}),
+          ...(totalPages !== undefined ? { totalPages } : {}),
+          hasNext: totalPages !== undefined ? index < totalPages : false,
+          hasPrevious: index > 1,
+        }),
+      };
+    },
+  });
+}
+
+function laravelPagination(): PaginationAdapter {
+  return Object.freeze({
+    name: "laravel",
+    request: (page: PageState) => ({ page: page.index, per_page: page.size }),
+    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+      const data = asRecord(response.data);
+      const items = Array.isArray(data.data) ? data.data : [];
+      const index = positiveNumber(data.current_page) ?? page.index;
+      const size = positiveNumber(data.per_page) ?? page.size;
+      const count = nonNegativeNumber(data.total);
+      const totalPages = nonNegativeNumber(data.last_page);
+      const next = nullableString(data.next_page_url);
+      const previous = nullableString(data.prev_page_url);
+      return {
+        items,
+        pageInfo: Object.freeze({
+          index,
+          size,
+          ...(count !== undefined ? { count } : {}),
+          ...(totalPages !== undefined ? { totalPages } : {}),
+          hasNext: next !== undefined || (totalPages !== undefined && index < totalPages),
+          hasPrevious: previous !== undefined || index > 1,
+          ...(next ? { nextToken: next } : {}),
+          ...(previous ? { previousToken: previous } : {}),
+        }),
+        ...(next ? { nextPage: next } : {}),
+        ...(previous ? { previousPage: previous } : {}),
+      };
+    },
+  });
+}
+
+function springDataPagination(): PaginationAdapter {
+  return Object.freeze({
+    name: "spring-data",
+    request: (page: PageState) => ({ page: Math.max(0, page.index - 1), size: page.size }),
+    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+      const data = asRecord(response.data);
+      const items = Array.isArray(data.content) ? data.content : [];
+      const number = nonNegativeNumber(data.number);
+      const index = number === undefined ? page.index : number + 1;
+      const size = positiveNumber(data.size) ?? page.size;
+      const count = nonNegativeNumber(data.totalElements);
+      const totalPages = nonNegativeNumber(data.totalPages);
+      return {
+        items,
+        pageInfo: Object.freeze({
+          index,
+          size,
+          ...(count !== undefined ? { count } : {}),
+          ...(totalPages !== undefined ? { totalPages } : {}),
+          hasNext: totalPages !== undefined ? index < totalPages : false,
+          hasPrevious: index > 1,
+        }),
+      };
+    },
+  });
+}
+
+function jsonApiPagination(options: JsonApiResponseOptions): PaginationAdapter {
+  const pageParam = options.pageParam ?? "page[number]";
+  const sizeParam = options.sizeParam ?? "page[size]";
+  return Object.freeze({
+    name: "json-api",
+    request(page: PageState) {
+      return typeof page.token === "string"
+        ? queryFromUrl(page.token)
+        : { [pageParam]: page.index, [sizeParam]: page.size };
+    },
+    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+      const data = asRecord(response.data);
+      const links = asRecord(data.links);
+      const meta = asRecord(data.meta);
+      const next = nullableString(links.next);
+      const previous = nullableString(links.prev);
+      const count = options.countKey ? nonNegativeNumber(meta[options.countKey]) : undefined;
+      return {
+        items: Array.isArray(data.data) ? data.data : [],
+        pageInfo: Object.freeze({
+          index: page.index,
+          size: page.size,
+          ...(count !== undefined
+            ? { count, totalPages: page.size > 0 ? Math.ceil(count / page.size) : 1 }
+            : {}),
+          hasNext: next !== undefined,
+          hasPrevious: previous !== undefined,
+          ...(next ? { nextToken: next } : {}),
+          ...(previous ? { previousToken: previous } : {}),
+        }),
+        ...(next ? { nextPage: next } : {}),
+        ...(previous ? { previousPage: previous } : {}),
+      };
+    },
+  });
+}
+
+function graphqlConnectionPagination(options: GraphqlConnectionResponseOptions): PaginationAdapter {
+  const cursorParam = options.cursorParam ?? "after";
+  const sizeParam = options.sizeParam ?? "first";
+  return Object.freeze({
+    name: "graphql-connection",
+    request: (page: PageState) => ({
+      ...(page.token !== undefined ? { [cursorParam]: page.token } : {}),
+      [sizeParam]: page.size,
+    }),
+    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+      const connection = asRecord(response.data);
+      const pageInfo = asRecord(connection.pageInfo);
+      const next = pageInfo.endCursor;
+      const previous = pageInfo.startCursor;
+      const count = nonNegativeNumber(connection.totalCount);
+      const hasNext = pageInfo.hasNextPage === true;
+      const hasPrevious = pageInfo.hasPreviousPage === true;
+      return {
+        items: Array.isArray(connection.edges)
+          ? connection.edges.map((edge) => asRecord(edge).node)
+          : [],
+        pageInfo: Object.freeze({
+          index: page.index,
+          size: page.size,
+          ...(count !== undefined ? { count } : {}),
+          hasNext,
+          hasPrevious,
+          ...(hasNext && next !== undefined ? { nextToken: next } : {}),
+          ...(hasPrevious && previous !== undefined ? { previousToken: previous } : {}),
+        }),
+        ...(hasNext && next !== undefined ? { nextPage: next } : {}),
+        ...(hasPrevious && previous !== undefined ? { previousPage: previous } : {}),
+      };
+    },
+  });
+}
+
+function decodeJsonApi(
+  response: TransportResponse<unknown>,
+  context: ResponseDecodeContext,
+): unknown {
+  if (!isRecord(response.data) || !("data" in response.data)) return response.data;
+  const primary = response.data.data;
+  const decoded = Array.isArray(primary)
+    ? primary.map(decodeJsonApiResource)
+    : primary === null
+      ? null
+      : decodeJsonApiResource(primary);
+  return context.kind === "collection" ? { ...response.data, data: decoded } : decoded;
+}
+
+function decodeJsonApiResource(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const attributes = asRecord(value.attributes);
+  return Object.freeze({
+    ...attributes,
+    ...(value.id !== undefined ? { id: value.id } : {}),
+    ...(value.type !== undefined ? { type: value.type } : {}),
+  });
+}
+
+function boundedPage(items: readonly unknown[], page: PageState) {
+  return {
+    items,
+    pageInfo: Object.freeze({
+      index: page.index,
+      size: page.size,
+      count: items.length,
+      totalPages: 1,
+      hasNext: false,
+      hasPrevious: page.index > 1,
+    }),
+  };
+}
+
 export function drfErrors(): ErrorAdapter {
   return { adapt: (response) => mapDictionaryFailure(response) };
+}
+
+/** Normalizes Vyuh ErrorReport responses, including nested field issues. */
+export function vyuhErrors(): ErrorAdapter {
+  return {
+    adapt(response) {
+      if (!isRecord(response.data)) return undefined;
+      const report = response.data;
+      if (!("source" in report || "code" in report || "detail" in report || "errors" in report))
+        return undefined;
+      const issues = collectVyuhIssues(report.errors);
+      return failureFor(response, String(report.detail ?? "Request failed"), issues);
+    },
+  };
+}
+
+/** Normalizes Laravel message and field-error responses. */
+export function laravelErrors(): ErrorAdapter {
+  return {
+    adapt(response) {
+      if (!isRecord(response.data) || !isRecord(response.data.errors)) return undefined;
+      const issues = Object.entries(response.data.errors).flatMap(([name, messages]) =>
+        (Array.isArray(messages) ? messages : [messages]).map((message) =>
+          serverIssue(fieldPath(name), String(message)),
+        ),
+      );
+      return failureFor(response, String(response.data.message ?? "Request failed"), issues);
+    },
+  };
 }
 
 export function problemDetailsErrors(): ErrorAdapter {
@@ -182,11 +687,11 @@ export function jsonApiErrors(): ErrorAdapter {
         const error = asRecord(item);
         const pointer = isRecord(error.source) ? String(error.source.pointer ?? "") : "";
         return serverIssue(
-          pointer.split("/").filter(Boolean).slice(1),
+          jsonApiPointerPath(pointer),
           String(error.detail ?? error.title ?? "Invalid value"),
         );
       });
-      return failureFor(response, "Request failed", issues);
+      return failureFor(response, issues[0]?.message ?? "Request failed", issues);
     },
   };
 }
@@ -202,22 +707,35 @@ export function graphqlErrors(): ErrorAdapter {
           String(error.message ?? "Request failed"),
         );
       });
-      return failureFor(response, "Request failed", issues);
+      return failureFor(response, issues[0]?.message ?? "Request failed", issues);
     },
   };
 }
 
 function mapDictionaryFailure(response: TransportResponse<unknown>): NormalizedFailure | undefined {
   if (!isRecord(response.data)) return undefined;
-  const issues: ValidationIssue[] = [];
-  for (const [name, messages] of Object.entries(response.data)) {
-    const path = name === "non_field_errors" || name === "detail" ? [] : [name];
-    for (const message of Array.isArray(messages) ? messages : [messages])
-      issues.push(serverIssue(path, String(message)));
-  }
+  const issues = collectDictionaryIssues(response.data);
   return issues.length
     ? failureFor(response, issues[0]?.message ?? "Request failed", issues)
     : undefined;
+}
+
+function collectDictionaryIssues(
+  value: unknown,
+  path: readonly (string | number)[] = [],
+): ValidationIssue[] {
+  if (Array.isArray(value)) {
+    if (value.every((item) => !isRecord(item) && !Array.isArray(item)))
+      return value.map((item) => serverIssue(path, String(item)));
+    return value.flatMap((item, index) => collectDictionaryIssues(item, [...path, index]));
+  }
+  if (!isRecord(value)) return [serverIssue(path, String(value))];
+  return Object.entries(value).flatMap(([name, nested]) =>
+    collectDictionaryIssues(
+      nested,
+      name === "non_field_errors" || name === "detail" ? path : [...path, name],
+    ),
+  );
 }
 
 function failureFor(
@@ -250,8 +768,12 @@ function failureFor(
   };
 }
 
-function serverIssue(path: readonly (string | number)[], message: string): ValidationIssue {
-  return { path, message, code: "server", source: "server", severity: "error" };
+function serverIssue(
+  path: readonly (string | number)[],
+  message: string,
+  code = "server",
+): ValidationIssue {
+  return { path, message, code, source: "server", severity: "error" };
 }
 
 function problemIssue(value: unknown): ValidationIssue[] {
@@ -262,6 +784,23 @@ function problemIssue(value: unknown): ValidationIssue[] {
       String(value.message ?? "Invalid value"),
     ),
   ];
+}
+
+function collectVyuhIssues(
+  value: unknown,
+  path: readonly (string | number)[] = [],
+): ValidationIssue[] {
+  if (Array.isArray(value)) return value.flatMap((item) => collectVyuhIssues(item, path));
+  if (typeof value === "string") return [serverIssue(path, value)];
+  if (!isRecord(value)) return [];
+  if (typeof value.message === "string")
+    return [serverIssue(path, value.message, String(value.code ?? "server"))];
+  return Object.entries(value).flatMap(([name, nested]) =>
+    collectVyuhIssues(
+      nested,
+      name === "non_field_errors" || name === "detail" ? path : [...path, name],
+    ),
+  );
 }
 
 function parseLinks(value: string | undefined): Readonly<Record<string, string>> {
@@ -279,7 +818,60 @@ function cursorFrom(value: unknown): string | undefined {
   return new URL(value, "http://localhost").searchParams.get("cursor") ?? undefined;
 }
 
+function queryFromUrl(value: string): Readonly<Record<string, unknown>> {
+  const query: Record<string, unknown> = {};
+  for (const [name, item] of new URL(value, "http://localhost").searchParams) {
+    const current = query[name];
+    query[name] =
+      current === undefined ? item : Array.isArray(current) ? [...current, item] : [current, item];
+  }
+  return query;
+}
+
+function fieldPath(value: string): readonly (string | number)[] {
+  return value
+    .replace(/\[(\d+)\]/g, ".$1")
+    .split(".")
+    .filter(Boolean)
+    .map((part) => (/^\d+$/.test(part) ? Number(part) : part));
+}
+
+function jsonApiPointerPath(value: string): readonly (string | number)[] {
+  const path = value
+    .split("/")
+    .filter(Boolean)
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+  const attributes = path.indexOf("attributes");
+  return fieldPath((attributes >= 0 ? path.slice(attributes + 1) : path.slice(1)).join("."));
+}
+
+function normalizePath(value: string | readonly (string | number)[]): readonly (string | number)[] {
+  return typeof value === "string" ? value.split(".").filter(Boolean) : value;
+}
+
+function valueAtPath(value: unknown, path: readonly (string | number)[]): unknown {
+  let current = value;
+  for (const segment of path) {
+    if (!isRecord(current) && !Array.isArray(current)) return undefined;
+    current = current[segment as keyof typeof current];
+  }
+  return current;
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function nonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function nullableString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length ? value : undefined;
+}
+
 function joinUrl(base: string, path: string): string {
+  if (!path) return base;
   if (!base) return path;
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }

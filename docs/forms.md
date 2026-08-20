@@ -29,10 +29,78 @@ Form-only fields do not alter the entity schema.
 Supported modes are:
 
 ```text
-create | replace | patch | query | custom
+create | replace | patch | edit | query | custom
 ```
 
 The form writer returns the exact operation payload. A narrow edit form does not need server-owned required entity fields.
+`edit` is the generated resource-view update mode and has the same changed-field payload
+behavior as `patch`; an object controller still uses its normal update operation. Use `replace`
+only when the server expects a full replacement.
+
+## Resource-view defaults
+
+`UcResourceView` derives create and edit definitions from a resource schema, so a normal
+route-backed page needs no form declarations:
+
+```vue
+<UcResourceView :route-resource="taskPage" />
+```
+
+Provide a form prop to customize a single surface. The explicit definition wins over a resource
+default and schema derivation:
+
+```vue
+<UcResourceView :route-resource="taskPage" :create-form="TaskCreate" :edit-form="TaskEdit" />
+```
+
+For an intentionally read-only or list-only resource, use immutable resource form policy rather
+than treating an omitted prop as authorization:
+
+```ts
+const AuditEvents = resource({
+  name: "audit-events",
+  url: "audit-events/",
+  schema: AuditEvent,
+  key: "id",
+  forms: { create: false, edit: false },
+});
+```
+
+`false` disables only the generated form. Resource-view `scopes` and `permit` decide whether
+the `view`, `create`, or `edit` capability is available; server authorization remains final.
+
+The form definition is the authoritative editable-field and payload boundary. Define a
+different `keep`, `drop`, `extend`, or `toForm()` definition when validation or writing
+changes. `UcForm` may receive an optional read-only view only to choose its generated
+controls; every view field must already exist in the form definition. It cannot add
+fields, change validation, or become form input.
+
+## Conditional Fields
+
+Use the `fields` map on `toForm()` when a field's presence depends on other live form
+values. The rule belongs to the form definition, so it is typed, immutable, reactive in
+generated adapters, and does not affect other forms made from the same schema.
+
+```ts
+const BrokerAccountForm = CreateAccount.toForm({
+  mode: "custom",
+  fields: {
+    secretRef: {
+      visible: ({ values }) => values.kind !== "paper",
+    },
+  },
+});
+```
+
+`UcForm`, `UcFilter`, and explicit `UcField` components all omit a field while its
+`visible` callback returns `false`. The draft value is retained if the user changes the
+controlling value back. Hidden fields are skipped during field validation and omitted
+from UiCogs' generated schema payload; a custom `write` function remains the explicit
+owner of its output shape.
+
+Make a conditionally hidden field optional or nullable in the source schema. A required
+field is still required by the schema parser even when it is not presented. For example,
+the broker credential reference is nullable because paper accounts have no credential.
 
 ## Create A Controller
 
@@ -49,6 +117,51 @@ const form = api.resource(Tasks).get(42).form(TaskEdit);
 ```
 
 The controller owns an isolated draft. Editing the draft never mutates cached entity data.
+
+## Route-Bound Filter Forms
+
+For a shareable list page, let the URL own filter state instead of making `UcFilter`
+load a collection directly. `useRouteForm()` creates a normal query-mode form whose
+successful submission pushes one canonical route location; browser navigation resets its
+draft from that location.
+
+```ts
+const route = useRouteState({ route: "tasks", query: TaskFilters });
+const filterForm = useRouteForm({ route, schema: TaskFilters });
+```
+
+```vue
+<UcFilter :form="filterForm" />
+```
+
+Do not pass `collection` in this case: `useRouteCollection()` or `useRouteResource()`
+watches the URL and performs the matching load. `UcFilter` still accepts `collection`
+for the direct, non-route-bound pattern and retains its existing load-on-success behavior.
+When that reload fails, `UcFilter` displays its normal failure notification and emits
+`load-failure`; use `failure-message` to provide a local fallback. A route-bound
+collection retains its error state and can also expose failures through
+`useRouteCollection({ onFailure })` (or `useRouteResource({ onCollectionFailure })`).
+
+## Render A Form View
+
+Pass a schema view when the default `UcForm` controls should render a display subset of
+an otherwise unchanged form. Slots remain fully explicit and are unaffected by `view`.
+
+```vue
+<UcForm :form="form" :view="TaskEditor">
+  <!-- omit this slot to generate TaskEditor's fields -->
+</UcForm>
+```
+
+```ts
+const TaskEditor = Task.keep("title", "complete").view({
+  fields: ["title", "complete"],
+});
+```
+
+The view must be a subset of `form.schema.fields`. A form must still include every
+value required for its validation and writer; make a narrower form definition instead
+when those semantics change.
 
 ## State
 
@@ -235,18 +348,32 @@ interface NormalizedFailure {
 }
 ```
 
-Error-adapter precedence is operation, resource, runtime, then fallback.
+Error-adapter precedence is operation/query, resource/service, runtime, response profile,
+then fallback.
 
 The first adapter returning a failure wins.
 
 `@uicogs/http` provides:
 
 ```text
+responseAdapters.vyuh
+responseAdapters.drf
+responseAdapters.laravel
+responseAdapters.springData
+responseAdapters.jsonApi
+responseAdapters.graphqlConnection
+
 drfErrors
 problemDetailsErrors
 jsonApiErrors
 graphqlErrors
+vyuhErrors
+laravelErrors
 ```
+
+Use a response profile when one backend contract should own success envelopes,
+pagination, and errors together. Standalone error adapters remain useful as granular
+overrides. See [Response adapters](response-adapters.md).
 
 Adapters emit wire paths. Schema wire aliases map those paths back to form field names.
 
@@ -254,14 +381,273 @@ Mapped issues appear in field state.
 
 Unknown paths remain in `unboundIssues` and should be shown in the form summary.
 
+A safe plain-text `400` or `422` response becomes an unbound issue automatically.
+UiCogs normalizes and limits that snippet to 280 characters; HTML response bodies are
+never surfaced. Authentication, permission, method, and server failures use safe
+status-specific messages instead.
+
 Editing one field clears only issues attached to that field.
 
 ## Quasar Forms
 
 `UcForm` renders one controller.
 
+Its controller's form definition determines the field set. `UcField` slots choose
+placement and component overrides; they do not add fields to the payload or remove
+enabled fields from validation.
+
 `UcField` resolves the field's semantic editor descriptor.
 
-`UcSubmit` submits the controller.
+### Rich text and temporal editors
+
+`@uicogs/quasar` generates native Quasar field controls for `RichText`, `Date`, `Time`,
+`DateTime`, and `DateRange`. Date and range fields use popup pickers but
+retain UiCogs' `Date` and immutable tuple contracts; date-only values use a fixed UTC
+calendar representation to avoid timezone day shifts.
+
+Rich text has WYSIWYG `edit`, optional raw-HTML `source`, and sanitized read-only `preview`
+modes. The generated mode commands change only the visible surface; they never rewrite the
+stored value. Use the Quasar-specific descriptor for modes and named toolbar tools. Tools run
+only in WYSIWYG mode and receive the real `QEditor`, including `runCmd()` and `focus()`.
+
+```ts
+import { quasarEditor } from "@uicogs/quasar";
+
+fields.RichText({
+  editor: quasarEditor.RichText({
+    modes: ["edit", "source", "preview"],
+    toolbar: [["bold", "italic", "insert-token"]],
+    tools: {
+      "insert-token": {
+        label: "Insert token",
+        run: (editor) => editor.runCmd("insertText", "{{ customer.name }}"),
+      },
+    },
+  }),
+});
+```
+
+`edit`, `source`, and `preview` are reserved UiCogs mode names. Choose custom tool names that do
+not collide with Quasar's built-in rich-text commands.
+
+Nullable `Bool` fields render as three-state Quasar checkbox or switch controls. They
+cycle `null`, `true`, and `false`; use `editor.Checkbox({ toggleIndeterminate: false })`
+when null should display but not be selectable by interaction.
+
+Textarea and rich-text editors use the browser's native bottom-right resize
+handle by default. The default is vertical-only; choose `resize: "both"` to allow width
+changes or `resize: false` for a fixed editor. Use `rows` to set the initial height:
+textarea passes it directly to Quasar, while rich text converts it to an approximately
+equivalent minimum editable height that follows the current font size.
+`autogrow: true` takes precedence and intentionally disables manual resizing, since two
+competing height controls make the result unpredictable.
+
+```ts
+fields.Text({ editor: editor.Textarea({ rows: 6, resize: "both" }) });
+fields.RichText({ editor: editor.RichText({ rows: 10, resize: false }) });
+```
+
+`UcSubmit` submits the controller and defaults to Quasar's `primary` color. `UcButton`
+is the matching presentation-only button for custom links, toggles, and auxiliary controls.
+
+Enum fields can declare an inline or stacked radio group through their editor descriptor.
+The field remains an ordinary schema enum: the editor changes only presentation.
+
+For generated select, autocomplete, multi-select, radio, and table formatting, declare rich
+choices with a raw `value`, UI-facing `presentation`, and optional application `meta`:
+
+```ts
+const Publishing = schema({
+  visibility: fields.Enum(
+    [
+      {
+        value: "draft",
+        presentation: { label: "Draft", icon: "edit_note", tone: "info" },
+        meta: { publishable: true },
+      },
+      {
+        value: "published",
+        presentation: {
+          label: "Published",
+          description: "Visible to readers",
+          icon: "public",
+          tone: "positive",
+        },
+        meta: { publishable: false },
+      },
+    ] as const,
+    {
+      editor: editor.RadioGroup({ inline: true }),
+    },
+  ),
+});
+```
+
+`presentation.label` is required. `description`, semantic `icon`, semantic `tone`, and
+`disabled` are optional. UiCogs parses, validates, queries, and serializes only `value`;
+`presentation` and `meta` never enter form payloads. Raw shorthand remains available when
+labels matching the values are sufficient: `fields.Enum(["draft", "published"] as const)`.
+
+Use `format.Choice({ presentation: "badge" })` or `format.Choices({ presentation: "badge" })`
+when a generated table should render native Quasar chips. The default formatter renders choice
+labels as text. Known Quasar semantic tones are mapped to native colours; unsupported tone names
+remain uncoloured rather than creating a second palette system.
 
 The components do not own validation rules. Every enabled form field participates even when no component is mounted.
+
+### Responsive form and filter layout
+
+Fields can carry reusable responsive presentation intent. `UcForm` reads `layout.form`;
+`UcFilter` reads `layout.filter`, so an ordinary edit form and a horizontal filter row
+can give the same field different widths without duplicating its schema.
+
+```ts
+const TaskFilters = schema({
+  search: fields.Str({
+    layout: {
+      form: { xs: 12 },
+      filter: { xs: 12, md: 5, placement: "static" },
+    },
+  }),
+  createdAfter: fields.Date({
+    layout: { filter: { xs: 12, sm: 6, md: 3, placement: "collapsible" } },
+  }),
+});
+```
+
+Responsive values are `1` through `12`, `"auto"`, `"grow"`, or `"shrink"`.
+The Quasar adapter maps them to its native `col-*` classes; schemas remain free of
+Quasar class names. `placement: "collapsible"` has meaning only in `UcFilter`.
+
+Use app-wide defaults through the existing Quasar skin installation:
+
+```ts
+injectSkin(
+  app,
+  defineSkin({
+    layout: {
+      form: { mode: "stack", gutter: "md", size: "md", default: { xs: 12 } },
+      filter: {
+        mode: "grid",
+        gutter: "md",
+        size: "sm",
+        default: { xs: 12, md: 4 },
+        kinds: { boolean: { xs: "auto" }, textarea: { xs: 12 } },
+      },
+    },
+  }),
+);
+```
+
+`UcForm` also accepts a local `layout` override. Generated `UcFilter` fields with
+`placement: "static"` render first; optional fields are hidden until expanded. Bind
+`v-model:expanded` when that disclosure state belongs to the page.
+
+`gutter` defaults to `"md"` for both surfaces. Stack layouts use Quasar's
+`q-gutter-y-*` utility between members; grid layouts use matching `q-col-gutter-*`
+and `q-row-gutter-*` utilities. Set `gutter: "none"` when a custom layout owns all
+spacing.
+
+### Generated control density and size
+
+`UcForm` and `UcFilter` accept `dense` and `size` directly, and the same defaults can
+be declared in `layout.form` and `layout.filter`. `size` is intentionally limited to
+`"sm"` and `"md"`: small controls use Quasar's 40px dense field geometry with 12px
+text, while medium controls use 56px regular geometry with 14px text. A small size
+defaults to dense; an explicit `dense` prop can override that geometry while retaining
+the chosen text scale.
+
+```vue
+<UcForm :form="editor" size="md" />
+<UcFilter :form="filters" size="sm" />
+<UcFilter :form="filters" size="md" dense />
+```
+
+When a surface has a size or dense setting, generated `UcField` editors and UiCogs
+buttons share one resolved density and typography scale. Only actions that share an
+inline grid row with fields receive an explicit matching control height. Raw `QBtn`
+and application-provided custom editors remain application-owned. `"lg"` is deliberately
+unsupported because Quasar has no public per-instance large-field geometry contract.
+
+Field density does not make generated buttons dense: Quasar's `QBtn dense` also removes
+most horizontal padding. UiCogs instead preserves normal button padding and uses an
+explicit height only for inline action rows. Set `dense` directly on `UcButton` when a
+compact application button is genuinely wanted.
+
+```vue
+<UcFilter v-model:expanded="moreFilters" :form="filterForm">
+  <template #actions="{ expanded, hasCollapsible, toggleExpanded }">
+    <UcSubmit label="Apply" />
+    <UcButton v-if="hasCollapsible" flat @click="toggleExpanded()">
+      {{ expanded ? "Fewer filters" : "More filters" }}
+    </UcButton>
+  </template>
+</UcFilter>
+```
+
+`#actions` is shared by `UcForm` and `UcFilter`. Forms render it after their fields;
+generated filters render it inline beside static filters. Keep page/list actions in
+`UcResourceView #tools` and object actions in `detail-actions`.
+
+### Action rows
+
+`UcActions` is the shared Quasar-native action-row container. `UcForm` and `UcFilter`
+create it automatically, so custom action slots normally contain only buttons. Use
+`UcButton` rather than a raw `QBtn` when a custom button should share UiCogs' stable
+`uc-button` hook; raw `QBtn` remains fully application-owned.
+
+```vue
+<UcForm :form="form" action-layout="inline">
+  <template #actions>
+    <UcSubmit label="Save" />
+    <UcButton flat label="Cancel" @click="cancel()" />
+  </template>
+</UcForm>
+```
+
+`action-layout` defaults to `"footer"`. Set it to `"inline"` only when actions share a
+horizontal grid row with fields. Those actions receive the same explicit visible-control
+height as generated fields and align to the row start; they never stretch to a field's
+hint or validation-message area. At `xs`, the action region becomes a full row and its
+buttons wrap safely. Stacked forms, form footers, table tools, and detail actions retain
+Quasar's natural button height, even when their containing form has a UiCogs size.
+
+### Quasar skin and CSS hooks
+
+`@uicogs/quasar` can apply one typed, application-scoped skin. Install it before the
+Vue app mounts. Palette roles map only to Quasar's existing `--q-*` variables at that
+application's root; UiCogs does not create a second token system.
+
+```ts
+import { defineSkin, injectSkin } from "@uicogs/quasar";
+
+injectSkin(
+  app,
+  defineSkin({
+    palette: { primary: "#5b4bdb", negative: "#c62828" },
+    form: { class: "app-form" },
+    field: { outlined: true, bgColor: "grey-2", class: "app-form__field" },
+  }),
+);
+```
+
+Use `skin` on a form for local form and field overrides. A field skin may instead be
+one callback receiving `{ name, field, form }`, which is useful for state such as
+`form.field(name).dirty`. Set `hideBottomSpace: true` when compact fields should not
+reserve Quasar's empty hint/error area; errors then expand the field only when shown.
+Field appearance merges application skin, form skin,
+editor configuration, then UiCogs-required bindings. Model values, validation errors,
+choices, and readonly behavior therefore cannot be replaced by a skin.
+
+```vue
+<UcForm :form="form" :skin="{ field: { dense: true, bgColor: 'grey-1' } }">
+  <UcField name="title" />
+</UcForm>
+```
+
+The following stable classes are always emitted as applicable: `uc-form`,
+`uc-form__grid`, `uc-form__field`, `uc-form__actions`, `uc-filter__static`,
+`uc-filter__collapsible`, `uc-filter__actions`; `uc-field`, `uc-field-<editor-kind>`,
+and `uc-field-<schema-name>`. For example,
+`uc-field-password` and `uc-field-internal_note` are safe CSS hooks for app styling.
+They merge with skin and editor classes.

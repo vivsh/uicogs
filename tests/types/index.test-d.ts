@@ -1,40 +1,154 @@
 import { expectAssignable, expectError, expectType } from "tsd";
 import {
   createUiCogs,
+  editor,
   fields,
   local,
   memoryCache,
   operation,
+  responseAdapters,
   resource,
+  service,
   schema,
   type Encoded,
   type PersistenceBackend,
   type FormPayload,
+  type FormMode,
+  type FormController,
   type FormValues,
   type Infer,
   type Input,
   type LiveSource,
+  type LiveEffect,
+  type UiNotification,
   type LiveStatus,
   type MultipartAdapter,
   type OperationInput,
   type OperationOutput,
   type ResourceDefinition,
+  type ResponseAdapter,
+  type ServiceDefinition,
+  type FieldLayout,
+  type ChoicePresentation,
+  type UiCogsIconName,
+  type UiCogsIconOverrides,
 } from "@uicogs/core";
+import { responseAdapters as httpResponseAdapters } from "@uicogs/http";
+
+const customResponse = responseAdapters.custom({
+  name: "custom",
+  decode: (response, context) => (context.kind === "entity" ? response.data : response.data),
+});
+expectAssignable<FieldLayout>({
+  form: { xs: 12, md: 6 },
+  filter: { xs: "auto", placement: "collapsible" },
+});
+expectError<FieldLayout>({ form: { xs: 13 } });
+expectError<FieldLayout>({ filter: { xs: "wide" } });
+expectError<FieldLayout>({ filter: { placement: "hidden" } });
+expectType<ResponseAdapter>(customResponse);
+expectType<ResponseAdapter>(httpResponseAdapters.vyuh());
+expectType<ResponseAdapter>(httpResponseAdapters.drf());
+expectType<ResponseAdapter>(httpResponseAdapters.laravel());
+expectType<ResponseAdapter>(httpResponseAdapters.springData());
+expectType<ResponseAdapter>(httpResponseAdapters.jsonApi({ countKey: "total" }));
+expectType<ResponseAdapter>(httpResponseAdapters.graphqlConnection({ connection: "data.users" }));
+expectError(httpResponseAdapters.graphqlConnection({}));
+expectAssignable<UiCogsIconName>("dateRange");
+expectAssignable<UiCogsIconOverrides>({ close: "xmark", archive: "box-archive" });
+expectError<UiCogsIconOverrides>({ close: 1 });
 
 const PureUser = schema({
   id: fields.ID(),
   name: fields.Str({ required: true }),
 });
+const PureUserEdit = PureUser.toForm({ mode: "edit" });
+const PureUserCreateNameOnly = PureUser.keep("name").toForm({ mode: "create" });
+expectType<FormMode>(PureUserEdit.mode);
+const FormConfiguredUsers = resource({
+  name: "form-configured-users",
+  url: "form-configured-users/",
+  schema: PureUser,
+  key: "id",
+  forms: { create: PureUserCreateNameOnly, edit: false },
+});
+expectType<typeof PureUserCreateNameOnly>(FormConfiguredUsers.forms!.create);
+expectType<false>(FormConfiguredUsers.forms!.edit);
 const PureInput = schema({ notify: fields.Bool({ required: true }) });
+const ConditionalInput = schema({
+  kind: fields.Enum(["paper", "broker"] as const, { required: true }),
+  secretRef: fields.Str(),
+});
+const ConditionalInputForm = ConditionalInput.toForm({
+  fields: {
+    secretRef: {
+      visible: ({ values }) => {
+        expectAssignable<"paper" | "broker" | undefined>(values.kind);
+        return values.kind !== "paper";
+      },
+    },
+  },
+});
+expectType<boolean>(ConditionalInputForm.visible("secretRef", { kind: "paper" }));
+expectError(ConditionalInput.toForm({ fields: { missing: { visible: () => true } } }));
+const NullableBoolean = schema({ featured: fields.Bool({ nullable: true }) });
+void NullableBoolean;
+expectType<boolean | null | undefined>({} as Infer<typeof NullableBoolean>["featured"]);
+expectAssignable(editor.Textarea({ resize: "vertical" }));
+expectAssignable(editor.RichText({ resize: "both" }));
+expectAssignable(editor.RichText({ rows: 8 }));
+expectAssignable(editor.RadioGroup({ inline: true }));
+expectError(editor.Textarea({ resize: "horizontal" }));
+expectError(editor.RichText({ resize: true }));
+expectError(editor.RichText({ rows: "eight" }));
+expectError(editor.Checkbox({ toggleIndeterminate: "yes" }));
+expectError(editor.RadioGroup({ inline: "yes" }));
+expectAssignable<ChoicePresentation>({ label: "Paper", icon: "science", tone: "info" });
+expectError<ChoicePresentation>({ icon: "science" });
+const RichAccountKind = fields.Enum([
+  {
+    value: "paper",
+    presentation: { label: "Paper", tone: "info" },
+    meta: { requiresCredential: false },
+  },
+  {
+    value: "live",
+    presentation: { label: "Live", description: "Places real orders" },
+    meta: { requiresCredential: true },
+  },
+] as const);
+expectType<"paper" | "live">({} as Input<typeof RichAccountKind>);
+expectType<"paper" | "live">({} as Infer<typeof RichAccountKind>);
+expectAssignable<{ readonly requiresCredential: boolean } | undefined>(
+  RichAccountKind.options.choices[0]?.meta,
+);
+expectError(fields.Enum([{ value: "paper", presentation: { icon: "science" } }] as const));
+const RichAccountKinds = fields.EnumList([
+  { value: "paper", presentation: { label: "Paper" } },
+  { value: "live", presentation: { label: "Live" } },
+] as const);
+expectType<readonly ("paper" | "live")[]>({} as Infer<typeof RichAccountKinds>);
+void RichAccountKinds;
+const PureInputForm = PureInput.toForm();
 const PureUsers = resource({
   name: "pure-users",
   url: "users/",
   schema: PureUser,
   key: "id",
+  responseAdapter: customResponse,
+  queries: { notified: { input: PureInput, responseAdapter: customResponse } },
   operations: {
-    publish: operation.action({ input: PureInput, output: PureUser }),
+    publish: operation.action({
+      input: PureInput,
+      output: PureUser,
+      responseAdapter: customResponse,
+    }),
   },
 });
+createUiCogs({ resources: [PureUsers], responseAdapter: customResponse });
+const iconApi = createUiCogs({ icons: { close: "xmark", archive: "box-archive" } });
+expectType<string>(iconApi.icon("close"));
+expectType<string>(iconApi.icon("archive"));
 const pureApi = createUiCogs({ resources: [PureUsers] });
 expectType<number>(pureApi.resource(PureUsers).get(1).key);
 expectType<number>(pureApi.resource("pure-users").get(1).key);
@@ -44,6 +158,105 @@ expectType<"publish">(publishReference.name);
 expectAssignable<OperationInput<typeof publishReference>>({ notify: true });
 expectType<Infer<typeof PureUser>>({} as OperationOutput<typeof publishReference>);
 expectError(PureUsers.operation("missing"));
+expectType<FormController<typeof PureInputForm>>(
+  pureApi.resource(PureUsers).actionForm("publish", PureInputForm),
+);
+
+const PresentedUsers = resource({
+  name: "presented-users",
+  url: "users/",
+  schema: PureUser,
+  key: "id",
+  operations: {
+    archive: operation.object({
+      input: PureInput,
+      output: PureUser,
+      presentation: {
+        placement: ["aside", "custom-detail"],
+        label: "Archive",
+        scopes: ["users.archive"],
+        visible: ({ value }) => value?.name !== "",
+      },
+    }),
+    export: operation.action({
+      presentation: { placement: ["list"], label: "Export" },
+    }),
+  },
+});
+const presentedApi = createUiCogs({ resources: [PresentedUsers] });
+const presentedUser = presentedApi.resource(PresentedUsers).get(1);
+expectType<Promise<Infer<typeof PureUser>>>(presentedUser.action("archive", { notify: true }));
+expectType<FormController<typeof PureInputForm>>(
+  presentedUser.actionForm("archive", PureInputForm),
+);
+expectAssignable<readonly string[]>(
+  presentedApi
+    .resource(PresentedUsers)
+    .actions({
+      placement: "aside",
+      object: { key: presentedUser.key, value: presentedUser.value },
+    })
+    .map((action) => action.name),
+);
+
+const StandardUsers = resource({
+  name: "standard-users",
+  url: "standard-users/",
+  schema: PureUser,
+  key: "id",
+  operations: operation.all(),
+});
+expectType<"list">(StandardUsers.operation("list").name);
+expectType<"retrieve">(StandardUsers.operation("retrieve").name);
+expectError(StandardUsers.operation("publish"));
+
+const ListOnlyUsers = resource({
+  name: "list-only-users",
+  url: "list-only-users",
+  schema: PureUser,
+  key: "id",
+  operations: { list: operation.list(), retrieve: false },
+});
+expectType<false>(ListOnlyUsers.operations.retrieve);
+
+const PasswordLogin = schema({
+  username: fields.Str({ required: true }),
+  password: fields.Password({ required: true }),
+});
+const Session = schema({ token: fields.Str({ required: true }) });
+const PasswordLoginForm = PasswordLogin.toForm();
+const Authentication = service({
+  name: "authentication",
+  url: "auth/",
+  responseAdapter: customResponse,
+  actions: {
+    passwordLogin: operation.action({
+      input: PasswordLogin,
+      output: Session,
+      auth: "none",
+      responseAdapter: customResponse,
+    }),
+  },
+});
+const serviceApi = createUiCogs({ services: [Authentication] });
+const loginReference = Authentication.operation("passwordLogin");
+void loginReference;
+expectAssignable<OperationInput<typeof loginReference>>({ username: "ada", password: "secret" });
+expectType<Infer<typeof Session>>({} as OperationOutput<typeof loginReference>);
+expectError(Authentication.operation("missing"));
+expectType<Promise<Infer<typeof Session>>>(
+  serviceApi
+    .service(Authentication)
+    .action("passwordLogin", { username: "ada", password: "secret" }),
+);
+expectError(serviceApi.service(Authentication).action("passwordLogin", { username: "ada" }));
+expectType<FormController<typeof PasswordLoginForm>>(
+  serviceApi.service(Authentication).actionForm("passwordLogin", PasswordLoginForm),
+);
+expectError(serviceApi.service(Authentication).actionForm("passwordLogin", PureInput.toForm()));
+expectError(pureApi.resource(PureUsers).actionForm("publish", PasswordLoginForm));
+expectError(serviceApi.service(Authentication).cache);
+expectAssignable<ServiceDefinition<typeof Authentication.actions, unknown>>(Authentication);
 
 const ContextSchema = schema.withContext<{ readonly locale: string }>()({
   value: fields.Str({ required: true }),
@@ -236,9 +449,28 @@ expectAssignable<LiveSource<{ locale: string }>>({
     },
   }),
 });
+const liveEffect: LiveEffect = {
+  kind: "notification",
+  mutation: { action: "upsert", item: { id: "release", title: "Release ready" } },
+};
+void liveEffect;
+expectAssignable<UiNotification>({ id: "release", title: "Release ready" });
+createUiCogs({
+  live: {
+    sources: [],
+    adapters: [{ map: () => ({ kind: "alert", alert: { message: "Saved" } }) }],
+    notifications: { maximumItems: 100 },
+  },
+});
 
 expectAssignable<MultipartAdapter>({
   name: "custom",
   path: (path) => path.join("."),
   parts: (part) => [{ name: part.name, value: part.value }],
 });
+
+expectError(
+  createUiCogs({
+    routes: [{ path: "/invalid", component: "Invalid" }],
+  }),
+);

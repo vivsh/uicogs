@@ -119,6 +119,14 @@ These remain local to each controller:
 
 Two screens can therefore show the same task without fighting over each other's pagination spinner or unsaved form draft.
 
+Before mounting an application, await the one startup boundary. It restores persisted
+context, resolves authentication, and hydrates the active cache scope:
+
+```ts
+await api.ready;
+app.mount("#app");
+```
+
 ## What it handles
 
 ### Typed, immutable schemas
@@ -152,6 +160,78 @@ Payload writers run before JSON or multipart selection. File values automaticall
 
 Entity identity is scoped by resource and key. Collections hold ordered keys rather than duplicate entity objects. Detail responses, lists, relations, mutations, direct writes, and live events all normalize through the same cache entry.
 
+### Optional Quasar stylebook
+
+Quasar applications can opt into a fixture-only visual review route. It uses the same
+public UiCogs and Quasar components while deliberately avoiding application data,
+resources, network calls, storage, and live effects. Dynamically import it only during
+development:
+
+```ts
+const stylebook = import.meta.env.DEV
+  ? (await import("@uicogs/quasar/stylebook")).stylebook()
+  : undefined;
+const { uiCogs } = await withVue(api, { navigation, stylebook });
+```
+
+The built-in overview includes palette, typography, component states, and static pie,
+bar, and line chart fixtures. See [Quasar Stylebook](docs/stylebook.md).
+
+### Services for operation-first APIs
+
+Use a service when an API has actions but no managed entity: sign-in, password reset,
+checkout, uploads, imports, or report generation. A service has the same typed action,
+request, cancellation, and form behavior as a resource, but deliberately has no cache,
+collection, object, or CRUD controller.
+
+```ts
+import { createUiCogs, operation, service } from "@uicogs/core";
+
+const Authentication = service({
+  name: "authentication",
+  url: "auth/",
+  actions: {
+    passwordLogin: operation.action({
+      path: "login/",
+      input: PasswordLogin,
+      output: Session,
+      auth: "none",
+    }),
+  },
+});
+
+const api = createUiCogs({ services: [Authentication] });
+const login = api.service(Authentication).actionForm("passwordLogin", PasswordLogin.toForm());
+await login.submit();
+```
+
+Resource create and edit forms stay concise with `.form(...)`. Bind a non-CRUD resource
+action explicitly with `.actionForm("invite", InviteUser.toForm())`; use the identical
+method on services.
+
+Object and bulk actions can additionally opt into framework-neutral presentation without
+coupling a resource to a component library. `operation.object()` binds a path to one
+object URL; its optional `presentation` declares semantic label, icon, confirmation,
+scope requirements, visibility, disabled state, and one or more view placements.
+
+```ts
+archive: operation.object({
+  path: "archive/",
+  presentation: {
+    placement: ["aside", "edit"],
+    label: "Archive",
+    icon: "archive",
+    confirmation: "Archive this task?",
+    scopes: ["tasks.archive"],
+  },
+}),
+```
+
+The resolved action is client presentation only—the server remains the authorization
+authority. See [Resources](docs/resources.md#presented-resource-actions) and
+[framework integration](docs/frameworks.md#ucresourceview) for headless, Vue, React,
+and Quasar usage.
+
 ```ts
 const tasks = api.resource(Tasks);
 
@@ -169,42 +249,112 @@ Cache policies include `cache-first`, `network-only`, and `stale-while-revalidat
 
 - To-one, key-backed to-many, query-driven, and explicit join-resource relations.
 - Page, offset, cursor, link-header, client, and custom pagination adapters.
+- Explicit Vyuh, DRF, Laravel, Spring Data, JSON:API, GraphQL, and custom response profiles.
 - JWT and cookie authentication strategies with auth-owned cache scope.
 - Local storage, session storage, and IndexedDB persistence backends.
-- Optional Fetch-stream server-sent events that update the normalized cache.
+- Optional SSE, WebSocket, and polling live sources that update the normalized cache,
+  persistent inbox, and transient alert queue through one effect pipeline.
 - OpenAPI 3.0 and 3.1 definition and operation generation at build time.
 
 ## Frameworks
 
 The core owns behavior; framework packages observe controllers rather than duplicating cache or request logic.
 
-| Package              | Use it for                                                                |
-| -------------------- | ------------------------------------------------------------------------- |
-| `@uicogs/core`       | definitions, runtime, Fetch transport, cache, resources, forms, relations |
-| `@uicogs/vue`        | Vue-reactive controllers and an application-bound injection plugin        |
-| `@uicogs/react`      | React hooks built on `useSyncExternalStore`                               |
-| `@uicogs/quasar`     | Quasar fields, forms, tables, actions, and resource views                 |
-| `@uicogs/vue-router` | controlled resource workflow state in Vue Router                          |
-| `@uicogs/auth`       | JWT and cookie auth strategies                                            |
-| `@uicogs/http`       | SSE, pagination adapters, multipart conventions, server-error adapters    |
-| `@uicogs/storage`    | local, session, and IndexedDB persistence                                 |
-| `@uicogs/openapi`    | OpenAPI reader, generator, and CLI                                        |
-| `@uicogs/legacy`     | migration adapters for older mutable data-source code                     |
+| Package           | Use it for                                                                |
+| ----------------- | ------------------------------------------------------------------------- |
+| `@uicogs/core`    | definitions, runtime, Fetch transport, cache, resources, forms, relations |
+| `@uicogs/echarts` | schema-bound ECharts definitions, reactive bindings, and Vue components   |
+| `@uicogs/routes`  | framework-neutral scope resolution used by framework bindings             |
+| `@uicogs/vue`     | `withVue()`, Vue Router binding, reactive controllers, and injection      |
+| `@uicogs/react`   | `withReact()` and React hooks built on `useSyncExternalStore`             |
+| `@uicogs/quasar`  | Quasar forms, resource views, application layout, navigation, and inboxes |
+| `@uicogs/auth`    | JWT and cookie auth strategies                                            |
+| `@uicogs/http`    | response profiles, SSE, pagination, multipart, and server errors          |
+| `@uicogs/storage` | local, session, and IndexedDB persistence                                 |
+| `@uicogs/openapi` | OpenAPI reader, generator, and CLI                                        |
+| `@uicogs/legacy`  | migration adapters for older mutable data-source code                     |
 
-Vue applications can bind the exact runtime they created, without a package-global singleton:
+Vue applications create the same core runtime as every other application, then bind it once:
 
 ```ts
-import { bindUiCogs, createUiCogs } from "@uicogs/vue";
+import { createUiCogs } from "@uicogs/core";
+import { withVue } from "@uicogs/vue";
+import { createRouter, createWebHistory } from "vue-router";
 
 export const api = createUiCogs({ resources: [Tasks], baseUrl: "/api/" });
-export const { UiCogsPlugin, useUiCogs } = bindUiCogs(api);
-
-// main.ts
-app.use(UiCogsPlugin);
+const router = createRouter({
+  history: createWebHistory(),
+  routes: [
+    {
+      path: "/tasks",
+      component: TasksPage,
+      meta: { uicogs: { scopes: ["tasks.read"], navigation: { side: { label: "Tasks" } } } },
+    },
+  ],
+});
+const { uiCogs } = await withVue(api, { navigation: { side: { groups: [] } } });
+app.use(router).use(uiCogs);
 
 // a component
-const api = useUiCogs();
+const cogs = useUiCogs();
 ```
+
+Export a page-safe typed composable from a module that imports the core runtime only as
+a type, avoiding bootstrap and route-component cycles:
+
+```ts
+import { useUiCogs as useInjectedUiCogs } from "@uicogs/vue";
+import type { api } from "./api";
+
+export const useUiCogs = () => useInjectedUiCogs<typeof api>();
+```
+
+`withVue()` awaits safe runtime initialization before the application mounts.
+
+For a ready Quasar shell, use `UcAppLayout`. It renders named UiCogs side/top
+navigation, an optional notification drawer, and page content while leaving all
+styling and notification persistence to the application. Its public drawer-width,
+header-control props, and `topbar-actions` slot support compact shells without
+targeting Quasar internals. See [Frameworks](docs/frameworks.md#quasar-application-layout).
+
+Configure semantic icon overrides once in `createUiCogs()` to switch string-based icon packs
+without changing generated controls or presentation declarations:
+
+```ts
+createUiCogs({ icons: { create: "plus", close: "xmark", archive: "box-archive" } });
+```
+
+`archive` is an application-defined presentation name; UiCogs-owned names include `create`,
+`close`, `delete`, `refresh`, `menu`, `notifications`, `date`, and `time`.
+
+Generated Quasar forms can stay stacked while filters use responsive native Quasar
+grid columns. Declare separate field `layout.form` and `layout.filter` metadata,
+configure app-wide defaults through `defineSkin({ layout: ... })`. Set a generated
+control `size` (`"sm"` or `"md"`) to keep filter inputs and UiCogs action buttons at
+the same explicit height, and use
+`UcFilter #actions` for Apply, Reset, and optional-filter controls. See
+[Forms](docs/forms.md#responsive-form-and-filter-layout).
+
+Core schemas also include date/time, date-range, rich-text, and nullable Boolean semantics.
+The Quasar adapter supplies popup temporal pickers and three-state nullable Boolean controls.
+It also exports route-friendly `UcUnauthorizedPage`, `UcForbiddenPage`, `UcNotFoundPage`, and
+`UcServerErrorPage` components; applications add them to normal Vue Router records and own their
+retry and navigation actions.
+
+Enums can stay concise with raw values or carry UI-only presentation and application `meta`:
+
+```ts
+const AccountKind = fields.Enum([
+  {
+    value: "paper",
+    presentation: { label: "Paper account", icon: "science", tone: "info" },
+    meta: { requiresCredential: false },
+  },
+] as const);
+```
+
+Only `value` is parsed and serialized. Generated Quasar selectors, radios, and formatters use
+`presentation`; `meta` remains application-owned.
 
 ## Installation
 
@@ -212,8 +362,11 @@ Install only the runtime and adapters your application uses once packages are pu
 
 ```sh
 pnpm add @uicogs/core
-pnpm add @uicogs/vue vue       # or @uicogs/react react
+pnpm add @uicogs/vue vue             # or @uicogs/react react
+pnpm add vue-router                  # when the Vue app declares UiCogs routes
+pnpm add @uicogs/echarts echarts      # optional Vue ECharts integration
 pnpm add @uicogs/auth @uicogs/storage  # optional
+pnpm add @uicogs/http                   # response profiles and HTTP adapters
 ```
 
 Until publication, use workspace links or packed artifacts.
@@ -230,10 +383,15 @@ Until publication, use workspace links or packed artifacts.
 ## Read next
 
 - [Architecture](docs/architecture.md) — runtime lifecycle, ownership, data flow, and cache identity.
+- [Getting started](docs/getting-started.md) — build a Vue and Quasar resource, form, validation flow, and data table.
+- [Application bootstrap](docs/bootstrap.md) — definitions, runtime creation, optional services, framework binding, and shutdown.
 - [Schemas](docs/schemas.md) and [Validation](docs/validation.md) — fields, composition, parsing, and async checks.
 - [Resources](docs/resources.md), [Forms](docs/forms.md), and [Caching](docs/caching.md) — the primary application workflow.
-- [Authentication](docs/authentication.md), [Context](docs/context.md), and [Transport](docs/transport.md) — runtime services and request behavior.
+- [Authentication](docs/authentication.md), [Context](docs/context.md), [Storage](docs/storage.md), [Transport](docs/transport.md), and [Response adapters](docs/response-adapters.md) — runtime services and request behavior.
+- [Routing](docs/routing.md) — flat and nested routes, access inheritance, matching, redirects, and router conversion.
 - [Frameworks](docs/frameworks.md) — Vue, React, Quasar, and Vue Router.
+- [Charts](docs/charts.md) — schema-bound collection and entity chart concepts.
+- [ECharts](docs/echarts.md) — Vue rendering, engine setup, and native ECharts options.
 - [OpenAPI](docs/openapi.md), [Migration](docs/migration.md), and [Production](docs/production.md) — generation, adoption, and release readiness.
 
 ## Development

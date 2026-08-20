@@ -98,6 +98,24 @@ Choice and list fields:
 Enum, EnumList, StrList, IntList
 ```
 
+`Enum` and `EnumList` accept raw values or a rich choice catalogue. A catalogue keeps raw values
+separate from immutable UI presentation and application `meta`:
+
+```ts
+const AccountKind = fields.Enum([
+  {
+    value: "paper",
+    presentation: { label: "Paper account", icon: "science", tone: "info" },
+    meta: { requiresCredential: false },
+  },
+] as const);
+```
+
+`value` is the only part used for parsing, validation, queries, and serialization.
+`presentation` is adapter-facing (`label` is required; descriptions, icons, tones, and disabled
+state are optional). `meta` is typed application data. Use raw shorthand when the value is
+already a suitable label: `fields.Enum(["paper", "live"] as const)`.
+
 Structured fields:
 
 ```text
@@ -109,6 +127,12 @@ Binary fields:
 ```text
 File, Image, FileList, ImageList
 ```
+
+## Nullable Booleans
+
+`nullable: true` makes the parsed Boolean value `boolean | null`. A form writes an
+explicit null, while `schema.toQuery()` omits null so a nullable Boolean filter naturally
+means “any value”.
 
 Relation and derived fields:
 
@@ -199,6 +223,11 @@ const TaskEdit = Task.keep("title", "complete").toForm({ mode: "patch" });
 
 A form schema is not a controller. Bind it to a runtime resource or object to create a form controller.
 
+A form definition owns the editable field set and writer. Create another immutable form
+definition when a screen needs different validation or payload fields. `UcForm` can use
+an optional view as a generated-control subset, but that read-only view cannot replace a
+form definition because it has no writer.
+
 See [Forms](forms.md).
 
 ## Views
@@ -220,6 +249,10 @@ const TaskSummary = Task.view({
 Views can be operation and query outputs. Views cannot write payloads. Calling a view writer throws.
 
 Views do not create separate cache entities.
+
+Use a view to declare the read-side projection for a table, detail panel, export, or
+query output. The projection must include the resource key when it represents remote
+resource entities.
 
 ## Class And Decorator Syntax
 

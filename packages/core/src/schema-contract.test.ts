@@ -44,6 +44,20 @@ describe("schema parsing and writing", () => {
     expect(schema.canMaterialize({ id: 1, name: "Ada" })).toBe(true);
   });
 
+  it("retains valid partial values when another field cannot be parsed", () => {
+    const schema = defineSchema({
+      page: fields.Int({ wireName: "p" }),
+      search: fields.Str({ wireName: "q" }),
+    });
+
+    const result = schema.parsePartialResult({ p: "2", q: ["invalid"] });
+
+    expect(result.values).toEqual({ page: 2 });
+    expect(result.issues).toMatchObject([{ path: ["search"] }]);
+    expect(Object.isFrozen(result.values)).toBe(true);
+    expect(Object.isFrozen(result.issues)).toBe(true);
+  });
+
   it("applies access-aware field writers and query encoders", () => {
     const context = { writable: false, suffix: "!" };
     const definition = defineSchema.withContext<typeof context>()({

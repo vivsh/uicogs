@@ -33,6 +33,7 @@ import {
   UcSubmit,
   UcTable,
   UcView,
+  quasarEditor,
   quasarRenderers,
 } from "./index.js";
 
@@ -77,6 +78,329 @@ describe("Quasar forms and fields", () => {
     expect(form.values.count).toBe("3");
     expect(wrapper.text()).toContain("A concise title");
     expect(wrapper.find("button").text()).toBe("Submit");
+  });
+
+  /** Verifies that a form view limits only its generated controls. */
+  it("uses an optional view for generated controls", () => {
+    const schema = defineSchema({ title: fields.Str(), complete: fields.Bool() });
+    const form = createFormController(schema.toForm(), { title: "One", complete: false });
+    const wrapper = mount(UcForm, {
+      props: { form, view: schema.view({ fields: ["title"] as const }) },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.findAll("input")).toHaveLength(1);
+  });
+
+  it("reactively omits conditionally hidden fields from generated and custom form surfaces", async () => {
+    const schema = defineSchema({
+      kind: fields.Enum(["paper", "broker"] as const, { required: true }),
+      secretRef: fields.Str({ label: "Credential reference" }),
+    });
+    const form = createFormController(
+      schema.toForm({
+        fields: { secretRef: { visible: ({ values }) => values.kind !== "paper" } },
+      }),
+      { kind: "paper", secretRef: "saved-reference" },
+    );
+    const generated = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const custom = mount(UcForm, {
+      props: { form },
+      slots: { default: () => [h(UcField, { name: "kind" }), h(UcField, { name: "secretRef" })] },
+      global: { stubs: quasarStubs },
+    });
+    const filter = mount(UcFilter, { props: { form }, global: { stubs: quasarStubs } });
+
+    expect(generated.findAll("input")).toHaveLength(1);
+    expect(custom.findAll("input")).toHaveLength(1);
+    expect(filter.findAll("input")).toHaveLength(1);
+
+    form.set("kind", "broker");
+    await nextTick();
+
+    expect(generated.findAll("input")).toHaveLength(2);
+    expect(custom.findAll("input")).toHaveLength(2);
+    expect(filter.findAll("input")).toHaveLength(2);
+  });
+
+  it("configures nullable generated booleans as tri-state controls", () => {
+    const schema = defineSchema({
+      visible: fields.Bool({ nullable: true, editor: editor.Checkbox() }),
+      featured: fields.Bool({
+        nullable: true,
+        editor: editor.Switch({ toggleIndeterminate: false }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), {
+      visible: null,
+      featured: null,
+    } as never);
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    const controls = wrapper.findAllComponents(controlStub);
+    expect(controls[0]?.props("indeterminateValue")).toBeNull();
+    expect(controls[0]?.props("toggleIndeterminate")).toBe(true);
+    expect(controls[1]?.props("toggleIndeterminate")).toBe(false);
+  });
+
+  it("renders schema-declared radio groups with generated labels and choices", async () => {
+    const schema = defineSchema({
+      visibility: fields.Enum(["draft", "review", "published"] as const, {
+        label: "Visibility",
+        editor: editor.RadioGroup({ inline: true }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), { visibility: "draft" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    const field = wrapper.findComponent({ name: "QFieldStub" });
+    expect(field.props("borderless")).toBe(true);
+    expect(field.props("stackLabel")).toBe(true);
+    expect(wrapper.find(".uc-radio-group").classes()).toContain("row");
+    expect(wrapper.text()).toContain("draft");
+    expect(wrapper.text()).toContain("review");
+    expect(wrapper.text()).toContain("published");
+    form.set("visibility", "review");
+    expect(form.values.visibility).toBe("review");
+  });
+
+  it("passes rich choice presentation to generated select and radio controls", async () => {
+    const choices = [
+      {
+        value: "paper",
+        presentation: { label: "Paper account", icon: "science", tone: "info" },
+        meta: { requiresCredential: false },
+      },
+      {
+        value: "live",
+        presentation: {
+          label: "Live account",
+          description: "Places real orders",
+          disabled: true,
+        },
+      },
+    ] as const;
+    const schema = defineSchema({
+      account: fields.Enum(choices),
+      audience: fields.EnumList(choices, { editor: editor.Select({ multiple: true }) }),
+      visibility: fields.Enum(choices, { editor: editor.RadioGroup() }),
+    });
+    const form = createFormController(schema.toForm(), {
+      account: "paper",
+      audience: ["paper"],
+      visibility: "paper",
+    });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const selects = wrapper.findAllComponents({ name: "UcChoiceSelectEditor" });
+
+    expect(selects).toHaveLength(2);
+    expect(selects[0]?.props("options")).toEqual(choices);
+    expect(wrapper.text()).toContain("Paper account");
+    expect(wrapper.text()).toContain("Places real orders");
+
+    form.set("account", "live");
+    expect(form.values.account).toBe("live");
+  });
+
+  it("renders a single enum selection as text and reserves chips for multi-select values", () => {
+    const choices = [{ value: "paper", presentation: { label: "Paper account" } }] as const;
+    const schema = defineSchema({
+      account: fields.Enum(choices),
+      audience: fields.EnumList(choices),
+    });
+    const form = createFormController(schema.toForm(), {
+      account: "paper",
+      audience: ["paper"],
+    });
+    const SelectStub = defineComponent({
+      name: "QSelect",
+      props: { options: Array, multiple: Boolean },
+      setup(props, { slots }) {
+        return () =>
+          h(
+            "div",
+            { class: props.multiple ? "choice-select--multiple" : "choice-select--single" },
+            slots["selected-item"]?.({ opt: props.options?.[0], index: 0 }),
+          );
+      },
+    });
+    const ChipStub = defineComponent({
+      name: "QChip",
+      setup(_props, { slots }) {
+        return () => h("span", { class: "choice-chip" }, slots.default?.());
+      },
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: { ...quasarStubs, QSelect: SelectStub, QChip: ChipStub } },
+    });
+
+    expect(wrapper.find(".choice-select--single").text()).toBe("Paper account");
+    expect(wrapper.find(".choice-select--single .choice-chip").exists()).toBe(false);
+    expect(wrapper.find(".choice-select--multiple .choice-chip").text()).toBe("Paper account");
+  });
+
+  it("retains direct UcField select options outside enum catalogues", () => {
+    const form = createFormController(defineSchema({ state: fields.Str() }).toForm(), {
+      state: "open",
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      slots: { default: () => h(UcField, { name: "state", kind: "select", options: ["open"] }) },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(wrapper.findComponent({ name: "UcChoiceSelectEditor" }).props("options")).toEqual([
+      "open",
+    ]);
+  });
+
+  it("binds generated popup temporal editors and rich-text field validation", async () => {
+    const schema = defineSchema({
+      published: fields.Date({ editor: editor.Date({ min: "2026-07-01", max: "2026-07-31" }) }),
+      window: fields.DateRange({ editor: editor.DateRange() }),
+      body: fields.RichText({ editor: editor.RichText({ toolbar: ["bold"] }) }),
+    });
+    const form = createFormController(schema.toForm(), {
+      published: new Date("2026-07-10T00:00:00.000Z"),
+      window: [new Date("2026-07-11T00:00:00.000Z"), new Date("2026-07-12T00:00:00.000Z")],
+      body: "<p>Draft</p>",
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: {
+        stubs: quasarStubs,
+        config: {
+          globalProperties: {
+            $q: { iconSet: { datetime: { now: "clock-icon", today: "calendar-icon" } } },
+          } as never,
+        },
+      },
+    });
+    const popups = wrapper.findAll(".q-popup-proxy");
+    expect(popups).toHaveLength(2);
+    await popups[0]!.findComponent(controlStub).vm.$emit("update:modelValue", "2026-07-21");
+    const published = form.values.published;
+    expect(published).toBeInstanceOf(Date);
+    expect((published as Date).toISOString()).toBe("2026-07-21T00:00:00.000Z");
+    expect(
+      wrapper
+        .findAllComponents(controlStub)
+        .some((control) => hasBoldToolbar(control.props("toolbar"))),
+    ).toBe(true);
+    const richText = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => hasBoldToolbar(control.props("toolbar")));
+    expect(richText?.props("toolbar")).toEqual([["bold"], ["preview"]]);
+    expect(richText?.find("input").classes()).toContain("full-width");
+    expect(richText?.props("contentStyle")).toEqual({ overflow: "auto", resize: "vertical" });
+    const definitions = richText?.props("definitions") as
+      { readonly preview?: { readonly handler?: () => void } } | undefined;
+    definitions?.preview?.handler?.();
+    await nextTick();
+    expect(wrapper.find(".uc-rich-text__preview").exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "QIconStub" }).props("name")).toBe("calendar-icon");
+  });
+
+  it("switches rich text between editable HTML, source, and sanitized preview modes", async () => {
+    const schema = defineSchema({
+      body: fields.RichText({
+        editor: quasarEditor.RichText({ modes: ["edit", "source", "preview"] }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), {
+      body: "<p>Draft</p><script>unsafe()</script>",
+    });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const editorControl = () =>
+      wrapper
+        .findAllComponents(controlStub)
+        .find((control) => control.props("modelValue") === form.values.body);
+    const edit = editorControl();
+    expect(edit?.props("toolbar")).toEqual([
+      ["left", "center", "right", "justify"],
+      ["bold", "italic", "underline", "strike"],
+      ["undo", "redo"],
+      ["source", "preview"],
+    ]);
+    const definitions = edit?.props("definitions") as
+      { readonly source?: { readonly handler?: () => void } } | undefined;
+    definitions?.source?.handler?.();
+    await nextTick();
+    const source = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => toolbarIncludes(control.props("toolbar"), "edit"));
+    expect(wrapper.find(".uc-rich-text__source").exists()).toBe(true);
+    expect(source?.props("modelValue")).toBe(
+      "&lt;p&gt;Draft&lt;/p&gt;&lt;script&gt;unsafe()&lt;/script&gt;",
+    );
+    expect(source?.props("toolbar")).toEqual([["edit", "preview"]]);
+    const sourceDefinitions = source?.props("definitions") as
+      { readonly preview?: { readonly handler?: () => void } } | undefined;
+    sourceDefinitions?.preview?.handler?.();
+    await nextTick();
+    expect(wrapper.find(".uc-rich-text__preview").exists()).toBe(true);
+    expect(form.values.body).toBe("<p>Draft</p><script>unsafe()</script>");
+  });
+
+  it("provides native resizing for multiline editors and keeps autogrowing fields automatic", () => {
+    const schema = defineSchema({
+      description: fields.Text({ editor: editor.Textarea() }),
+      growing: fields.Text({ editor: editor.Textarea({ autogrow: true }) }),
+      body: fields.RichText({ editor: editor.RichText({ rows: 8, resize: "both" }) }),
+    });
+    const form = createFormController(schema.toForm(), {
+      description: "Text",
+      growing: "Growing text",
+      body: "<p>Text</p>",
+    });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      global: { stubs: quasarStubs },
+    });
+    const controls = wrapper.findAllComponents(controlStub);
+    const textarea = controls.find((control) => control.props("modelValue") === "Text");
+    const autogrowing = controls.find((control) => control.props("modelValue") === "Growing text");
+    const richText = controls.find((control) => control.props("modelValue") === "<p>Text</p>");
+
+    expect(textarea?.props("inputStyle")).toEqual({ overflow: "auto", resize: "vertical" });
+    expect(autogrowing?.props("inputStyle")).toBeUndefined();
+    expect(richText?.props("contentStyle")).toEqual({ overflow: "auto", resize: "both" });
+    expect(richText?.props("minHeight")).toBe("calc(8 * 1.5em)");
+  });
+
+  it("renders named Quasar rich-text tools in the configured toolbar", () => {
+    const runAction = vi.fn();
+    const schema = defineSchema({
+      body: fields.RichText({
+        editor: quasarEditor.RichText({
+          toolbar: [["bold", "insert-token"]],
+          tools: {
+            "insert-token": { label: "Token", run: runAction },
+          },
+        }),
+      }),
+    });
+    const form = createFormController(schema.toForm(), { body: "<p>Draft</p>" });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const richText = wrapper
+      .findAllComponents(controlStub)
+      .find((control) => toolbarIncludes(control.props("toolbar"), "insert-token"));
+    expect(richText?.props("toolbar")).toEqual([["bold", "insert-token"], ["preview"]]);
+    const definitions = richText?.props("definitions") as
+      { readonly [key: string]: { readonly handler?: () => void } | undefined } | undefined;
+    definitions?.["insert-token"]?.handler?.();
+    expect(runAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects invalid generated editor mode and tool declarations", () => {
+    expect(quasarEditor.RichText({ modes: ["preview"] }).options?.defaultMode).toBe("preview");
+    expect(() => quasarEditor.RichText({ modes: ["preview"], defaultMode: "edit" })).toThrow(
+      "defaultMode",
+    );
   });
 
   it("renders field errors, summaries, progress, submit state, and success", async () => {
@@ -208,8 +532,9 @@ describe("Quasar forms and fields", () => {
     expect(inputs[0]?.attributes("type")).toBe("email");
     expect(inputs[1]?.attributes("type")).toBe("password");
     expect(inputs[2]?.attributes("data-range")).toBe("true");
-    expect(inputs[3]?.attributes("aria-label")).toBe("State");
-    expect(inputs[3]?.attributes("data-options")).toBe("1");
+    const state = wrapper.find('input[aria-label="State"]');
+    expect(state.exists()).toBe(true);
+    expect(state.attributes("data-options")).toBe("1");
   });
 
   it("reports fields absent from the form schema", () => {
@@ -228,7 +553,14 @@ describe("Quasar forms and fields", () => {
 describe("Quasar views and tables", () => {
   it("renders split, stack, and dialog views and closes with Escape", async () => {
     const wrapper = mount(UcView, {
-      props: { title: "Tasks", aside: true, mode: "split", loading: true },
+      props: {
+        title: "Tasks",
+        aside: true,
+        mode: "split",
+        loading: true,
+        asideSticky: true,
+        asideStickyOffset: "4rem",
+      },
       slots: { default: "List", aside: "Detail" },
       global: { stubs: quasarStubs },
     });
@@ -236,6 +568,10 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("List");
     expect(wrapper.text()).toContain("Detail");
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(true);
+    expect(wrapper.find(".uc-view__aside").classes()).toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).toContain("uc-view__aside--sticky");
+    expect(wrapper.find(".uc-view__aside").attributes("style")).toContain("position: sticky");
+    expect(wrapper.find(".uc-view__aside").attributes("style")).toContain("top: 4rem");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
     await nextTick();
     expect(wrapper.emitted("update:aside")?.[0]).toEqual([false]);
@@ -245,6 +581,11 @@ describe("Quasar views and tables", () => {
     expect(wrapper.find(".uc-view__content--split").exists()).toBe(false);
     await wrapper.setProps({ mode: "dialog" });
     expect(wrapper.find("[data-q-dialog]").exists()).toBe(true);
+    expect(wrapper.find("[data-q-dialog]").attributes("data-position")).toBe("standard");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("q-pa-md");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("uc-view__aside--sticky");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("bg-white");
+    expect(wrapper.find(".uc-view__aside").classes()).not.toContain("shadow-2");
     wrapper.unmount();
   });
 
@@ -264,7 +605,7 @@ describe("Quasar views and tables", () => {
 
   it("derives columns, selection, pagination, sorting, aggregation, and loading", async () => {
     const requests: TransportRequest[] = [];
-    const { resource } = await resourceFixture(async (request) => {
+    const { resource, schema } = await resourceFixture(async (request) => {
       requests.push(request);
       return {
         status: 200,
@@ -283,7 +624,7 @@ describe("Quasar views and tables", () => {
         serial: true,
         selection: "multiple",
         selectedKeys: [1],
-        exclude: ["secret"],
+        view: schema.view({ fields: ["id", "title"] as const }),
         aggregate: (rows) => [{ title: `Count ${rows.length}` }],
       },
       global: { stubs: quasarStubs },
@@ -309,6 +650,60 @@ describe("Quasar views and tables", () => {
     expect(wrapper.text()).toContain("Count 2");
   });
 
+  it("defaults selection off and warns once when enabled without controlled state", async () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const table = mount(UcTable, {
+      props: { resource },
+      global: { stubs: quasarStubs },
+    });
+    const resourceView = mount(UcResourceView, {
+      props: { resource, autoLoad: false },
+      global: { stubs: quasarStubs },
+    });
+
+    expect(table.findAllComponents({ name: "ControlStub" })).toHaveLength(0);
+    expect(resourceView.findComponent(UcTable).props("selection")).toBe("none");
+    expect(warn).not.toHaveBeenCalled();
+
+    await table.setProps({ selection: "single" });
+    await table.setProps({ selection: "none" });
+    await table.setProps({ selection: "multiple" });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("v-model:selected-keys"));
+  });
+
+  it("accepts explicit selected-key prop and event bindings without a warning", () => {
+    const resource = externalResource({ rows: [{ id: 1, title: "One" }] });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const update = vi.fn();
+    const table = mount(UcTable, {
+      props: {
+        resource,
+        selection: "multiple",
+        selectedKeys: [1],
+        "onUpdate:selectedKeys": update,
+      },
+      global: { stubs: quasarStubs },
+    });
+    const resourceView = mount(UcResourceView, {
+      props: {
+        resource,
+        autoLoad: false,
+        selection: "single",
+        selectedKeys: [1],
+        "onUpdate:selectedKeys": update,
+      },
+      global: { stubs: quasarStubs },
+    });
+    table
+      .findComponent({ name: "QTableStub" })
+      .vm.$emit("update:selected", [{ id: 1, title: "One" }]);
+    resourceView.findComponent(UcTable).vm.$emit("update:selectedKeys", [1]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith([1]);
+  });
+
   it("auto-loads empty tables and emits load failures", async () => {
     const successful = externalResource({ rows: [] });
     mount(UcTable, {
@@ -327,17 +722,14 @@ describe("Quasar views and tables", () => {
     expect(wrapper.emitted("failure")?.[0]?.[0]).toBeInstanceOf(Error);
   });
 
-  it("supports included custom columns, custom body slots, and guarded infinite loading", async () => {
+  /** Verifies a view replaces component-level column filtering. */
+  it("uses a view with custom body slots and guarded infinite loading", async () => {
     const resource = externalResource({ rows: [{ id: 1, title: "One" }], hasMore: true });
     const wrapper = mount(UcTable, {
       props: {
         resource,
         infinite: true,
-        include: ["title"],
-        columns: [
-          { name: "id", label: "Id", field: "id" },
-          { name: "title", label: "Title", field: "title" },
-        ],
+        view: { shape: { title: {} } },
       },
       slots: { body: () => h("div", { class: "custom-body" }, "Custom") },
       global: { stubs: quasarStubs },
@@ -405,14 +797,14 @@ describe("Quasar views and tables", () => {
   it("renders empty, error, retry, and default detail states", async () => {
     const empty = externalResource({ rows: [] });
     const emptyWrapper = mount(UcResourceView, {
-      props: { resource: empty, autoLoad: false, create: false, emptyLabel: "Nothing here" },
+      props: { resource: empty, autoLoad: false, emptyLabel: "Nothing here" },
       global: { stubs: quasarStubs },
     });
     expect(emptyWrapper.text()).toContain("Nothing here");
 
     const failed = externalResource({ rows: [], error: { message: "Unavailable" } });
     const failedWrapper = mount(UcResourceView, {
-      props: { resource: failed, autoLoad: false, create: false },
+      props: { resource: failed, autoLoad: false },
       global: { stubs: quasarStubs },
     });
     expect(failedWrapper.text()).toContain("Unavailable");
@@ -425,15 +817,50 @@ describe("Quasar views and tables", () => {
 
     const { resource } = await resourceFixture();
     const detail = mount(UcResourceView, {
-      props: { resource, modelValue: 1, autoLoad: false, create: false },
+      props: {
+        resource,
+        modelValue: 1,
+        autoLoad: false,
+        title: "Tasks",
+        asideCaption: "Task workspace",
+      },
       global: { stubs: quasarStubs },
     });
     expect(detail.text()).toContain("One");
-    await detail
-      .findAll("button")
-      .find((button) => button.text() === "Close")
-      ?.trigger("click");
+    expect(detail.find(".uc-resource-view__aside-header").text()).toContain("Task workspace");
+    expect(detail.find(".uc-resource-view__aside-header").text()).not.toContain("Details");
+    expect(detail.find(".uc-resource-view__aside-caption").exists()).toBe(false);
+    await detail.find(".uc-resource-view__aside-cancel").trigger("click");
     expect(detail.emitted("update:modelValue")?.at(-1)).toEqual([undefined]);
+  });
+
+  it("renders a replaceable create-aside header with its close binding", async () => {
+    const { resource, createForm } = await resourceFixture();
+    const wrapper = mount(UcResourceView, {
+      props: {
+        resource,
+        creating: true,
+        createForm,
+        autoLoad: false,
+        title: "Tasks",
+      },
+      slots: {
+        "aside-header": ({
+          mode,
+          caption,
+          close,
+        }: {
+          mode: "create" | "detail";
+          caption: string;
+          close: () => void;
+        }) => h("button", { class: "custom-aside-close", onClick: close }, `${mode}:${caption}`),
+      },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.find(".uc-resource-view__aside-header").exists()).toBe(false);
+    expect(wrapper.find(".custom-aside-close").text()).toBe("create:Tasks");
+    await wrapper.find(".custom-aside-close").trigger("click");
+    expect(wrapper.emitted("update:creating")?.at(-1)).toEqual([false]);
   });
 
   it("submits generated create and edit forms then refreshes the resource", async () => {
@@ -688,6 +1115,19 @@ describe("Quasar formatter registry", () => {
     expect(render("reference", 4)).toBe("4");
   });
 
+  it("formats enum values through their presentation catalogue", () => {
+    const choices = [
+      { value: "paper", presentation: { label: "Paper account", tone: "info" } },
+      { value: "live", presentation: { label: "Live account", icon: "account_balance" } },
+    ] as const;
+
+    expect(render("choice", "paper", {}, choices)).toBe("Paper account");
+    expect(render("choices", ["paper", "live"], {}, choices)).toBe("Paper account, Live account");
+    expect(render("choice", "paper", { presentation: "badge" }, choices)).toMatchObject({
+      type: expect.anything(),
+    });
+  });
+
   it("renders semantic image, file, and link nodes", () => {
     expect(render("image", "https://example.test/image.png", { alt: "Preview" })).toMatchObject({
       type: "img",
@@ -714,13 +1154,38 @@ const controlStub = defineComponent({
     type: String,
     error: Boolean,
     range: Boolean,
-    options: Array,
+    options: [Array, Function],
     multiple: Boolean,
+    inline: Boolean,
     readonly: Boolean,
     accept: String,
+    outlined: Boolean,
+    filled: Boolean,
+    standout: Boolean,
+    borderless: Boolean,
+    dense: Boolean,
+    toolbar: Array,
+    definitions: Object,
+    rows: Number,
+    minHeight: String,
+    autogrow: Boolean,
+    inputStyle: [String, Array, Object],
+    contentStyle: [String, Array, Object],
+    resize: [String, Boolean],
+    defaultView: String,
+    min: String,
+    max: String,
+    minuteStep: Number,
+    separate: Boolean,
+    leftLabel: Boolean,
+    indeterminateValue: null,
+    toggleIndeterminate: Boolean,
+    color: String,
+    bgColor: String,
+    labelColor: String,
   },
   emits: ["update:modelValue"],
-  setup(props, { attrs, emit }) {
+  setup(props, { attrs, emit, slots }) {
     return () =>
       h("label", [
         props.label,
@@ -742,9 +1207,20 @@ const controlStub = defineComponent({
           },
         }),
         props.hint ? h("small", props.hint) : undefined,
+        slots.append?.(),
       ]);
   },
 });
+
+function hasBoldToolbar(value: unknown): boolean {
+  return Array.isArray(value) && Array.isArray(value[0]) && value[0][0] === "bold";
+}
+
+function toolbarIncludes(value: unknown, action: string): boolean {
+  return (
+    Array.isArray(value) && value.some((group) => Array.isArray(group) && group.includes(action))
+  );
+}
 
 const buttonStub = defineComponent({
   name: "QBtnStub",
@@ -771,11 +1247,12 @@ const buttonStub = defineComponent({
 const formStub = defineComponent({
   name: "QFormStub",
   emits: ["submit"],
-  setup(_props, { emit, slots }) {
+  setup(_props, { attrs, emit, slots }) {
     return () =>
       h(
         "form",
         {
+          ...attrs,
           onSubmit: (event: Event) => {
             event.preventDefault();
             emit("submit");
@@ -793,13 +1270,14 @@ const tableStub = defineComponent({
     rows: Array,
     columns: Array,
     selected: Array,
+    selection: String,
     pagination: Object,
     rowsPerPageOptions: Array,
   },
   emits: ["request", "update:selected", "scroll"],
-  setup(props, { slots }) {
+  setup(props, { attrs, slots }) {
     return () =>
-      h("div", { "data-q-table": true }, [
+      h("div", { ...attrs, "data-q-table": true }, [
         ...(props.rows ?? []).map((row, index) =>
           slots.body
             ? slots.body({
@@ -808,6 +1286,7 @@ const tableStub = defineComponent({
                   const value = column as {
                     name: string;
                     field: string | ((item: unknown) => unknown);
+                    classes?: string;
                   };
                   return {
                     name: value.name,
@@ -815,6 +1294,7 @@ const tableStub = defineComponent({
                       typeof value.field === "function"
                         ? value.field(row)
                         : (row as Readonly<Record<string, unknown>>)[value.field],
+                    classes: value.classes,
                   };
                 }),
                 selected: false,
@@ -825,8 +1305,26 @@ const tableStub = defineComponent({
                 `row-${String((row as { id?: unknown }).id)}`,
               ),
         ),
+        h(
+          "table",
+          h(
+            "thead",
+            (props.columns ?? []).map((column) => {
+              const value = column as { name: string; headerClasses?: string };
+              return h("th", { class: value.headerClasses }, value.name);
+            }),
+          ),
+        ),
         slots["bottom-row"]?.(),
       ]);
+  },
+});
+
+const contentStub = defineComponent({
+  name: "ContentStub",
+  inheritAttrs: false,
+  setup(_props, { attrs, slots }) {
+    return () => h("div", attrs, slots.default?.());
   },
 });
 
@@ -834,11 +1332,50 @@ const quasarStubs = {
   QForm: formStub,
   QInput: controlStub,
   QEditor: controlStub,
+  QField: defineComponent({
+    name: "QFieldStub",
+    props: {
+      label: String,
+      hint: String,
+      error: Boolean,
+      errorMessage: String,
+      borderless: Boolean,
+      stackLabel: Boolean,
+      dense: Boolean,
+    },
+    setup(props, { slots }) {
+      return () =>
+        h("label", [
+          props.label,
+          slots.control?.(),
+          props.hint ? h("small", props.hint) : undefined,
+          props.error ? h("small", props.errorMessage) : undefined,
+        ]);
+    },
+  }),
   QCheckbox: controlStub,
   QToggle: controlStub,
+  QOptionGroup: controlStub,
+  QRadio: controlStub,
+  QItem: contentStub,
+  QItemLabel: contentStub,
+  QItemSection: contentStub,
   QSelect: controlStub,
   QDate: controlStub,
   QTime: controlStub,
+  QPopupProxy: defineComponent({
+    name: "QPopupProxyStub",
+    setup(_props, { slots }) {
+      return () => h("div", { class: "q-popup-proxy" }, slots.default?.());
+    },
+  }),
+  QIcon: defineComponent({
+    name: "QIconStub",
+    props: { name: String },
+    setup(_props, { slots }) {
+      return () => h("span", slots.default?.());
+    },
+  }),
   QColor: controlStub,
   QFile: defineComponent({
     name: "QFileStub",
@@ -858,6 +1395,33 @@ const quasarStubs = {
     },
   }),
   QBtn: buttonStub,
+  QCard: defineComponent({
+    name: "QCardStub",
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("section", { ...attrs, "data-q-card": true }, slots.default?.());
+    },
+  }),
+  QCardSection: defineComponent({
+    name: "QCardSectionStub",
+    inheritAttrs: false,
+    setup(_props, { attrs, slots }) {
+      return () => h("div", { ...attrs, "data-q-card-section": true }, slots.default?.());
+    },
+  }),
+  QToolbar: defineComponent({
+    name: "QToolbarStub",
+    setup(_props, { slots }) {
+      return () => h("div", slots.default?.());
+    },
+  }),
+  QToolbarTitle: defineComponent({
+    name: "QToolbarTitleStub",
+    setup(_props, { slots }) {
+      return () => h("div", slots.default?.());
+    },
+  }),
+  QSeparator: defineComponent({ name: "QSeparatorStub", setup: () => () => h("hr") }),
   QBanner: defineComponent({
     name: "QBannerStub",
     setup(_props, { slots }) {
@@ -890,24 +1454,26 @@ const quasarStubs = {
   }),
   QDialog: defineComponent({
     name: "QDialogStub",
-    setup(_props, { slots }) {
-      return () => h("div", { "data-q-dialog": true }, slots.default?.());
+    props: { position: String },
+    setup(props, { slots }) {
+      return () =>
+        h("div", { "data-q-dialog": true, "data-position": props.position }, slots.default?.());
     },
   }),
   QTable: tableStub,
   QTr: defineComponent({
     name: "QTrStub",
     setup:
-      (_props, { slots }) =>
+      (_props, { attrs, slots }) =>
       () =>
-        h("tr", slots.default?.()),
+        h("tr", attrs, slots.default?.()),
   }),
   QTd: defineComponent({
     name: "QTdStub",
     setup:
-      (_props, { slots }) =>
+      (_props, { attrs, slots }) =>
       () =>
-        h("td", slots.default?.()),
+        h("td", attrs, slots.default?.()),
   }),
 };
 
@@ -938,7 +1504,7 @@ function externalResource(options: {
   const sort = vi.fn();
   const nextPage = vi.fn();
   const resource = {
-    definition: { key: "id", schema: { shape: {} } },
+    definition: { name: "tasks", key: "id", schema: { shape: {} } },
     loading: options.loading ?? false,
     error: options.error,
     pageInfo: undefined,
@@ -978,6 +1544,7 @@ async function resourceFixture(
   await resource.load();
   return {
     resource,
+    schema,
     editForm: schema.keep("title").toForm({ mode: "patch" }),
     createForm: schema.keep("title").toForm({ mode: "create" }),
   };
@@ -1021,10 +1588,18 @@ function render(
   kind: string,
   value: unknown,
   options: Readonly<Record<string, unknown>> = {},
+  choices: readonly {
+    readonly value: string | number;
+    readonly presentation: {
+      readonly label: string;
+      readonly tone?: string;
+      readonly icon?: string;
+    };
+  }[] = [],
 ): unknown {
   const formatter = quasarRenderers.formatter({ kind });
   if (typeof formatter !== "function") throw new Error(`Formatter ${kind} is not registered`);
-  return Reflect.apply(formatter, undefined, [value, options, kind, {}]);
+  return Reflect.apply(formatter, undefined, [value, options, kind, {}, choices]);
 }
 
 function dialogChain() {

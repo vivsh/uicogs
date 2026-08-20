@@ -12,7 +12,7 @@ The primary support policy covers:
 - `@uicogs/auth`
 - `@uicogs/http`
 - `@uicogs/vue`
-- `@uicogs/vue-router`
+- `@uicogs/routes`
 - `@uicogs/react`
 - `@uicogs/quasar`
 - `@uicogs/openapi`
@@ -39,6 +39,10 @@ Patch releases fix defects without intentionally changing documented behavior.
 Minor releases may add optional APIs and descriptor kinds.
 
 Major releases may remove or change public APIs. Breaking changes require migration instructions. UiCogs does not retain duplicate permanent APIs only to preserve an older spelling or construction pattern.
+
+`UcTable` and `UcForm` accept optional immutable views. A table view declares generated
+columns; a form view declares only generated controls and must be a subset of its form
+definition. Views do not change loading, validation, or payload-writing behavior.
 
 ## Internal Details
 

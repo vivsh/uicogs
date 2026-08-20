@@ -6,6 +6,7 @@ import { fields } from "./field.js";
 import { localFile } from "./field.js";
 import { createFormController } from "./form.js";
 import { RequestError, type NormalizedFailure } from "./issues.js";
+import { operation } from "./resource.js";
 import type { Transport } from "./transport.js";
 
 describe("forms", () => {
@@ -26,6 +27,82 @@ describe("forms", () => {
     form.applyFailure(failure);
     expect(form.field("title").issues[0]?.path).toEqual(["title"]);
     expect(form.getSnapshot().unboundIssues[0]?.path).toEqual(["unknown"]);
+  });
+
+  it("keeps safe plain-text validation failures as unbound form issues", async () => {
+    const detail = `A task with this title already exists. ${"More detail ".repeat(40)}`;
+    const transport: Transport = {
+      request: async () => ({
+        status: 422,
+        data: detail,
+        headers: { "content-type": "text/plain" },
+      }),
+    };
+    const cogs = createUiCogs({ context: undefined, transport });
+    const Task = defineSchema({ id: fields.ID(), title: fields.Str({ required: true }) });
+    const Tasks = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema: Task,
+      key: "id",
+      operations: { create: operation.create() },
+    });
+    const form = cogs.resource(Tasks).form(Task.keep("title").toForm({ mode: "create" }), {
+      title: "Duplicate",
+    });
+
+    await expect(form.submit()).resolves.toMatchObject({
+      success: false,
+      failure: {
+        kind: "validation",
+        message: `${detail.trim().replace(/\s+/g, " ").slice(0, 277)}…`,
+      },
+    });
+    expect(form.unboundIssues).toMatchObject([
+      {
+        path: [],
+        message: `${detail.trim().replace(/\s+/g, " ").slice(0, 277)}…`,
+        source: "server",
+      },
+    ]);
+    cogs.dispose();
+  });
+
+  it("uses safe status messages instead of plain-text or HTML error bodies", async () => {
+    let status = 401;
+    const transport: Transport = {
+      request: async () => ({
+        status,
+        data: status === 405 ? "<html><body>Method Not Allowed</body></html>" : "Internal detail",
+        headers: { "content-type": status === 405 ? "text/html" : "text/plain" },
+      }),
+    };
+    const cogs = createUiCogs({ context: undefined, transport });
+    const Task = defineSchema({ id: fields.ID(), title: fields.Str({ required: true }) });
+    const Tasks = registerResource(cogs)({
+      name: "tasks",
+      url: "tasks/",
+      schema: Task,
+      key: "id",
+      operations: { create: operation.create() },
+    });
+    const expected = new Map([
+      [401, "Your session has expired. Please sign in again."],
+      [403, "You do not have permission to perform this action."],
+      [405, "This action is not available."],
+      [503, "The server encountered an error. Please try again."],
+    ]);
+
+    for (const [nextStatus, message] of expected) {
+      status = nextStatus;
+      const form = cogs.resource(Tasks).form(Task.keep("title").toForm({ mode: "create" }), {
+        title: "Draft",
+      });
+      await expect(form.submit()).resolves.toMatchObject({ success: false, failure: { message } });
+      expect(form.unboundIssues).toEqual([]);
+      form.dispose();
+    }
+    cogs.dispose();
   });
 
   it("marks a dirty object-bound draft stale when shared data changes", async () => {

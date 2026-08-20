@@ -8,7 +8,9 @@ import { operation } from "./resource.js";
 import { EventBus } from "./store.js";
 import {
   pagination,
+  responseAdapters,
   type ErrorAdapter,
+  type ResponseAdapter,
   type Transport,
   type TransportRequest,
 } from "./transport.js";
@@ -85,6 +87,155 @@ describe("workflow contracts", () => {
     await expect(cogs.resource(definition).update(1, { name: "Changed" })).rejects.toMatchObject({
       failure: { message: "operation" },
     });
+  });
+
+  it("uses a central response profile for success decoding, pagination, and failures", async () => {
+    const requests: TransportRequest[] = [];
+    const profile = responseAdapters.custom({
+      name: "enveloped",
+      decode: (response, context) =>
+        context.kind === "entity"
+          ? (response.data as Readonly<Record<string, unknown>>).payload
+          : response.data,
+      pagination: pagination.page({ resultsKey: "items", countKey: "total" }),
+      errorAdapter: messageAdapter("profile"),
+    });
+    const cogs = createUiCogs({
+      context: undefined,
+      responseAdapter: profile,
+      transport: {
+        request: async (request) => {
+          requests.push(request);
+          if (request.url.endsWith("1/"))
+            return { status: 200, data: { payload: { id: 1, name: "One" } } };
+          if (request.url.endsWith("2/")) return { status: 422, data: {} };
+          return { status: 200, data: { total: 1, items: [{ id: 1, name: "One" }] } };
+        },
+      },
+    });
+    const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
+    const definition = registerResource(cogs)({
+      name: "profiled",
+      url: "profiled/",
+      schema,
+      key: "id",
+    });
+    const resource = cogs.resource(definition).page(2, 10);
+
+    await resource.load();
+    expect(requests[0]?.query).toMatchObject({ page: 2, page_size: 10 });
+    expect(resource.all()[0]?.name).toBe("One");
+    expect((await resource.get(1).load())?.name).toBe("One");
+    await expect(resource.get(2).load()).rejects.toMatchObject({
+      failure: { message: "profile" },
+    });
+  });
+
+  it("resolves scoped response profiles nearest-first while keeping explicit overrides", async () => {
+    const requests: TransportRequest[] = [];
+    const named = (name: string, parameter: string): ResponseAdapter => ({
+      name,
+      pagination: pagination.page({ pageParam: parameter }),
+      errorAdapter: messageAdapter(name),
+    });
+    const explicitError = messageAdapter("explicit");
+    const cogs = createUiCogs({
+      context: undefined,
+      responseAdapter: named("runtime", "runtime_page"),
+      transport: {
+        request: async (request) => {
+          requests.push(request);
+          return request.url.includes("failed")
+            ? { status: 400, data: {} }
+            : { status: 200, data: [] };
+        },
+      },
+    });
+    const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
+    const input = defineSchema({ search: fields.Str() });
+    const definition = registerResource(cogs)({
+      name: "scoped",
+      url: "scoped/",
+      schema,
+      key: "id",
+      responseAdapter: named("resource", "resource_page"),
+      queries: {
+        nearest: { input, responseAdapter: named("query", "query_page") },
+        explicit: {
+          input,
+          responseAdapter: named("ignored", "profile_page"),
+          pagination: pagination.page({ pageParam: "explicit_page" }),
+        },
+        failed: { input, path: "failed/", errorAdapters: [explicitError] },
+      },
+    });
+
+    await cogs.resource(definition).load({ policy: "network-only" });
+    await cogs.resource(definition).query("nearest", {}).load({ policy: "network-only" });
+    await cogs.resource(definition).query("explicit", {}).load({ policy: "network-only" });
+    await expect(cogs.resource(definition).query("failed", {}).load()).rejects.toMatchObject({
+      failure: { message: "explicit" },
+    });
+    expect(
+      requests.map((request) =>
+        Object.keys(request.query ?? {}).find((key) => key.endsWith("page")),
+      ),
+    ).toEqual(["resource_page", "query_page", "explicit_page", "resource_page"]);
+  });
+
+  it("uses an operation response profile before its resource profile", async () => {
+    const wrapped = (name: string, key: string): ResponseAdapter => ({
+      name,
+      decode: (response) => (response.data as Readonly<Record<string, unknown>>)[key],
+    });
+    const cogs = createUiCogs({
+      context: undefined,
+      transport: {
+        request: async () => ({
+          status: 200,
+          data: {
+            resource: { id: 1, name: "Resource" },
+            operation: { id: 2, name: "Operation" },
+          },
+        }),
+      },
+    });
+    const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
+    const definition = registerResource(cogs)({
+      name: "decoded-actions",
+      url: "decoded-actions/",
+      schema,
+      key: "id",
+      responseAdapter: wrapped("resource", "resource"),
+      operations: {
+        publish: operation.action({
+          output: schema,
+          responseAdapter: wrapped("operation", "operation"),
+        }),
+      },
+    });
+
+    await expect(cogs.resource(definition).action("publish", undefined)).resolves.toEqual({
+      id: 2,
+      name: "Operation",
+    });
+  });
+
+  it("does not infer response envelopes without an explicit profile", async () => {
+    const cogs = createUiCogs({
+      context: undefined,
+      transport: { request: async () => ({ status: 200, data: { data: [{ id: 1 }] } }) },
+    });
+    const schema = defineSchema({ id: fields.ID() });
+    const definition = registerResource(cogs)({
+      name: "plain",
+      url: "plain/",
+      schema,
+      key: "id",
+    });
+
+    await cogs.resource(definition).load();
+    expect(cogs.resource(definition).all()).toEqual([]);
   });
 
   it("supports automatic client pagination and accumulation", async () => {

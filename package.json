@@ -16,7 +16,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:browser": "pnpm build && playwright test",
-    "test:types": "tsd --typings packages/core/src/index.ts --files tests/types/*.test-d.ts",
+    "test:types": "tsd --typings packages/core/src/index.ts --files tests/types/index.test-d.ts && tsd --typings packages/vue/src/index.ts --files tests/types/vue.test-d.ts && tsd --typings packages/echarts/src/index.ts --files tests/types/echarts.test-d.ts && tsd --typings packages/quasar/src/index.ts --files tests/types/quasar.test-d.ts && tsd --typings packages/quasar/src/stylebook.ts --files tests/types/quasar-stylebook.test-d.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -43,6 +43,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@uicogs/core": "workspace:*",
+    "@uicogs/echarts": "workspace:*",
     "@uicogs/http": "workspace:*",
     "@uicogs/quasar": "workspace:*",
     "@uicogs/react": "workspace:*",
@@ -51,6 +52,7 @@
     "@vitest/coverage-v8": "4.1.10",
     "@vue/test-utils": "^2.4.11",
     "eslint": "^9.39.2",
+    "echarts": "^6.1.0",
     "fast-check": "^4.9.0",
     "jsdom": "^29.1.1",
     "prettier": "^3.7.4",
@@ -65,6 +67,7 @@
     "vite": "^8.1.5",
     "vitest": "^4.0.18",
     "vue": "^3.5.26",
+    "vue-router": "^4.6.4",
     "yaml": "^2.8.2"
   },
   "tsd": {

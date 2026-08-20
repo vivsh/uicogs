@@ -1,7 +1,5 @@
 import {
-  createUiCogs as createCoreUiCogs,
-  type AuthStrategyDefinition,
-  type CogsOptions,
+  type ControllerAdapter,
   type Descriptor,
   type EntityKey,
   type ExternalStore,
@@ -10,8 +8,22 @@ import {
   type FormSchema,
   type Schema,
   type Shape,
-  type ResourceDefinitionIdentity,
+  type RuntimeAuthController,
+  type ActionPlacement,
+  type ResourceActionDescriptor,
+  type ResourceActionResolveOptions,
+  type AlertController,
+  type NotificationController,
+  isLoggedIn,
 } from "@uicogs/core";
+import {
+  canAccessRoute,
+  useUiCogsNavigation,
+  validateNavigation,
+  type UiCogsBreadcrumb,
+  type UiCogsNavigationNode,
+  type UiCogsNavigationOptions,
+} from "./navigation.js";
 import {
   computed,
   getCurrentScope,
@@ -22,38 +34,20 @@ import {
   shallowRef,
   type ComputedRef,
   type App,
+  type Plugin,
   type Ref,
   type ShallowRef,
   type InjectionKey,
-  type Plugin,
 } from "vue";
+import { type RouteLocationNormalizedLoaded, type RouteLocationRaw, type Router } from "vue-router";
 
 export * from "@uicogs/core";
+export * from "./route-state.js";
+export * from "./navigation.js";
 
 const proxies = new WeakMap<object, object>();
 
-export interface BoundUiCogs<T> {
-  readonly UiCogsPlugin: Plugin;
-  useUiCogs(): T;
-}
-
-export function bindUiCogs<T extends object>(runtime: T): BoundUiCogs<T> {
-  const key: InjectionKey<T> = Symbol("UiCogs runtime");
-  const UiCogsPlugin: Plugin = Object.freeze({
-    install(app: App) {
-      app.provide(key, runtime);
-    },
-  });
-  return Object.freeze({
-    UiCogsPlugin,
-    useUiCogs(): T {
-      const injected = inject(key, undefined);
-      if (!injected)
-        throw new Error("UiCogsPlugin is not installed in the current Vue application");
-      return injected;
-    },
-  });
-}
+const uiCogsKey: InjectionKey<VueBoundUiCogs<VueRuntimeSource>> = Symbol("UiCogs runtime");
 
 export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
   const existing = proxies.get(controller);
@@ -82,25 +76,160 @@ export function vueReactive<T extends ExternalStore<object>>(controller: T): T {
   return proxy;
 }
 
-type VueUiCogsOptions<
-  TApplicationContext,
-  TAuth extends AuthStrategyDefinition | undefined,
-  TResources extends readonly ResourceDefinitionIdentity[],
-> = Omit<CogsOptions<TApplicationContext, TAuth, TResources>, "adapter">;
+export interface WithVueOptions {
+  readonly navigation?: UiCogsNavigationOptions;
+  /**
+   * An optional route integration installed before UiCogs captures the application's
+   * static route records. Framework extensions can use this to add opt-in routes.
+   */
+  readonly stylebook?: VueRouteIntegration;
+  readonly onDenied?: (input: {
+    readonly to: RouteLocationNormalizedLoaded;
+    readonly scopes: readonly string[];
+  }) => RouteLocationRaw | false | void;
+}
 
-export function createUiCogs<
-  TApplicationContext = undefined,
-  TEvents extends object = Readonly<Record<never, never>>,
-  TAuth extends AuthStrategyDefinition | undefined = undefined,
-  const TResources extends readonly ResourceDefinitionIdentity[] =
-    readonly ResourceDefinitionIdentity[],
->(options: VueUiCogsOptions<TApplicationContext, TAuth, TResources>) {
-  const adapted = { ...options, adapter: vueReactive } as CogsOptions<
-    TApplicationContext,
-    TAuth,
-    TResources
-  >;
-  return createCoreUiCogs<TApplicationContext, TEvents, TAuth, TResources>(adapted);
+/**
+ * A framework-neutral Vue Router extension installed during `withVue()` setup.
+ * Implementations must only add their own static router records.
+ */
+export interface VueRouteIntegration {
+  install(router: Router): void;
+}
+
+interface VueRuntimeSource extends Record<never, never> {
+  readonly ready: Promise<void>;
+  readonly context: ExternalStore<object>;
+  readonly live: ExternalStore<object>;
+  readonly notifications: NotificationController;
+  readonly alerts: AlertController;
+  readonly auth?: RuntimeAuthController;
+  icon?(name: string): string;
+  bindControllerAdapter(adapter: ControllerAdapter): void;
+}
+
+export type VueBoundUiCogs<T extends VueRuntimeSource> = Omit<
+  T,
+  "context" | "live" | "auth" | "notifications" | "alerts"
+> & {
+  readonly core: T;
+  readonly context: T["context"];
+  readonly live: T["live"];
+  readonly notifications: T["notifications"];
+  readonly alerts: T["alerts"];
+  readonly auth: T["auth"];
+  navigation(placement: string): ComputedRef<readonly UiCogsNavigationNode[]>;
+  breadcrumbs(placement: string): ComputedRef<readonly UiCogsBreadcrumb[]>;
+  hasScope(scope: string): ComputedRef<boolean>;
+  hasScopes(scopes: readonly string[]): ComputedRef<boolean>;
+};
+
+/** A Vue plugin and its application-specific, fully typed component composable. */
+export interface VueUiCogsBinding<T extends VueRuntimeSource> {
+  readonly uiCogs: Plugin;
+  useUiCogs(): VueBoundUiCogs<T>;
+}
+
+/** Awaits one core runtime and creates its Vue plugin and typed component composable. */
+export async function withVue<T extends VueRuntimeSource>(
+  cogs: T,
+  options: WithVueOptions = {},
+): Promise<VueUiCogsBinding<T>> {
+  await cogs.ready;
+  const uiCogs: Plugin = {
+    install(app: App) {
+      const router = routerFor(app);
+      options.stylebook?.install(router);
+      validateNavigation(options.navigation ?? {});
+      bindVueRuntime(app, cogs, router, options);
+    },
+  };
+  return Object.freeze({
+    uiCogs,
+    useUiCogs: () => useUiCogs<T>(),
+  });
+}
+
+/** Returns the Vue-bound application runtime installed by withVue(). */
+export function useUiCogs<T extends VueRuntimeSource = VueRuntimeSource>(): VueBoundUiCogs<T> {
+  const injected = inject(uiCogsKey, undefined);
+  if (!injected) throw new Error("withVue() has not been called for the current Vue application");
+  return injected as VueBoundUiCogs<T>;
+}
+
+function bindVueRuntime<T extends VueRuntimeSource>(
+  app: App,
+  cogs: T,
+  router: Router,
+  options: WithVueOptions,
+): VueBoundUiCogs<T> {
+  cogs.bindControllerAdapter(vueReactive);
+  const revision = shallowRef(0);
+  const unsubscribe = cogs.auth?.subscribe(() => {
+    revision.value += 1;
+  });
+  app.onUnmount(() => unsubscribe?.());
+  const access = () => {
+    void revision.value;
+    return {
+      authenticated: isLoggedIn(cogs.auth),
+      scopes: cogs.auth?.scopes ?? new Set<string>(),
+    };
+  };
+  const staticRouteRecords = Object.freeze([...router.getRoutes()]);
+  router.beforeEach((to) => {
+    if (canAccessRoute(to.matched, access())) return true;
+    const scopes = Object.freeze(to.matched.flatMap((record) => record.meta.uicogs?.scopes ?? []));
+    return options.onDenied?.({ to, scopes }) ?? false;
+  });
+  const bound = Object.create(cogs) as VueBoundUiCogs<T>;
+  const navigation = (placement: string) =>
+    useUiCogsNavigation(options.navigation ?? {}, access, staticRouteRecords).navigation(placement);
+  const breadcrumbs = (placement: string) =>
+    useUiCogsNavigation(options.navigation ?? {}, access, staticRouteRecords).breadcrumbs(
+      placement,
+    );
+  Object.defineProperties(bound, {
+    core: { value: cogs },
+    context: { value: vueReactive(cogs.context) },
+    live: { value: vueReactive(cogs.live) },
+    notifications: { value: vueReactive(cogs.notifications) },
+    alerts: { value: vueReactive(cogs.alerts) },
+    ...(cogs.auth ? { auth: { value: vueReactive(cogs.auth) } } : {}),
+    navigation: { value: navigation },
+    breadcrumbs: { value: breadcrumbs },
+    hasScope: {
+      value: (scope: string) =>
+        computed(() => access().authenticated && access().scopes.has(scope)),
+    },
+    hasScopes: {
+      value: (scopes: readonly string[]) =>
+        computed(
+          () => access().authenticated && scopes.every((scope) => access().scopes.has(scope)),
+        ),
+    },
+  });
+  app.provide(uiCogsKey, bound as VueBoundUiCogs<VueRuntimeSource>);
+  return bound;
+}
+
+function routerFor(app: App): Router {
+  const router = app.config.globalProperties.$router as unknown;
+  if (!isRouter(router))
+    throw new Error(
+      "Vue Router must be installed before app.use(uiCogs): app.use(router).use(uiCogs)",
+    );
+  return router;
+}
+
+function isRouter(value: unknown): value is Router {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "currentRoute" in value &&
+    "beforeEach" in value &&
+    typeof value.beforeEach === "function"
+  );
 }
 
 export function useUcController<T extends ExternalStore<object>>(controller: T): T {
@@ -112,6 +241,93 @@ export const useUcObject = useUcController;
 export const useUcCollection = useUcController;
 export const useUcForm = useUcController;
 export const useUcAction = useUcController;
+
+/** Declarative narrowing for generated resource actions; access rules always remain enforced. */
+export type UcResourceActionOverride =
+  false | readonly string[] | ((names: readonly string[]) => readonly string[]);
+
+/** Options shared by the Vue resource-action composables. */
+export interface UcResourceActionOptions<TKey extends EntityKey> {
+  readonly placement: ActionPlacement;
+  readonly selectedKeys?: Readonly<Ref<readonly TKey[]>> | readonly TKey[];
+  readonly actions?: UcResourceActionOverride;
+}
+
+/** The core resource surface consumed by framework action bindings. */
+export interface UcResourceActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+  actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[];
+}
+
+/** The object surface consumed by object-bound Vue action bindings. */
+export interface UcObjectActionSource<TKey extends EntityKey> extends ExternalStore<object> {
+  readonly key: TKey;
+  readonly value?: Readonly<Record<string, unknown>>;
+}
+
+/** Resolves placement actions reactively while preserving core scope and visibility checks. */
+export function useUcResourceActions<TKey extends EntityKey>(
+  resource: UcResourceActionSource<TKey>,
+  options: UcResourceActionOptions<TKey>,
+): ComputedRef<readonly ResourceActionDescriptor<TKey>[]> {
+  const reactiveResource = vueReactive(resource);
+  const cogs = useUiCogs();
+  return computed(() => {
+    void cogs.auth?.status;
+    void cogs.auth?.scopes;
+    const selectedKeys = actionSelectedKeys(options.selectedKeys);
+    const available = reactiveResource.actions({ placement: options.placement, selectedKeys });
+    return applyActionOverride(available, options.actions);
+  });
+}
+
+/** Resolves object-bound placement actions reactively for a current resource object. */
+export function useUcObjectActions<TKey extends EntityKey>(
+  resource: UcResourceActionSource<TKey>,
+  object: UcObjectActionSource<TKey>,
+  options: UcResourceActionOptions<TKey>,
+): ComputedRef<readonly ResourceActionDescriptor<TKey>[]> {
+  const reactiveResource = vueReactive(resource);
+  const reactiveObject = vueReactive(object);
+  const cogs = useUiCogs();
+  return computed(() => {
+    void cogs.auth?.status;
+    void cogs.auth?.scopes;
+    const selectedKeys = actionSelectedKeys(options.selectedKeys);
+    const available = reactiveResource.actions({
+      placement: options.placement,
+      object: {
+        key: reactiveObject.key,
+        ...(reactiveObject.value ? { value: reactiveObject.value } : {}),
+      },
+      selectedKeys,
+    });
+    return applyActionOverride(available, options.actions);
+  });
+}
+
+function actionSelectedKeys<TKey extends EntityKey>(
+  value: UcResourceActionOptions<TKey>["selectedKeys"],
+): readonly TKey[] | undefined {
+  if (!value) return undefined;
+  return "value" in value ? value.value : value;
+}
+
+function applyActionOverride<TKey extends EntityKey>(
+  actions: readonly ResourceActionDescriptor<TKey>[],
+  override: UcResourceActionOverride | undefined,
+): readonly ResourceActionDescriptor<TKey>[] {
+  if (override === false) return Object.freeze([]);
+  const names =
+    typeof override === "function" ? override(actions.map((action) => action.name)) : override;
+  if (!names) return actions;
+  const selected = new Map(actions.map((action) => [action.name, action]));
+  return Object.freeze(
+    names.flatMap((name) => {
+      const action = selected.get(name);
+      return action ? [action] : [];
+    }),
+  );
+}
 
 export function useUcSnapshot<T extends object>(store: ExternalStore<T>): Readonly<ShallowRef<T>> {
   const snapshot = shallowRef(store.getSnapshot()) as ShallowRef<T>;
@@ -168,15 +384,18 @@ export function useUcFormModel<
 >(controller: TController) {
   const form = vueReactive(controller);
   const fields = computed<readonly UcFieldModel[]>(() =>
-    Object.entries(form.schema.fields.shape).map(([name, field]) => {
+    Object.entries(form.schema.fields.shape).flatMap(([name, field]) => {
+      if (!form.visible(name as never)) return [];
       const options = presentationOptions(field);
-      return Object.freeze({
-        name,
-        ...(options?.editor ? { descriptor: options.editor as Descriptor } : {}),
-        label: typeof options?.label === "string" ? options.label : labelFor(name),
-        ...(typeof options?.help === "string" ? { help: options.help } : {}),
-        state: computed(() => form.field(name as never) as Readonly<Record<string, unknown>>),
-      });
+      return [
+        Object.freeze({
+          name,
+          ...(options?.editor ? { descriptor: options.editor as Descriptor } : {}),
+          label: typeof options?.label === "string" ? options.label : labelFor(name),
+          ...(typeof options?.help === "string" ? { help: options.help } : {}),
+          state: computed(() => form.field(name as never) as Readonly<Record<string, unknown>>),
+        }),
+      ];
     }),
   );
   const summary = computed(() => [

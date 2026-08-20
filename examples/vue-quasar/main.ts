@@ -1,20 +1,11 @@
 import { computed, createApp, defineComponent, h, ref } from "vue";
-import {
-  QBtn,
-  QHeader,
-  QInput,
-  QLayout,
-  QPageContainer,
-  QToolbar,
-  QToolbarTitle,
-  Quasar,
-} from "quasar";
+import { QBtn, QHeader, QLayout, QPageContainer, QToolbar, QToolbarTitle, Quasar } from "quasar";
 import "quasar/dist/quasar.css";
 import "@quasar/extras/material-icons/material-icons.css";
 import iconSet from "quasar/icon-set/svg-material-icons.js";
 import {
-  bindUiCogs,
   createUiCogs,
+  createFormController,
   editor,
   fields,
   format,
@@ -24,11 +15,26 @@ import {
   resource,
   schema,
   type Transport,
-} from "@uicogs/vue";
+} from "@uicogs/core";
 import { sse } from "@uicogs/http";
 import { storage } from "@uicogs/storage";
-import { UcAction, UcDelete, UcResourceView } from "@uicogs/quasar";
+import {
+  UcAction,
+  UcDelete,
+  UcField,
+  UcFilter,
+  UcForm,
+  UcResourceView,
+  UcSubmit,
+} from "@uicogs/quasar";
+import { UcEChart, chart, useUcChart } from "@uicogs/echarts";
+import * as echarts from "echarts/core";
+import { BarChart } from "echarts/charts";
+import { GridComponent } from "echarts/components";
+import { CanvasRenderer } from "echarts/renderers";
 import "./workflow.css";
+
+echarts.use([BarChart, GridComponent, CanvasRenderer]);
 
 interface ExampleContext {
   readonly locale: string;
@@ -193,6 +199,21 @@ const Task = schema({
   attachment: fields.File({ label: "Attachment" }),
 });
 const BulkStatus = schema({ status: fields.Enum(["open", "done"] as const) });
+const TaskFilters = schema({
+  search: fields.Str({
+    label: "Search tasks",
+    layout: { filter: { xs: 12, md: 5 } },
+  }),
+});
+const EditorShowcase = schema({
+  published: fields.Date({ label: "Published" }),
+  publishingTime: fields.Time({
+    label: "Publishing time",
+    editor: editor.Time({ minuteStep: 15 }),
+  }),
+  publishingWindow: fields.DateRange({ label: "Publishing window" }),
+  featured: fields.Bool({ label: "Featured", nullable: true }),
+});
 const TaskCreate = Task.drop("id", "project").toForm({ mode: "create", encoding: "auto" });
 const TaskEdit = Task.keep("title", "status", "attachment").toForm({
   mode: "patch",
@@ -227,6 +248,11 @@ const LocalTasks = resource({
   key: "id",
   source: local(),
 });
+const LocalTaskBars = chart.collection(LocalTask, (tasks) => ({
+  xAxis: { type: "category", data: tasks.map((task) => task.title) },
+  yAxis: { type: "value" },
+  series: [{ type: "bar", data: tasks.map((task) => task.title.length) }],
+}));
 const Person = schema({
   id: fields.ID(),
   name: fields.Str({ required: true }),
@@ -344,7 +370,6 @@ const cogs = createUiCogs<ExampleContext>({
     retry: { initialMs: 20, maximumMs: 100, jitter: 0 },
   }),
 });
-const { UiCogsPlugin } = bindUiCogs(cogs);
 
 const liveItems = cogs.resource(LiveItems);
 liveItems.cache.add({ id: 2, title: "To delete" });
@@ -355,9 +380,9 @@ const app = defineComponent({
     const tasks = cogs.resource(Tasks).page(1, 2);
     const activeKey = ref<number>();
     const selectedKeys = ref<readonly number[]>([]);
-    const search = ref("");
     const lastEvent = ref("Ready");
     const localTasks = cogs.resource(LocalTasks);
+    const localTaskChart = useUcChart(LocalTaskBars, localTasks);
     const teamMembers = cogs.resource(Teams).get(1).relation("members");
     void teamMembers.load();
     const remoteTeamMembers = cogs.resource(RemoteTeams).get(1).relation("members");
@@ -367,11 +392,26 @@ const app = defineComponent({
       const value = tasks.get(activeKey.value).value;
       return value ? `Project: ${value.project.name}` : "Loading relation";
     });
-    const applySearch = async (): Promise<void> => {
-      tasks.filter({ search: search.value }, { merge: false }).page(1, 2);
-      await tasks.load({ policy: "network-only" });
-      lastEvent.value = `Filtered: ${search.value || "all"}`;
-    };
+    const filterForm = createFormController(
+      TaskFilters.toForm(),
+      { search: "" },
+      async (values) => {
+        const search = typeof values.search === "string" ? values.search : "";
+        tasks.filter({ search }, { merge: false }).page(1, 2);
+        await tasks.load({ policy: "network-only" });
+        lastEvent.value = `Filtered: ${search || "all"}`;
+        return {};
+      },
+    );
+    const editorForm = createFormController(EditorShowcase.toForm(), {
+      published: new Date("2026-07-21T00:00:00.000Z"),
+      publishingTime: "10:30",
+      publishingWindow: [
+        new Date("2026-07-21T00:00:00.000Z"),
+        new Date("2026-07-31T00:00:00.000Z"),
+      ],
+      featured: null,
+    } as never);
     const completeSelected = async (): Promise<void> => {
       await tasks.bulk.action("complete", selectedKeys.value, { status: "done" });
       await tasks.refresh();
@@ -416,7 +456,6 @@ const app = defineComponent({
               selection: "multiple",
               createForm: TaskCreate,
               editForm: TaskEdit,
-              create: false,
               mode: "auto",
               "onUpdate:modelValue": (key: string | number | undefined) => {
                 activeKey.value = typeof key === "number" ? key : undefined;
@@ -430,16 +469,12 @@ const app = defineComponent({
             },
             {
               filters: () =>
-                h("div", { class: "workflow-filters" }, [
-                  h(QInput, {
-                    modelValue: search.value,
-                    label: "Search tasks",
-                    clearable: true,
-                    "onUpdate:modelValue": (value: string | number | null) => {
-                      search.value = value === null ? "" : String(value);
-                    },
-                  }),
-                  h(QBtn, { label: "Apply filter", color: "primary", onClick: applySearch }),
+                h("section", { "data-testid": "generated-filter" }, [
+                  h(
+                    UcFilter,
+                    { form: filterForm, size: "sm" },
+                    { actions: () => h(UcSubmit, { label: "Apply filter" }) },
+                  ),
                 ]),
               actions: ({ create }: { readonly create: () => void }) =>
                 h("div", { class: "workflow-actions" }, [
@@ -456,7 +491,7 @@ const app = defineComponent({
                   confirmMessage: "",
                   onSuccess: () => undefined,
                 }),
-              "after-list": () =>
+              "list-footer": () =>
                 h("div", { class: "workflow-status", "data-testid": "workflow-status" }, [
                   h("span", activeProject.value),
                   h("span", lastEvent.value),
@@ -472,6 +507,13 @@ const app = defineComponent({
                         .map((task) => task.title)
                         .join(","),
                     ),
+                    h(UcEChart, {
+                      chart: localTaskChart,
+                      engine: echarts,
+                      autoresize: false,
+                      "data-testid": "local-task-chart",
+                      style: "height: 220px; width: 360px",
+                    }),
                   ]),
                   h("section", { "aria-label": "Context workflow" }, [
                     h(QBtn, {
@@ -515,6 +557,18 @@ const app = defineComponent({
                       remoteTeamMembers.values.map((person) => person.name).join(","),
                     ),
                   ]),
+                  h(
+                    "section",
+                    { "data-testid": "editor-showcase", "aria-label": "Editor showcase" },
+                    [
+                      h(UcForm, { form: editorForm }, () => [
+                        h(UcField, { name: "published" }),
+                        h(UcField, { name: "publishingTime" }),
+                        h(UcField, { name: "publishingWindow" }),
+                        h(UcField, { name: "featured" }),
+                      ]),
+                    ],
+                  ),
                 ]),
             },
           ),
@@ -523,7 +577,7 @@ const app = defineComponent({
   },
 });
 
-createApp(app).use(Quasar, { iconSet, plugins: {} }).use(UiCogsPlugin).mount("#app");
+createApp(app).use(Quasar, { iconSet, plugins: {} }).mount("#app");
 
 function resourceKey(url: string): number | undefined {
   const match = /\/tasks\/(\d+)\/$/.exec(url);

@@ -86,6 +86,39 @@ A valid `Retry-After` value is respected only when it fits inside the remaining 
 
 SSE does not use ordinary request retry. The live controller owns reconnect behavior.
 
+## Live Effects
+
+Live sources all feed one core pipeline. An existing source mapper may continue to
+return a `LiveMutation`; it can also return a cache mutation, persistent inbox change,
+or transient alert as a `LiveEffect`. Configure more than one source when a backend
+uses separate feeds—each reconnects and reports diagnostics independently.
+
+```ts
+import { createUiCogs } from "@uicogs/core";
+import { poll, sse } from "@uicogs/http";
+
+const api = createUiCogs({
+  live: {
+    sources: [sse({ url: "events/" }), poll({ intervalMs: 60_000, request: syncInbox })],
+    adapters: [
+      {
+        map: ({ event, payload }) =>
+          event === "notification"
+            ? { kind: "notification", mutation: { action: "upsert", item: payload } }
+            : undefined,
+      },
+    ],
+    notifications: { maximumItems: 100 },
+  },
+});
+```
+
+`api.notifications` always exists. It is disabled and empty without live sources, and
+otherwise exposes reactive `items`, `unreadCount`, `status`, and `error`. It never
+fetches, persists, marks read, or dismisses through an assumed server endpoint. Wire
+those user intents to an application resource or service action. `api.alerts` is a
+bounded queue for ephemeral messages; an alert host consumes each entry once.
+
 ## URLs And Queries
 
 The transport preserves existing query parameters.
@@ -185,13 +218,29 @@ Malformed JSON on an error response remains raw text so error adapters can inspe
 
 Binary download modes are not supported in 1.0.
 
+After a successful transport response, the active response profile may decode its data.
+Entity, collection, and action contexts are distinct. Collections then pass the decoded
+response to the resolved pagination adapter. No profile is inferred from the body.
+
 ## Non-2xx Responses
 
 The transport returns non-2xx `TransportResponse` values to the runtime.
 
-Failure adaptation then uses operation, resource, runtime, and fallback adapters in that order.
+Failure adaptation uses operation/query, resource/service, runtime, response-profile,
+and fallback adapters in that order.
 
 This preserves server field errors and operation-specific failure formats.
+
+The built-in fallback treats a safe plain-text `400` or `422` response as one
+non-field validation issue. It normalizes and limits that snippet to 280 characters
+and never displays HTML response bodies. `401`, `403`, `405`, and `5xx` responses
+receive safe status-specific messages, even when the server returned plain text or an
+HTML error page.
+
+GraphQL profiles also convert a successful HTTP response containing GraphQL `errors`
+into a request failure.
+
+See [Response adapters](response-adapters.md).
 
 ## Transport Errors
 

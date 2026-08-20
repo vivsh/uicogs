@@ -2,21 +2,12 @@ body {
   margin: 0;
 }
 
-.workflow-filters,
 .workflow-actions,
 .workflow-status {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.workflow-filters {
-  min-width: min(100%, 420px);
-}
-
-.workflow-filters .q-field {
-  flex: 1 1 220px;
 }
 
 .workflow-status {
@@ -26,8 +17,7 @@ body {
 }
 
 @media (max-width: 599px) {
-  .workflow-actions > *,
-  .workflow-filters > * {
+  .workflow-actions > * {
     flex: 1 1 100%;
   }
 }

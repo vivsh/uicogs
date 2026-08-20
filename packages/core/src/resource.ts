@@ -15,16 +15,33 @@ import type {
   AuthStrategyDefinition,
   RuntimeAuthController,
 } from "./auth.js";
+import { isLoggedIn } from "./auth.js";
 import { ContextStoreController } from "./context.js";
 import type { PersistenceOptions } from "./persistence.js";
-import type { FormController, FormSchema, FormSubmitOptions, SubmitResult } from "./form.js";
+import {
+  createUiCogsIconRegistry,
+  type UiCogsIconOverrides,
+  type UiCogsIconRegistry,
+} from "./icons.js";
+import type {
+  FormCompatibleSchema,
+  FormController,
+  FormMode,
+  FormSchema,
+  FormSubmitOptions,
+  SubmitResult,
+} from "./form.js";
 import { createFormController } from "./form.js";
 import { applyTransportMiddleware, createDefaultTransport } from "./default-http.js";
 import type { RelationConfig, RelationEndpointMutation, RelationKeyFetchOptions } from "./field.js";
 import type { NormalizedFailure, ValidationResult } from "./issues.js";
 import { normalizeFailure, RequestError } from "./issues.js";
 import {
-  LiveController,
+  AlertController,
+  LiveHubController,
+  NotificationController,
+  type LiveConfiguration,
+  type LiveEffect,
   type LiveEvent,
   type LiveMutation,
   type LiveSource,
@@ -43,6 +60,8 @@ import {
   type PageInfo,
   type PageState,
   type PaginationAdapter,
+  type ResponseAdapter,
+  type ResponseDecodeContext,
   type Transport,
   type TransportMiddleware,
   type TransportRequest,
@@ -75,6 +94,7 @@ type ViewLike<TContext> = ViewSchema<Shape, string, Shape, TContext>;
 const preparedMutation = Symbol("preparedMutation");
 const rawCollectionEntries = Symbol("rawCollectionEntries");
 const localMasterIdentity = "__local_master__";
+const configuredPagination = new WeakMap<object, PaginationAdapter>();
 
 interface RuntimeSchema<TContext> {
   readonly _context?: TContext;
@@ -95,6 +115,7 @@ interface RuntimeQuery<TContext> {
   readonly view?: string;
   readonly path?: string;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly sortParam?: string;
@@ -118,6 +139,7 @@ interface RuntimeAction<TContext> {
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly bulk?: BulkActionOptions;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly encoding?: BodyEncoding;
   readonly multipart?: MultipartAdapter;
   readonly sortParam?: string;
@@ -170,7 +192,10 @@ interface RuntimeDefinition<TContext> {
   readonly views: Readonly<Record<string, RuntimeSchema<TContext>>>;
   readonly queries: Readonly<Record<string, RuntimeQuery<TContext>>>;
   readonly actions: Readonly<Record<string, RuntimeAction<TContext>>>;
+  readonly disabledOperations?: readonly string[];
   readonly pagination: PaginationAdapter;
+  readonly configuredPagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl: number;
   readonly errorAdapters: readonly ErrorAdapter[];
 }
@@ -178,6 +203,13 @@ interface RuntimeDefinition<TContext> {
 export interface ResourceDefinitionIdentity {
   readonly name: string;
   readonly resourceName: string;
+}
+
+/** An immutable, operation-only API definition with no entity or cache semantics. */
+export interface ServiceDefinitionIdentity {
+  readonly name: string;
+  readonly serviceName: string;
+  readonly operations: ActionMap<unknown>;
 }
 
 export interface QueryDefinition<
@@ -189,6 +221,7 @@ export interface QueryDefinition<
   readonly view?: TView;
   readonly path?: string;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly sortParam?: string;
@@ -209,11 +242,83 @@ export interface ActionRequest<TInput> {
   readonly input: TInput;
 }
 
+/** A standard resource-view region or an application-defined action placement. */
+export type ActionPlacement = "list" | "create" | "edit" | "aside" | (string & {});
+
+/** The runtime subject an action needs before it may execute. */
+export type ActionTarget = "resource" | "object" | "bulk";
+
+/** Context used only to resolve an action's client-side presentation. */
+export interface ActionPresentationContext<TValue, TKey extends EntityKey, TContext> {
+  readonly context: TContext;
+  readonly authenticated: boolean;
+  readonly scopes: ReadonlySet<string>;
+  readonly value?: Readonly<TValue>;
+  readonly key?: TKey;
+  readonly selectedKeys: readonly TKey[];
+}
+
+/** Immutable framework-neutral action presentation metadata. */
+export interface ActionPresentation<TValue, TKey extends EntityKey, TContext> {
+  readonly placement: readonly ActionPlacement[];
+  readonly label: string;
+  readonly icon?: string;
+  readonly confirmation?: string;
+  readonly order?: number;
+  readonly scopes?: readonly string[];
+  visible?(context: ActionPresentationContext<TValue, TKey, TContext>): boolean;
+  disabled?(context: ActionPresentationContext<TValue, TKey, TContext>): boolean;
+}
+
+/** Selects the declared actions that belong to one application-owned view region. */
+export interface ResourceActionResolveOptions<TKey extends EntityKey> {
+  readonly placement: ActionPlacement;
+  readonly object?: Readonly<{
+    readonly key: TKey;
+    readonly value?: Readonly<Record<string, unknown>>;
+  }>;
+  readonly selectedKeys?: readonly TKey[];
+  readonly names?: readonly string[];
+}
+
+/** The serializable presentation portion of a resolved action. */
+export interface ResolvedActionPresentation {
+  readonly placement: readonly ActionPlacement[];
+  readonly label: string;
+  readonly icon?: string;
+  readonly confirmation?: string;
+  readonly order?: number;
+}
+
+/** An immutable, presentation-safe action bound to its current target. */
+export interface ResourceActionDescriptor<TKey extends EntityKey> {
+  readonly name: string;
+  readonly target: ActionTarget;
+  readonly presentation: ResolvedActionPresentation;
+  readonly placement: readonly ActionPlacement[];
+  readonly label: string;
+  readonly icon?: string;
+  readonly confirmation?: string;
+  readonly order?: number;
+  readonly disabled: boolean;
+  readonly requiresInput: boolean;
+  readonly key?: TKey;
+  readonly selectedKeys: readonly TKey[];
+  execute(input: unknown): Promise<unknown>;
+  operation(input: unknown): ActionController<unknown>;
+  form<TFormSchema extends FormSchema<FormCompatibleSchema, unknown>>(
+    schema: TFormSchema,
+    initial?: Partial<import("./form.js").FormValues<TFormSchema>>,
+  ): FormController<TFormSchema>;
+}
+
 export interface ActionDefinition<
   TInputSchema extends SchemaLike<TContext> | undefined,
   TOutputSchema extends SchemaLike<TContext> | undefined,
   TView extends string | undefined,
   TContext,
+  TValue = unknown,
+  TKey extends EntityKey = EntityKey,
 > {
   readonly kind?: OperationKind;
   readonly input?: TInputSchema;
@@ -232,6 +337,7 @@ export interface ActionDefinition<
   readonly errorAdapters?: readonly ErrorAdapter[];
   readonly bulk?: BulkActionOptions;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly encoding?: BodyEncoding;
   readonly multipart?: MultipartAdapter;
   readonly sortParam?: string;
@@ -240,6 +346,8 @@ export interface ActionDefinition<
     context: TContext,
   ) => unknown | Promise<unknown>;
   readonly auth?: OperationAuth;
+  readonly target?: ActionTarget;
+  readonly presentation?: ActionPresentation<TValue, TKey, TContext>;
 }
 
 export type OperationKind =
@@ -254,6 +362,10 @@ export interface BulkActionOptions {
     keys: readonly EntityKey[],
   ) => BulkResult<EntityKey, unknown>;
 }
+
+type ActionOperationOptions = Readonly<Record<string, unknown>> & {
+  readonly presentation?: ActionPresentation<Readonly<Record<string, unknown>>, EntityKey, unknown>;
+};
 
 function defineOperation<
   TKind extends OperationKind,
@@ -275,6 +387,15 @@ function defineOperation<
 }
 
 export const operation = {
+  all: () =>
+    Object.freeze({
+      list: operation.list(),
+      retrieve: operation.retrieve(),
+      create: operation.create(),
+      replace: operation.replace(),
+      patch: operation.patch(),
+      remove: operation.remove(),
+    }),
   list: <const T extends Readonly<Record<string, unknown>> = Readonly<Record<never, never>>>(
     options: T = {} as T,
   ) => defineOperation("list", "GET", options),
@@ -293,25 +414,110 @@ export const operation = {
   remove: <const T extends Readonly<Record<string, unknown>> = Readonly<Record<never, never>>>(
     options: T = {} as T,
   ) => defineOperation("remove", "DELETE", options),
-  action: <const T extends Readonly<Record<string, unknown>>>(options: T) =>
+  action: <const T extends ActionOperationOptions>(options: T) =>
     defineOperation("action", "POST", options),
-  bulk: <const T extends Readonly<Record<string, unknown>>>(options: T) =>
-    defineOperation("action", "POST", options),
+  object: <const T extends ActionOperationOptions>(options: T) =>
+    defineOperation("action", "POST", { ...options, target: "object" as const }),
+  bulk: <const T extends ActionOperationOptions>(options: T) =>
+    defineOperation("action", "POST", { ...options, target: "bulk" as const }),
 };
+
+function actionTarget(
+  action: ActionDefinition<
+    SchemaLike<unknown> | undefined,
+    SchemaLike<unknown> | undefined,
+    string | undefined,
+    unknown
+  >,
+): ActionTarget {
+  return action.target ?? (action.bulk ? "bulk" : "resource");
+}
+
+function hasActionScopes(
+  required: readonly string[] | undefined,
+  access: Readonly<{ readonly authenticated: boolean; readonly scopes: ReadonlySet<string> }>,
+): boolean {
+  if (!required?.length) return true;
+  return access.authenticated && required.every((scope) => access.scopes.has(scope));
+}
+
+function freezeActionDefinitions<T extends Readonly<Record<string, unknown>>>(actions: T): T {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(actions).map(([name, definition]) => {
+        if (!isRecord(definition)) return [name, definition];
+        const presentation = isRecord(definition.presentation)
+          ? Object.freeze({
+              ...definition.presentation,
+              ...(Array.isArray(definition.presentation.placement)
+                ? { placement: Object.freeze([...definition.presentation.placement]) }
+                : {}),
+              ...(Array.isArray(definition.presentation.scopes)
+                ? { scopes: Object.freeze([...definition.presentation.scopes]) }
+                : {}),
+            })
+          : undefined;
+        return [
+          name,
+          Object.freeze({
+            ...definition,
+            ...(presentation === undefined ? {} : { presentation }),
+          }),
+        ];
+      }),
+    ),
+  ) as T;
+}
+
+function freezeResourceForms<TForms extends ResourceForms>(forms: TForms): TForms {
+  for (const form of [forms.create, forms.edit]) {
+    if (form !== undefined && form !== false && !isResourceFormDefinition(form))
+      throw new TypeError("Resource forms must be FormSchema definitions or false");
+  }
+  return Object.freeze({ ...forms }) as TForms;
+}
+
+function isResourceFormDefinition(value: unknown): value is ResourceFormDefinition {
+  return (
+    isRecord(value) &&
+    typeof value.mode === "string" &&
+    isRecord(value.fields) &&
+    isRecord(value.fields.shape) &&
+    typeof value.writeValue === "function"
+  );
+}
 
 type ViewMap<TContext> = Readonly<Record<string, ViewLike<TContext>>>;
 type QueryMap<TContext> = Readonly<
   Record<string, QueryDefinition<SchemaLike<TContext>, string | undefined, TContext>>
 >;
-type ActionMap<TContext> = Readonly<
+type ActionMap<TContext, TValue = unknown, TKey extends EntityKey = EntityKey> = Readonly<
   Record<
     string,
     ActionDefinition<
       SchemaLike<TContext> | undefined,
       SchemaLike<TContext> | undefined,
       string | undefined,
-      TContext
+      TContext,
+      TValue,
+      TKey
     >
+  >
+>;
+
+/** Resource operations may explicitly disable the inferred item retrieve endpoint. */
+type ResourceActionMap<TContext, TValue = unknown, TKey extends EntityKey = EntityKey> = Readonly<
+  Record<
+    string,
+    | ActionDefinition<
+        SchemaLike<TContext> | undefined,
+        SchemaLike<TContext> | undefined,
+        string | undefined,
+        TContext,
+        TValue,
+        TKey
+      >
+    | false
   >
 >;
 
@@ -320,8 +526,9 @@ export interface ResourceDefinitionOptions<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext>,
   TQueries extends QueryMap<TContext>,
-  TActions extends ActionMap<TContext>,
+  TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey>,
   TContext,
+  TForms extends ResourceForms = ResourceForms,
 > {
   readonly name: string;
   readonly url?: string;
@@ -334,9 +541,29 @@ export interface ResourceDefinitionOptions<
   readonly queries?: TQueries;
   readonly actions?: TActions;
   readonly operations?: TActions;
+  /**
+   * Optional presentation defaults for generated resource create and edit surfaces.
+   *
+   * Omitted entries are derived from the resource schema by framework adapters. `false`
+   * intentionally disables that generated surface without changing authorization.
+   */
+  readonly forms?: TForms;
   readonly pagination?: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl?: number;
   readonly errorAdapters?: readonly ErrorAdapter[];
+}
+
+/** The stable structural portion of an immutable form definition used by resource presentation. */
+export interface ResourceFormDefinition {
+  readonly mode: FormMode;
+  readonly fields: Readonly<{ readonly shape: Readonly<Record<string, unknown>> }>;
+}
+
+/** Immutable create/edit form defaults owned by one resource definition. */
+export interface ResourceForms {
+  readonly create?: false | ResourceFormDefinition;
+  readonly edit?: false | ResourceFormDefinition;
 }
 
 export class ResourceDefinition<
@@ -344,8 +571,11 @@ export class ResourceDefinition<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext> = Readonly<Record<never, never>>,
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
-  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey> = Readonly<
+    Record<never, never>
+  >,
   TContext = unknown,
+  TForms extends ResourceForms = ResourceForms,
 > {
   declare readonly _entity?: Infer<TSchema>;
   readonly resourceName: string;
@@ -366,12 +596,14 @@ export class ResourceDefinition<
   readonly queries: TQueries;
   readonly actions: TActions;
   readonly operations: TActions;
+  readonly forms?: TForms;
   readonly pagination: PaginationAdapter;
+  readonly responseAdapter?: ResponseAdapter;
   readonly ttl: number;
   readonly errorAdapters: readonly ErrorAdapter[];
 
   constructor(
-    options: ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>,
+    options: ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>,
   ) {
     this.resourceName = options.name;
     this.name = options.name;
@@ -384,12 +616,17 @@ export class ResourceDefinition<
     if (options.keyEncoder) this.keyEncoder = options.keyEncoder;
     this.views = Object.freeze({ ...(options.views ?? {}) }) as TViews;
     this.queries = Object.freeze({ ...(options.queries ?? {}) }) as TQueries;
-    this.operations = Object.freeze({
+    const operations = {
       ...(options.actions ?? {}),
       ...(options.operations ?? {}),
-    }) as TActions;
+    };
+    validateDisabledResourceOperations(operations);
+    this.operations = freezeActionDefinitions(operations) as TActions;
     this.actions = this.operations;
+    if (options.forms) this.forms = freezeResourceForms(options.forms);
     this.pagination = options.pagination ?? pagination.page();
+    if (options.pagination) configuredPagination.set(this, options.pagination);
+    if (options.responseAdapter) this.responseAdapter = options.responseAdapter;
     this.ttl = options.ttl ?? 60_000;
     this.errorAdapters = Object.freeze([...(options.errorAdapters ?? [])]);
     validateViews(toRuntimeDefinition(this));
@@ -399,12 +636,61 @@ export class ResourceDefinition<
   operation<K extends keyof TActions & string>(name: K): OperationReference<this, K> {
     if (!(name in this.operations))
       throw new Error(`Operation ${name} is not defined on resource ${this.name}`);
+    if (this.operations[name] === false)
+      throw new Error(`Operation ${name} is disabled on resource ${this.name}`);
+    return Object.freeze({ resource: this, name }) as OperationReference<this, K>;
+  }
+}
+
+export interface ServiceDefinitionOptions<TActions extends ActionMap<TContext>, TContext> {
+  readonly name: string;
+  readonly url?: string;
+  readonly source?: ResourceSource<TContext>;
+  readonly actions?: TActions;
+  readonly operations?: TActions;
+  readonly errorAdapters?: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
+}
+
+export class ServiceDefinition<
+  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TContext = unknown,
+> {
+  readonly serviceName: string;
+  readonly name: string;
+  readonly url: string;
+  readonly source: ResourceSource<TContext>;
+  readonly actions: TActions;
+  readonly operations: TActions;
+  readonly errorAdapters: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
+
+  constructor(options: ServiceDefinitionOptions<TActions, TContext>) {
+    this.serviceName = options.name;
+    this.name = options.name;
+    this.source = options.source ?? http();
+    this.url = options.url ?? "";
+    if (this.source.kind === "http" && !this.url)
+      throw new Error(`HTTP service ${options.name} requires a URL`);
+    this.operations = freezeActionDefinitions({
+      ...(options.actions ?? {}),
+      ...(options.operations ?? {}),
+    }) as TActions;
+    this.actions = this.operations;
+    this.errorAdapters = Object.freeze([...(options.errorAdapters ?? [])]);
+    if (options.responseAdapter) this.responseAdapter = options.responseAdapter;
+    Object.freeze(this);
+  }
+
+  operation<K extends keyof TActions & string>(name: K): OperationReference<this, K> {
+    if (!(name in this.operations))
+      throw new Error(`Operation ${name} is not defined on service ${this.name}`);
     return Object.freeze({ resource: this, name }) as OperationReference<this, K>;
   }
 }
 
 export interface OperationReference<
-  TResource = ResourceDefinitionIdentity,
+  TResource = ResourceDefinitionIdentity | ServiceDefinitionIdentity,
   TName extends string = string,
 > {
   readonly resource: TResource;
@@ -426,7 +712,15 @@ export interface OperationReference<
           : never
         : never
       : never
-    : never;
+    : TResource extends { readonly operations: infer TActions }
+      ? TName extends keyof TActions
+        ? TActions[TName] extends { readonly output?: infer TOutput }
+          ? TOutput extends { readonly _output: infer T }
+            ? T
+            : unknown
+          : unknown
+        : never
+      : never;
 }
 
 export type OperationInput<TReference> = TReference extends { readonly _input?: infer T }
@@ -441,14 +735,24 @@ type NamedResourceDefinition<TName extends string, TDefinition> = TDefinition & 
   readonly resourceName: TName;
 };
 
+type NamedServiceDefinition<TName extends string, TDefinition> = TDefinition & {
+  readonly name: TName;
+  readonly serviceName: TName;
+};
+
 export function resource<
   const TName extends string,
   TSchema extends SchemaLike<TContext>,
   TKeyName extends keyof Infer<TSchema> & string,
   TViews extends ViewMap<TContext> = Readonly<Record<never, never>>,
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
-  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TActions extends ResourceActionMap<
+    TContext,
+    Infer<TSchema>,
+    Extract<Infer<TSchema>[TKeyName], EntityKey>
+  > = Readonly<Record<never, never>>,
   TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown,
+  TForms extends ResourceForms = ResourceForms,
 >(
   options: Omit<
     ResourceDefinitionOptions<
@@ -457,7 +761,8 @@ export function resource<
       TViews,
       TQueries,
       TActions,
-      TContext
+      TContext,
+      TForms
     >,
     "key" | "name"
   > & { readonly name: TName; readonly key: TKeyName },
@@ -469,7 +774,8 @@ export function resource<
     TViews,
     TQueries,
     TActions,
-    TContext
+    TContext,
+    TForms
   >
 >;
 export function resource<
@@ -478,29 +784,49 @@ export function resource<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext> = Readonly<Record<never, never>>,
   TQueries extends QueryMap<TContext> = Readonly<Record<never, never>>,
-  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey> = Readonly<
+    Record<never, never>
+  >,
   TContext = TSchema extends SchemaLike<infer TSchemaContext> ? TSchemaContext : unknown,
+  TForms extends ResourceForms = ResourceForms,
 >(
   options: Omit<
-    ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext>,
+    ResourceDefinitionOptions<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>,
     "name"
   > & { readonly name: TName },
 ): NamedResourceDefinition<
   TName,
-  ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext>
+  ResourceDefinition<TSchema, TKey, TViews, TQueries, TActions, TContext, TForms>
 >;
 export function resource(options: unknown): unknown {
   if (!isResourceOptions(options)) throw new Error("Invalid resource definition");
   return new ResourceDefinition(options as never);
 }
 
+export function service<
+  const TName extends string,
+  TActions extends ActionMap<TContext> = Readonly<Record<never, never>>,
+  TContext = unknown,
+>(
+  options: Omit<ServiceDefinitionOptions<TActions, TContext>, "name"> & { readonly name: TName },
+): NamedServiceDefinition<TName, ServiceDefinition<TActions, TContext>> {
+  if (!isServiceOptions(options)) throw new Error("Invalid service definition");
+  return new ServiceDefinition(options) as NamedServiceDefinition<
+    TName,
+    ServiceDefinition<TActions, TContext>
+  >;
+}
+
 interface UiCogsBaseOptions<
   TContext,
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
 > {
   readonly context?: TContext;
+  readonly icons?: UiCogsIconOverrides;
   readonly resources?: TResources;
+  readonly services?: TServices;
   readonly auth?: TAuth;
   readonly baseUrl?: string;
   readonly middleware?: readonly TransportMiddleware[];
@@ -508,7 +834,8 @@ interface UiCogsBaseOptions<
   readonly cachePolicy?: CachePolicy;
   readonly adapter?: ControllerAdapter;
   readonly errorAdapters?: readonly ErrorAdapter[];
-  readonly live?: LiveSource<TContext>;
+  readonly responseAdapter?: ResponseAdapter;
+  readonly live?: LiveConfiguration<TContext>;
   readonly relationDefaults?: {
     readonly byKeys?: RelationKeyFetchOptions<TContext>;
   };
@@ -518,7 +845,8 @@ export type UiCogsOptions<
   TContext,
   TAuth extends AuthStrategyDefinition | undefined = undefined,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
-> = UiCogsBaseOptions<TContext, TAuth, TResources> &
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
+> = UiCogsBaseOptions<TContext, TAuth, TResources, TServices> &
   (
     | {
         readonly persistence?: PersistenceOptions<TContext>;
@@ -633,6 +961,10 @@ export class ActionController<T> implements ExternalStore<ActionSnapshot<T>> {
 
 interface Runtime<TContext> {
   readonly context: () => TContext;
+  readonly access: () => Readonly<{
+    readonly authenticated: boolean;
+    readonly scopes: ReadonlySet<string>;
+  }>;
   readonly transport: Transport;
   readonly baseUrl: string;
   readonly cache: CacheStore;
@@ -640,6 +972,7 @@ interface Runtime<TContext> {
   readonly adapter: ControllerAdapter;
   readonly definitions: Map<string, RuntimeDefinition<TContext>>;
   readonly errorAdapters: readonly ErrorAdapter[];
+  readonly responseAdapter?: ResponseAdapter;
   readonly cachePolicy: CachePolicy;
   readonly relationDefaults?: UiCogsOptions<TContext>["relationDefaults"];
   scope(): string;
@@ -662,7 +995,12 @@ interface Runtime<TContext> {
     request: Omit<TransportRequest, "signal">,
     signal: AbortSignal,
     adapters?: readonly ErrorAdapter[],
+    response?: ResponseRequestOptions,
   ): Promise<TransportResponse<T>>;
+}
+
+interface ResponseRequestOptions extends ResponseDecodeContext {
+  readonly adapter?: ResponseAdapter;
 }
 
 interface ManagedCache extends CacheStore {
@@ -703,17 +1041,32 @@ type RuntimeResourceOf<TDefinition, TFallbackContext = unknown> =
         TFallbackContext
       >;
 
+type RuntimeServiceOf<TDefinition, TFallbackContext = unknown> =
+  TDefinition extends ServiceDefinition<infer TActions, infer TDefinitionContext>
+    ? Service<TActions, TDefinitionContext>
+    : Service<ActionMap<TFallbackContext>, TFallbackContext>;
+
 export class UiCogs<
   TContext,
   TResources extends readonly ResourceDefinitionIdentity[] = readonly ResourceDefinitionIdentity[],
+  TServices extends readonly ServiceDefinitionIdentity[] = readonly ServiceDefinitionIdentity[],
 > {
+  /** Resolves after context, authentication, and the active persistent cache scope initialize. */
+  readonly ready: Promise<void>;
+  /** Immutable application icon-pack mappings for UiCogs semantic and presentation icon names. */
+  readonly icons: UiCogsIconRegistry;
   readonly cache: CacheStore;
   readonly requests = new RequestCoordinator();
-  readonly live: LiveController<TContext>;
+  readonly live: LiveHubController<TContext>;
+  /** Framework-neutral, bounded inbox state fed exclusively by live notification effects. */
+  readonly notifications: NotificationController;
+  /** Framework-neutral, once-delivered alert queue fed exclusively by live alert effects. */
+  readonly alerts: AlertController;
   readonly auth?: RuntimeAuthController;
   protected readonly contextController: ContextStoreController<unknown, TContext>;
   private readonly definitions = new Map<string, RuntimeDefinition<TContext>>();
   private readonly sourceDefinitions = new Map<string, ResourceDefinitionIdentity>();
+  private readonly services = new Map<string, ServiceDefinitionIdentity>();
   private readonly contextListeners = new Set<() => void>();
   private readonly liveCollections = new Map<string, CollectionLiveBucket>();
   private readonly runtime: Runtime<TContext>;
@@ -721,8 +1074,13 @@ export class UiCogs<
   private authUnsubscribe?: () => void;
   private authLogoutUnsubscribe?: () => void;
   private contextUnsubscribe?: () => void;
+  private controllerAdapter: ControllerAdapter;
 
-  constructor(options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources>) {
+  constructor(
+    options: UiCogsOptions<TContext, AuthStrategyDefinition | undefined, TResources, TServices>,
+  ) {
+    this.icons = createUiCogsIconRegistry(options.icons);
+    this.controllerAdapter = options.adapter ?? identityAdapter;
     this.auth = options.auth?.create();
     const cachePersistence = options.persistence?.cache !== false;
     if (options.cache && options.persistence && cachePersistence)
@@ -740,7 +1098,7 @@ export class UiCogs<
       [...(options.middleware ?? []), ...(this.auth ? [this.auth.middleware()] : [])],
     );
     let lastTimestamp = 0;
-    this.contextController = (options.adapter ?? identityAdapter)(
+    this.contextController = this.controllerAdapter(
       new ContextStoreController(
         options.context,
         options.persistence && options.persistence.context !== false
@@ -759,13 +1117,19 @@ export class UiCogs<
     const context = () => this.contextController.value as TContext;
     const runtime: Runtime<TContext> = {
       context,
+      access: () =>
+        Object.freeze({
+          authenticated: isLoggedIn(this.auth),
+          scopes: this.auth?.scopes ?? new Set<string>(),
+        }),
       transport,
       baseUrl: options.baseUrl ?? "",
       cache: this.cache,
       coordinator: this.requests,
-      adapter: options.adapter ?? identityAdapter,
+      adapter: (controller) => this.controllerAdapter(controller),
       definitions: this.definitions,
       errorAdapters: options.errorAdapters ?? [],
+      responseAdapter: options.responseAdapter,
       cachePolicy: options.cachePolicy ?? "cache-first",
       relationDefaults: options.relationDefaults,
       scope: () => this.auth?.cacheScope() ?? options.cacheScope?.() ?? "anonymous",
@@ -797,6 +1161,7 @@ export class UiCogs<
         request: Omit<TransportRequest, "signal">,
         signal: AbortSignal,
         adapters: readonly ErrorAdapter[] = [],
+        responseOptions?: ResponseRequestOptions,
       ) =>
         this.requests.coordinate(
           identity,
@@ -806,11 +1171,20 @@ export class UiCogs<
               authentication: request.authentication ?? (this.auth ? "required" : "none"),
               signal: sharedSignal,
             });
+            const responseAdapter = responseOptions?.adapter ?? options.responseAdapter;
             if (response.status >= 400)
               throw new RequestError(
-                adaptFailure(response, [...adapters, ...(options.errorAdapters ?? [])]),
+                adaptFailure(response, [
+                  ...adapters,
+                  ...(options.errorAdapters ?? []),
+                  ...(responseAdapter?.errorAdapter ? [responseAdapter.errorAdapter] : []),
+                ]),
               );
-            return response as TransportResponse<T>;
+            const data =
+              responseAdapter?.decode && responseOptions
+                ? responseAdapter.decode(response, responseOptions)
+                : response.data;
+            return { ...response, data } as TransportResponse<T>;
           },
           signal,
         ),
@@ -821,19 +1195,32 @@ export class UiCogs<
         throw new Error(`Resource ${definition.name} is not a UiCogs resource definition`);
       this.registerDefinition(definition);
     }
+    for (const definition of options.services ?? []) this.registerService(definition);
     this.validateRelations();
     void this.managedCache.activateScope?.(runtime.scope());
+    const liveOptions = normalizeLiveConfiguration(options.live);
+    this.notifications = runtime.adapter(
+      new NotificationController(
+        liveOptions.sources.length > 0,
+        liveOptions.notifications?.maximumItems,
+      ),
+    );
+    this.alerts = runtime.adapter(new AlertController());
     this.live = runtime.adapter(
-      new LiveController(options.live, {
-        context: runtime.context,
-        scope: runtime.scope,
-        transport: runtime.transport,
-        baseUrl: runtime.baseUrl,
-        dispatchDefault: (event, payload, version, scope) =>
-          this.dispatchDefaultLiveEvent(event, payload, version, scope),
-        dispatchMutation: (mutation, version, scope) =>
-          this.dispatchLiveMutation(mutation, version, scope),
-      }),
+      new LiveHubController(
+        liveOptions.sources,
+        {
+          context: runtime.context,
+          scope: runtime.scope,
+          transport: runtime.transport,
+          baseUrl: runtime.baseUrl,
+          dispatchDefault: (event, payload, version, scope) =>
+            this.dispatchDefaultLiveEvent(event, payload, version, scope),
+          dispatchEffects: (effects, version, scope) =>
+            this.dispatchLiveEffects(effects, version, scope),
+        },
+        liveOptions.adapters,
+      ),
     );
     let contextValue = this.contextController.value;
     this.contextUnsubscribe = this.contextController.subscribe(() => {
@@ -868,26 +1255,44 @@ export class UiCogs<
         scope = nextScope;
         this.contextController.setAuthSnapshot(this.auth!.value);
       });
-      queueMicrotask(() => {
-        if (!this.requests.isDisposed) void this.auth?.initialize();
-      });
     }
-    queueMicrotask(() => {
-      if (!this.requests.isDisposed) void this.contextController.initialize();
-    });
+    this.ready = this.initializeRuntime();
+  }
+
+  /** Resolves an application override, preserving an unknown presentation icon name unchanged. */
+  icon(name: string): string {
+    return this.icons[name] ?? name;
+  }
+
+  /** Binds future controllers to one framework-owned reactive adapter. */
+  bindControllerAdapter(adapter: ControllerAdapter): void {
+    this.controllerAdapter = adapter;
+  }
+
+  private async initializeRuntime(): Promise<void> {
+    if (this.requests.isDisposed) return;
+    await this.contextController.initialize();
+    if (this.requests.isDisposed) return;
+    await this.auth?.initialize();
+    if (this.requests.isDisposed) return;
+    await this.managedCache.awaitHydration?.(this.runtime.scope());
   }
 
   private validateAuthOperations(strategy: AuthStrategyDefinition): void {
     const roles = new Map<string, string>();
     for (const reference of strategy.operations) {
-      const registered = this.sourceDefinitions.get(reference.resource.name);
+      const resource = this.sourceDefinitions.get(reference.resource.name);
+      const service = this.services.get(reference.resource.name);
+      const registered = resource ?? service;
       if (!registered)
         throw new Error(
           `Authentication operation ${reference.resource.name}.${reference.name} uses an unregistered resource`,
         );
       if (registered !== reference.resource)
         throw new Error(
-          `Authentication operation ${reference.resource.name}.${reference.name} conflicts with the registered resource`,
+          `Authentication operation ${reference.resource.name}.${reference.name} conflicts with the registered ${
+            service ? "service" : "resource"
+          }`,
         );
       const identity = `${reference.resource.name}.${reference.name}`;
       if (roles.has(identity))
@@ -899,21 +1304,21 @@ export class UiCogs<
   private authBindings(): AuthRuntimeBindings {
     return {
       execute: async (reference, input, role, signal) => {
-        const source = this.sourceDefinitions.get(reference.resource.name);
+        const source =
+          this.sourceDefinitions.get(reference.resource.name) ??
+          this.services.get(reference.resource.name);
         if (source !== reference.resource)
           throw new Error(
             `Authentication operation ${reference.resource.name}.${reference.name} is not registered`,
           );
+        if (source instanceof ServiceDefinition)
+          return new Service(this.runtime, source as never).runOperation(reference.name, input, {
+            authentication: role,
+            signal,
+          }) as never;
         const definition = this.definitions.get(reference.resource.name);
         if (!definition) throw new Error(`Resource ${reference.resource.name} is not registered`);
-        const controller = new Resource(this.runtime, definition as never) as unknown as {
-          runOperation(
-            name: string,
-            value: unknown,
-            options: MutationRequestOptions,
-          ): Promise<unknown>;
-        };
-        return controller.runOperation(reference.name, input, {
+        return new Resource(this.runtime, definition as never).runOperation(reference.name, input, {
           authentication: role,
           signal,
         }) as never;
@@ -948,6 +1353,28 @@ export class UiCogs<
     throw new Error("Expected a registered resource name or definition");
   }
 
+  service<TDefinition extends TServices[number]>(
+    definition: TDefinition,
+  ): RuntimeServiceOf<TDefinition, TContext>;
+  service<TName extends TServices[number]["name"] & string>(
+    name: TName,
+  ): string extends TServices[number]["name"]
+    ? RuntimeServiceOf<ServiceDefinitionIdentity, TContext>
+    : RuntimeServiceOf<Extract<TServices[number], { readonly name: TName }>, TContext>;
+  service(value: unknown): unknown {
+    const definition =
+      typeof value === "string"
+        ? this.services.get(value)
+        : value instanceof ServiceDefinition
+          ? value
+          : undefined;
+    if (!definition) throw new Error("Expected a registered service name or definition");
+    const registered = this.services.get(definition.name);
+    if (registered !== definition)
+      throw new Error(`Service ${definition.name} is not registered in this UiCogs runtime`);
+    return new Service(this.runtime, definition as never);
+  }
+
   private registerDefinition(definition: ResourceDefinitionIdentity): void {
     if (!(definition instanceof ResourceDefinition))
       throw new Error(`Resource ${definition.name} is not a UiCogs resource definition`);
@@ -959,6 +1386,8 @@ export class UiCogs<
         `Resource ${definition.name} is already registered with a conflicting definition`,
       );
     }
+    if (this.services.has(definition.name))
+      throw new Error(`Resource ${definition.name} conflicts with a registered service`);
     const bound = bindRuntimeDefinition(
       definition as unknown as RuntimeDefinition<unknown>,
       this.runtime.context,
@@ -966,6 +1395,21 @@ export class UiCogs<
     this.sourceDefinitions.set(definition.name, definition);
     this.definitions.set(definition.name, bound);
     if (bound.source.kind === "local") initializeLocalSource(this.runtime, bound);
+  }
+
+  private registerService(definition: ServiceDefinitionIdentity): void {
+    if (!(definition instanceof ServiceDefinition))
+      throw new Error(`Service ${definition.name} is not a UiCogs service definition`);
+    if (this.sourceDefinitions.has(definition.name))
+      throw new Error(`Service ${definition.name} conflicts with a registered resource`);
+    const existing = this.services.get(definition.name);
+    if (existing === definition)
+      throw new Error(`Service ${definition.name} is registered more than once`);
+    if (existing)
+      throw new Error(
+        `Service ${definition.name} is already registered with a conflicting definition`,
+      );
+    this.services.set(definition.name, definition);
   }
 
   private validateRelations(): void {
@@ -1049,6 +1493,20 @@ export class UiCogs<
     if (!existed) this.runtime.applyCollectionMembership(address, encoded, parsed);
   }
 
+  private dispatchLiveEffects(
+    effects: readonly (LiveMutation | LiveEffect)[],
+    version: LiveVersion | undefined,
+    scope: string,
+  ): void {
+    for (const effect of effects) {
+      if ("kind" in effect) {
+        if (effect.kind === "mutation") this.dispatchLiveMutation(effect.mutation, version, scope);
+        else if (effect.kind === "notification") this.notifications.apply(effect.mutation);
+        else this.alerts.enqueue(effect.alert);
+      } else this.dispatchLiveMutation(effect, version, scope);
+    }
+  }
+
   private updateLiveCollectionMembership(
     address: CacheAddress,
     key: EntityKey,
@@ -1126,7 +1584,7 @@ export class Resource<
   TKey extends EntityKey,
   TViews extends ViewMap<TContext>,
   TQueries extends QueryMap<TContext>,
-  TActions extends ActionMap<TContext>,
+  TActions extends ResourceActionMap<TContext, Infer<TSchema>, TKey>,
   TContext,
 > implements ExternalStore<ControllerState> {
   declare readonly _entity?: Infer<TSchema>;
@@ -1135,11 +1593,11 @@ export class Resource<
   private readonly defaultCollection: CollectionController<Infer<TSchema>, TKey, TContext>;
   private readonly keyedObjects = new Map<
     EntityKey,
-    ResourceObject<Infer<TSchema>, TKey, TContext>
+    ResourceObject<Infer<TSchema>, TKey, TContext, TActions>
   >();
   private readonly dynamicObjects = new WeakMap<
     () => TKey,
-    ResourceObject<Infer<TSchema>, TKey, TContext>
+    ResourceObject<Infer<TSchema>, TKey, TContext, TActions>
   >();
 
   constructor(
@@ -1159,6 +1617,9 @@ export class Resource<
             ...(listOperation.view ? { view: listOperation.view } : {}),
             ...(typeof listOperation.path === "string" ? { path: listOperation.path } : {}),
             ...(listOperation.pagination ? { pagination: listOperation.pagination } : {}),
+            ...(listOperation.responseAdapter
+              ? { responseAdapter: listOperation.responseAdapter }
+              : {}),
             ...(listOperation.errorAdapters ? { errorAdapters: listOperation.errorAdapters } : {}),
             ...(listOperation.sortParam ? { sortParam: listOperation.sortParam } : {}),
           }
@@ -1246,14 +1707,19 @@ export class Resource<
     this.defaultCollection.cancel();
   }
 
-  get(key: TKey | (() => TKey)): ResourceObject<Infer<TSchema>, TKey, TContext> {
+  get(key: TKey | (() => TKey)): ResourceObject<Infer<TSchema>, TKey, TContext, TActions> {
     if (typeof key === "function") {
       const source = key as () => TKey;
       const existing = this.dynamicObjects.get(source);
       if (existing) return existing;
       const controller = this.runtime.adapter(
-        new ResourceObject(this.runtime, toRuntimeDefinition(this.definition), source),
-      ) as ResourceObject<Infer<TSchema>, TKey, TContext>;
+        new ResourceObject(
+          this.runtime,
+          toRuntimeDefinition(this.definition),
+          source,
+          this.objectActionExecutor(),
+        ),
+      ) as ResourceObject<Infer<TSchema>, TKey, TContext, TActions>;
       this.dynamicObjects.set(source, controller);
       return controller;
     }
@@ -1261,10 +1727,173 @@ export class Resource<
     const existing = this.keyedObjects.get(encoded);
     if (existing) return existing;
     const controller = this.runtime.adapter(
-      new ResourceObject(this.runtime, toRuntimeDefinition(this.definition), key),
-    ) as ResourceObject<Infer<TSchema>, TKey, TContext>;
+      new ResourceObject(
+        this.runtime,
+        toRuntimeDefinition(this.definition),
+        key,
+        this.objectActionExecutor(),
+      ),
+    ) as ResourceObject<Infer<TSchema>, TKey, TContext, TActions>;
     this.keyedObjects.set(encoded, controller);
     return controller;
+  }
+
+  private objectActionExecutor(): ObjectActionExecutor<TKey, TActions, TContext, Infer<TSchema>> {
+    return {
+      execute: (name, key, input, options) =>
+        this.executeAction(name, input, options, { kind: "object", key }) as Promise<unknown>,
+      operation: (name, key, input) =>
+        this.runtime.adapter(
+          new ActionController((options) =>
+            this.executeAction(name, input, options, { kind: "object", key }),
+          ),
+        ) as ActionController<unknown>,
+      form: (name, key, schema, initial = {}) => {
+        const bound = bindFormContext(schema, this.runtime.context);
+        return this.runtime.adapter(
+          createFormController(bound, initial, (payload, options) =>
+            this.executeAction(name, payload as ActionInput<TActions[typeof name]>, options, {
+              kind: "object",
+              key,
+            }),
+          ),
+        );
+      },
+    };
+  }
+
+  /** Resolves the declared, client-visible actions for one view placement. */
+  actions(options: ResourceActionResolveOptions<TKey>): readonly ResourceActionDescriptor<TKey>[] {
+    const selectedKeys = Object.freeze([...(options.selectedKeys ?? [])]) as readonly TKey[];
+    const access = this.runtime.access();
+    const requestedNames = options.names ? new Set(options.names) : undefined;
+    const descriptors: Array<{
+      readonly index: number;
+      readonly action: ResourceActionDescriptor<TKey>;
+    }> = [];
+    for (const [index, [name, definition]] of Object.entries(this.definition.actions).entries()) {
+      if (
+        definition === false ||
+        !definition.presentation ||
+        (requestedNames && !requestedNames.has(name))
+      )
+        continue;
+      const presentation = definition.presentation;
+      if (!presentation.placement.includes(options.placement)) continue;
+      const target = actionTarget(definition);
+      if (target === "object" && !options.object) continue;
+      const context = Object.freeze({
+        context: this.runtime.context(),
+        authenticated: access.authenticated,
+        scopes: access.scopes,
+        ...(options.object?.value ? { value: options.object.value } : {}),
+        ...(options.object ? { key: options.object.key } : {}),
+        selectedKeys,
+      });
+      if (
+        !hasActionScopes(presentation.scopes, access) ||
+        presentation.visible?.(context as never) === false
+      )
+        continue;
+      const disabled =
+        target === "bulk" && selectedKeys.length === 0
+          ? true
+          : (presentation.disabled?.(context as never) ?? false);
+      descriptors.push({
+        index,
+        action: Object.freeze({
+          name,
+          target,
+          presentation: Object.freeze({
+            placement: presentation.placement,
+            label: presentation.label,
+            ...(presentation.icon === undefined ? {} : { icon: presentation.icon }),
+            ...(presentation.confirmation === undefined
+              ? {}
+              : { confirmation: presentation.confirmation }),
+            ...(presentation.order === undefined ? {} : { order: presentation.order }),
+          }),
+          placement: presentation.placement,
+          label: presentation.label,
+          ...(presentation.icon === undefined ? {} : { icon: presentation.icon }),
+          ...(presentation.confirmation === undefined
+            ? {}
+            : { confirmation: presentation.confirmation }),
+          ...(presentation.order === undefined ? {} : { order: presentation.order }),
+          disabled,
+          requiresInput: definition.input !== undefined,
+          ...(options.object ? { key: options.object.key } : {}),
+          selectedKeys,
+          execute: (input: unknown) =>
+            this.executeResolvedAction(name, target, options.object, selectedKeys, input),
+          operation: (input: unknown) =>
+            this.runtime.adapter(
+              new ActionController((requestOptions) =>
+                this.executeResolvedAction(
+                  name,
+                  target,
+                  options.object,
+                  selectedKeys,
+                  input,
+                  requestOptions,
+                ),
+              ),
+            ) as ActionController<unknown>,
+          form: <TFormSchema extends FormSchema<FormCompatibleSchema, unknown>>(
+            schema: TFormSchema,
+            initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+          ) => this.resolvedActionForm(name, target, options.object, selectedKeys, schema, initial),
+        }),
+      });
+    }
+    return Object.freeze(
+      descriptors
+        .sort(
+          (left, right) =>
+            (left.action.order ?? 0) - (right.action.order ?? 0) || left.index - right.index,
+        )
+        .map(({ action }) => action),
+    );
+  }
+
+  private executeResolvedAction(
+    name: string,
+    target: ActionTarget,
+    object: ResourceActionResolveOptions<TKey>["object"],
+    selectedKeys: readonly TKey[],
+    input: unknown,
+    options: MutationRequestOptions = {},
+  ): Promise<unknown> {
+    if (target === "object") {
+      if (!object)
+        throw new Error(`Action ${name} requires an object key on ${this.definition.name}`);
+      return this.executeAction(name as keyof TActions & string, input as never, options, {
+        kind: "object",
+        key: object.key,
+      });
+    }
+    if (target === "bulk")
+      return this.bulk.action(name as keyof TActions & string, selectedKeys, input as never);
+    return this.runOperation(name as keyof TActions & string, input as never, options);
+  }
+
+  private resolvedActionForm<TFormSchema extends FormSchema<FormCompatibleSchema, unknown>>(
+    name: string,
+    target: ActionTarget,
+    object: ResourceActionResolveOptions<TKey>["object"],
+    selectedKeys: readonly TKey[],
+    schema: TFormSchema,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>>,
+  ): FormController<TFormSchema> {
+    const bound = bindFormContext(
+      schema as unknown as FormSchema<SchemaLike<TContext>, unknown>,
+      this.runtime.context,
+    );
+    return this.runtime.adapter(
+      createFormController(bound, initial, (payload, options) =>
+        this.executeResolvedAction(name, target, object, selectedKeys, payload, options),
+      ),
+    ) as unknown as FormController<TFormSchema>;
   }
 
   query<K extends keyof TQueries & string>(
@@ -1339,6 +1968,8 @@ export class Resource<
     const controller = new AbortController();
     const encoded = this.encodeKey(key);
     const operation = this.definition.actions.remove;
+    if (operation === false)
+      throw new RequestError(disabledOperationFailure("remove", this.definition.name));
     const path = operationPath(operation, `${encoded}/`, { key });
     await this.runtime.request(
       `${this.runtime.scope()}|${this.definition.name}|remove|${encoded}`,
@@ -1349,6 +1980,7 @@ export class Resource<
       },
       controller.signal,
       this.definition.errorAdapters,
+      responseRequest("action", this.definition, operation, "remove"),
     );
     const address = this.runtime.address(this.definition.name);
     this.runtime.cache.setEntity(
@@ -1366,6 +1998,27 @@ export class Resource<
     return this.runtime.adapter(
       createFormController(bound, initial, async (payload, options) =>
         this[preparedMutation]("create", undefined, payload, options),
+      ),
+    ) as FormController<TFormSchema>;
+  }
+
+  actionForm<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+  ): FormController<TFormSchema> {
+    const action = this.definition.actions[name];
+    if (action === false)
+      throw new RequestError(disabledOperationFailure(name, this.definition.name));
+    if (!action)
+      throw new Error(`Action ${name} is not defined on resource ${this.definition.name}`);
+    const bound = bindFormContext(schema, this.runtime.context);
+    return this.runtime.adapter(
+      createFormController(bound, initial, async (payload, options) =>
+        this.executeAction(name, payload as ActionInput<TActions[K]>, options),
       ),
     ) as FormController<TFormSchema>;
   }
@@ -1398,10 +2051,24 @@ export class Resource<
     name: K,
     input: ActionInput<TActions[K]>,
     options: MutationRequestOptions = {},
+    target: { readonly kind: "resource" } | { readonly kind: "object"; readonly key: TKey } = {
+      kind: "resource",
+    },
   ): Promise<ActionOutput<TSchema, TViews, TActions[K]>> {
     const action = this.definition.actions[name];
+    if (action === false)
+      throw new RequestError(disabledOperationFailure(name, this.definition.name));
     if (!action)
       throw new Error(`Action ${name} is not defined on resource ${this.definition.name}`);
+    const declaredTarget = actionTarget(action);
+    if (declaredTarget !== target.kind)
+      throw new Error(
+        declaredTarget === "object"
+          ? `Action ${name} requires an object key on resource ${this.definition.name}`
+          : declaredTarget === "bulk"
+            ? `Action ${name} must be executed through resource.bulk on ${this.definition.name}`
+            : `Action ${name} is resource-bound and cannot execute from an object on ${this.definition.name}`,
+      );
     if (this.definition.source.kind === "local") {
       if (!action.local) throw new Error(`Local action ${name} requires a local handler`);
       const localOutput = await action.local(input, this.runtime.context());
@@ -1420,11 +2087,15 @@ export class Resource<
         : (action.path ?? `${name}/`));
     const method = request?.method ?? action.method ?? "POST";
     const controller = new AbortController();
+    const objectPrefix = target.kind === "object" ? `${this.encodeKey(target.key)}/` : "";
     const response = await this.runtime.request<unknown>(
-      `${this.runtime.scope()}|${this.definition.name}|action|${name}|${stableSerialize(input)}`,
+      `${this.runtime.scope()}|${this.definition.name}|action|${name}|${target.kind}|${target.kind === "object" ? this.encodeKey(target.key) : ""}|${stableSerialize(input)}`,
       {
         method,
-        url: joinUrl(this.runtime.baseUrl, joinUrl(this.definition.url, path)),
+        url: joinUrl(
+          this.runtime.baseUrl,
+          joinUrl(this.definition.url, joinUrl(objectPrefix, path)),
+        ),
         ...(request?.query ? { query: request.query } : {}),
         ...(method !== "GET" ? { body: request?.body ?? encodedInput } : {}),
         ...((request?.encoding ?? action.encoding)
@@ -1439,6 +2110,7 @@ export class Resource<
       },
       combineSignals(controller.signal, options.signal),
       [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+      responseRequest("action", this.definition, action, name),
     );
     const output = this.processActionOutput(action, response.data);
     this.invalidateAfterAction(action);
@@ -1465,6 +2137,8 @@ export class Resource<
       input: ActionInput<TActions[K]>,
     ): Promise<BulkResult<TKey, ActionOutput<TSchema, TViews, TActions[K]>>> => {
       const action = this.definition.actions[name];
+      if (action === false)
+        throw new RequestError(disabledOperationFailure(name, this.definition.name));
       if (!action?.bulk)
         throw new Error(`Action ${name} does not define bulk behavior on ${this.definition.name}`);
       const method = action.bulk.method ?? action.method ?? "POST";
@@ -1482,6 +2156,7 @@ export class Resource<
         },
         controller.signal,
         [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+        responseRequest("action", this.definition, action, name),
       );
       const decoded = action.bulk.decode?.(response.data, keys) ?? {
         succeeded: keys,
@@ -1529,7 +2204,7 @@ export class Resource<
   ): Promise<Readonly<Infer<TSchema>> | undefined> {
     const startedAt = this.runtime.timestamp();
     const controller = new AbortController();
-    const operation = this.definition.actions[operationName];
+    const operation = enabledOperation(this.definition.actions[operationName]);
     if (this.definition.source.kind === "local") return this.mutateLocal(operationName, input, key);
     const relativeDefault = path.startsWith(this.definition.url)
       ? path.slice(this.definition.url.length)
@@ -1569,6 +2244,7 @@ export class Resource<
       },
       combineSignals(controller.signal, options.signal),
       [...(operation?.errorAdapters ?? []), ...this.definition.errorAdapters],
+      responseRequest("entity", this.definition, operation, operationName),
     );
     const address = this.runtime.address(this.definition.name);
     if (response.data === undefined) {
@@ -1592,6 +2268,7 @@ export class Resource<
     input: unknown,
     key?: TKey,
   ): Promise<Readonly<Infer<TSchema>>> {
+    const definition = toRuntimeDefinition(this.definition);
     const address = this.runtime.address(this.definition.name);
     const encodedKey = key === undefined ? undefined : this.encodeKey(key);
     const current =
@@ -1616,13 +2293,13 @@ export class Resource<
     let resolvedKey = encodedKey;
     if (resolvedKey === undefined) {
       try {
-        resolvedKey = keyFromPartial(this.definition, candidate);
+        resolvedKey = keyFromPartial(definition, candidate);
       } catch (error) {
         const source = this.definition.source;
         if (source.kind !== "local" || !source.generateKey) throw error;
         resolvedKey = source.generateKey({
           value: candidate,
-          existing: localMasterKeys(this.runtime, this.definition),
+          existing: localMasterKeys(this.runtime, definition),
           context: this.runtime.context(),
         });
         if (typeof this.definition.key === "string")
@@ -1634,35 +2311,143 @@ export class Resource<
       if (existing && !existing.tombstone) throw new CacheConflictError(resolvedKey);
     }
     const parsed = this.definition.schema.parse(candidate);
-    const value = normalizeEntity(this.runtime, this.definition, parsed, resolvedKey) as Readonly<
+    const value = normalizeEntity(this.runtime, definition, parsed, resolvedKey) as Readonly<
       Infer<TSchema>
     >;
-    addLocalMasterKey(this.runtime, this.definition, resolvedKey);
+    addLocalMasterKey(this.runtime, definition, resolvedKey);
     this.defaultCollection.cacheAddKey(resolvedKey);
     return value;
   }
 
-  private processActionOutput(action: ActionMap<TContext>[string], data: unknown): unknown {
+  private processActionOutput(
+    action: Exclude<ResourceActionMap<TContext>[string], false>,
+    data: unknown,
+  ): unknown {
     if (data === undefined) return undefined;
     if (action.output) return action.output.parse(data);
     if (action.view) {
       const view = this.definition.views[action.view];
       if (!view) throw new Error(`View ${action.view} is not defined`);
       const partial = this.definition.schema.parsePartial(data);
-      const key = keyFromPartial(this.definition, partial);
+      const key = keyFromPartial(toRuntimeDefinition(this.definition), partial);
       normalizeEntity(this.runtime, toRuntimeDefinition(this.definition), data, key as TKey);
       return view.materialize(partial as never);
     }
     return normalizeEntity(this.runtime, toRuntimeDefinition(this.definition), data);
   }
 
-  private invalidateAfterAction(action: ActionMap<TContext>[string]): void {
+  private invalidateAfterAction(action: Exclude<ResourceActionMap<TContext>[string], false>): void {
     if (action.invalidate === "resource" || action.invalidate === "collections")
       this.runtime.cache.invalidateResource(this.runtime.address(this.definition.name));
   }
 
   private encodeKey(key: TKey): EntityKey {
     return this.definition.keyEncoder?.(key) ?? key;
+  }
+}
+
+/** A runtime controller for an operation-only service definition. */
+export class Service<TActions extends ActionMap<TContext>, TContext> {
+  readonly serviceName: string;
+  private readonly actions: TActions;
+
+  constructor(
+    private readonly runtime: Runtime<TContext>,
+    readonly definition: ServiceDefinition<TActions, TContext>,
+  ) {
+    this.serviceName = definition.name;
+    this.actions = bindServiceActions(
+      definition.actions as ActionMap<unknown>,
+      runtime.context,
+    ) as TActions;
+  }
+
+  async action<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): Promise<ServiceActionOutput<TActions[K]>> {
+    return this.executeAction(name, input);
+  }
+
+  runOperation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+    options: MutationRequestOptions = {},
+  ): Promise<ServiceActionOutput<TActions[K]>> {
+    return this.executeAction(name, input, options);
+  }
+
+  operation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): ActionController<ServiceActionOutput<TActions[K]>> {
+    return this.runtime.adapter(
+      new ActionController((options) => this.executeAction(name, input, options)),
+    ) as ActionController<ServiceActionOutput<TActions[K]>>;
+  }
+
+  actionForm<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+  ): FormController<TFormSchema> {
+    if (!this.actions[name])
+      throw new Error(`Action ${name} is not defined on service ${this.definition.name}`);
+    const bound = bindFormContext(schema, this.runtime.context);
+    return this.runtime.adapter(
+      createFormController(bound, initial, async (payload, options) =>
+        this.executeAction(name, payload as ActionInput<TActions[K]>, options),
+      ),
+    ) as FormController<TFormSchema>;
+  }
+
+  private async executeAction<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+    options: MutationRequestOptions = {},
+  ): Promise<ServiceActionOutput<TActions[K]>> {
+    const action = this.actions[name];
+    if (!action)
+      throw new Error(`Action ${name} is not defined on service ${this.definition.name}`);
+    if (this.definition.source.kind === "local") {
+      if (!action.local) throw new Error(`Local action ${name} requires a local handler`);
+      const output = await action.local(input, this.runtime.context());
+      return parseServiceActionOutput(action, output) as ServiceActionOutput<TActions[K]>;
+    }
+    const encodedInput = action.input ? action.input.writeInput(input) : input;
+    const request = action.request?.(input as never);
+    const path =
+      request?.path ??
+      (typeof action.path === "function"
+        ? action.path(input as never)
+        : (action.path ?? `${name}/`));
+    const method = request?.method ?? action.method ?? "POST";
+    const controller = new AbortController();
+    const response = await this.runtime.request<unknown>(
+      `${this.runtime.scope()}|${this.definition.name}|action|${name}|${stableSerialize(input)}`,
+      {
+        method,
+        url: joinUrl(this.runtime.baseUrl, joinUrl(this.definition.url, path)),
+        ...(request?.query ? { query: request.query } : {}),
+        ...(method !== "GET" ? { body: request?.body ?? encodedInput } : {}),
+        ...((request?.encoding ?? action.encoding)
+          ? { encoding: request?.encoding ?? action.encoding }
+          : {}),
+        ...((request?.multipart ?? action.multipart)
+          ? { multipart: request?.multipart ?? action.multipart }
+          : {}),
+        ...(options.onUploadProgress ? { onUploadProgress: options.onUploadProgress } : {}),
+        authentication: options.authentication ?? action.auth,
+        ...(options.credentials ? { credentials: options.credentials } : {}),
+      },
+      combineSignals(controller.signal, options.signal),
+      [...(action.errorAdapters ?? []), ...this.definition.errorAdapters],
+      responseRequest("action", this.definition, action, name),
+    );
+    return parseServiceActionOutput(action, response.data) as ServiceActionOutput<TActions[K]>;
   }
 }
 
@@ -1684,9 +2469,40 @@ export interface ObjectSnapshot<T> extends ControllerState {
   readonly stale: boolean;
 }
 
-export class ResourceObject<T, TKey extends EntityKey, TContext> implements ExternalStore<
-  ObjectSnapshot<T>
+interface ObjectActionExecutor<
+  TKey extends EntityKey,
+  TActions extends ResourceActionMap<TContext, TValue, TKey>,
+  TContext,
+  TValue,
 > {
+  execute<K extends keyof TActions & string>(
+    name: K,
+    key: TKey,
+    input: ActionInput<TActions[K]>,
+    options?: MutationRequestOptions,
+  ): Promise<unknown>;
+  operation<K extends keyof TActions & string>(
+    name: K,
+    key: TKey,
+    input: ActionInput<TActions[K]>,
+  ): ActionController<unknown>;
+  form<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    key: TKey,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial?: Partial<import("./form.js").FormValues<TFormSchema>>,
+  ): FormController<TFormSchema>;
+}
+
+export class ResourceObject<
+  T,
+  TKey extends EntityKey,
+  TContext,
+  TActions extends ResourceActionMap<TContext, T, TKey> = ResourceActionMap<TContext, T, TKey>,
+> implements ExternalStore<ObjectSnapshot<T>> {
   private readonly store: Store<ObjectSnapshot<T>>;
   private controller = new AbortController();
   private generation = 0;
@@ -1710,6 +2526,7 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
     private readonly runtime: Runtime<TContext>,
     private readonly definition: RuntimeDefinition<TContext>,
     private readonly keySource: TKey | (() => TKey),
+    private readonly actionExecutor?: ObjectActionExecutor<TKey, TActions, TContext, T>,
   ) {
     this.boundKey = this.encodeRawKey(this.rawKey());
     this.store = new Store(this.snapshot(false, this.boundKey));
@@ -1751,6 +2568,16 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
 
   async load(options: LoadOptions = {}): Promise<Readonly<T> | undefined> {
     const cacheKey = this.encodedKey();
+    if (this.definition.disabledOperations?.includes("retrieve")) {
+      const failure = disabledOperationFailure("retrieve", this.definition.name);
+      this.store.update((state) => ({
+        ...state,
+        revision: state.revision + 1,
+        loading: false,
+        error: failure,
+      }));
+      throw new RequestError(failure);
+    }
     if (this.definition.source.kind === "local") return this.value;
     const policy = options.policy ?? this.runtime.cachePolicy;
     const hydration =
@@ -1784,6 +2611,7 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
         },
         combineSignals(this.controller.signal, options.signal),
         [...(retrieve?.errorAdapters ?? []), ...this.definition.errorAdapters],
+        responseRequest("entity", this.definition, retrieve, "retrieve"),
       );
       normalizeEntity(this.runtime, this.definition, response.data, this.key, startedAt);
       await this.loadEagerRelations();
@@ -1835,6 +2663,53 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
   }
   clearError(): void {
     this.store.update(clearObjectError);
+  }
+
+  action<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): Promise<ObjectActionOutput<T, TActions[K]>> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.execute(name, this.key, input) as Promise<
+      ObjectActionOutput<T, TActions[K]>
+    >;
+  }
+
+  runOperation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+    options: MutationRequestOptions = {},
+  ): Promise<ObjectActionOutput<T, TActions[K]>> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.execute(name, this.key, input, options) as Promise<
+      ObjectActionOutput<T, TActions[K]>
+    >;
+  }
+
+  operation<K extends keyof TActions & string>(
+    name: K,
+    input: ActionInput<TActions[K]>,
+  ): ActionController<ObjectActionOutput<T, TActions[K]>> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.operation(name, this.key, input) as ActionController<
+      ObjectActionOutput<T, TActions[K]>
+    >;
+  }
+
+  actionForm<
+    K extends keyof TActions & string,
+    TFormSchema extends FormSchema<SchemaLike<TContext>, unknown>,
+  >(
+    name: K,
+    schema: TFormSchema & ActionFormCompatible<TFormSchema, ActionInput<TActions[K]>>,
+    initial: Partial<import("./form.js").FormValues<TFormSchema>> = {},
+  ): FormController<TFormSchema> {
+    if (!this.actionExecutor)
+      throw new Error(`Object actions are unavailable on ${this.definition.name}`);
+    return this.actionExecutor.form(name, this.key, schema, initial);
   }
 
   relation<K extends keyof T & string>(
@@ -2083,6 +2958,7 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
       },
       new AbortController().signal,
       this.definition.errorAdapters,
+      responseRequest("entity", this.definition),
     );
     if (response.data !== undefined && typeof response.data === "object" && response.data !== null)
       try {
@@ -2249,12 +3125,13 @@ export class ResourceObject<T, TKey extends EntityKey, TContext> implements Exte
       },
       combineSignals(new AbortController().signal, options.signal),
       [...(fetch.errorAdapters ?? []), ...target.errorAdapters],
+      responseRequest("collection", target),
     );
     const items = fetch.decode
       ? fetch.decode(response)
       : Array.isArray(response.data)
         ? response.data
-        : target.pagination.response(response).items;
+        : paginationFor(this.runtime, target).response(response).items;
     const startedAt = this.runtime.timestamp();
     for (const item of items) normalizeEntity(this.runtime, target, item, undefined, startedAt);
   }
@@ -2738,10 +3615,21 @@ export interface CollectionSnapshot<T> extends ControllerState {
   readonly stale: boolean;
 }
 
+/** Immutable resource metadata carried by every collection controller. */
+export interface CollectionResourceMetadata {
+  readonly name: string;
+  readonly key: string | ((value: Readonly<Record<string, unknown>>) => EntityKey);
+  readonly schema: {
+    readonly shape: Shape;
+  };
+}
+
 export class CollectionController<T, TKey extends EntityKey, TContext> implements ExternalStore<
   CollectionSnapshot<T>
 > {
   declare readonly _key?: TKey;
+  /** The resource schema and key used to materialize this collection's values. */
+  readonly resource: CollectionResourceMetadata;
   private filters: Readonly<Record<string, unknown>> = {};
   private sortState?: { readonly field: string; readonly descending: boolean };
   private pageState: PageState = { index: 1, size: 25 };
@@ -2766,6 +3654,11 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
     private readonly inputSource?:
       Readonly<Record<string, unknown>> | (() => Readonly<Record<string, unknown>>),
   ) {
+    this.resource = Object.freeze({
+      name: definition.name,
+      key: definition.key,
+      schema: definition.schema,
+    });
     this.rebind();
   }
 
@@ -2905,7 +3798,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
     const startedAt = this.runtime.timestamp();
     try {
       const query = this.encodedQuery();
-      const adapter = this.queryDefinition?.pagination ?? this.definition.pagination;
+      const adapter = paginationFor(this.runtime, this.definition, this.queryDefinition);
       const response = await this.runtime.request<unknown>(
         `${this.runtime.scope()}|${this.definition.name}|query|${this.identity()}`,
         {
@@ -2919,6 +3812,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
         },
         combineSignals(this.controller.signal, options.signal),
         [...(this.queryDefinition?.errorAdapters ?? []), ...this.definition.errorAdapters],
+        responseRequest("collection", this.definition, this.queryDefinition),
       );
       const result = adapter.response(response, this.pageState);
       const keys = result.items
@@ -3318,6 +4212,21 @@ type ActionOutput<TSchema, TViews, TAction> = TAction extends {
       : Infer<TSchema>
   : Infer<TSchema>;
 
+type ObjectActionOutput<T, TAction> = TAction extends { readonly output?: infer S }
+  ? S extends { readonly _output: infer TOutput }
+    ? TOutput
+    : T
+  : T;
+
+type ServiceActionOutput<TAction> = TAction extends { readonly output?: infer S }
+  ? S extends { readonly _output: infer T }
+    ? T
+    : unknown
+  : unknown;
+
+type ActionFormCompatible<TFormSchema, TInput> =
+  import("./form.js").FormPayload<TFormSchema> extends TInput ? unknown : never;
+
 function normalizeEntity<TContext>(
   runtime: Runtime<TContext>,
   definition: RuntimeDefinition<TContext>,
@@ -3520,6 +4429,21 @@ function keyFromPartial<TContext>(
   return key;
 }
 
+function normalizeLiveConfiguration<TContext>(value: LiveConfiguration<TContext> | undefined): {
+  readonly sources: readonly LiveSource<TContext>[];
+  readonly adapters: readonly import("./live.js").LiveAdapter<TContext>[];
+  readonly notifications?: { readonly maximumItems?: number };
+} {
+  if (!value) return Object.freeze({ sources: Object.freeze([]), adapters: Object.freeze([]) });
+  if ("open" in value)
+    return Object.freeze({ sources: Object.freeze([value]), adapters: Object.freeze([]) });
+  return Object.freeze({
+    sources: Object.freeze([...value.sources]),
+    adapters: Object.freeze([...(value.adapters ?? [])]),
+    ...(value.notifications ? { notifications: value.notifications } : {}),
+  });
+}
+
 function liveMutationKey<TContext>(
   definition: RuntimeDefinition<TContext>,
   mutation: LiveMutation,
@@ -3709,6 +4633,36 @@ function operationPath<TContext>(
   return typeof operation.path === "function" ? operation.path(input) : operation.path;
 }
 
+function responseRequest(
+  kind: ResponseDecodeContext["kind"],
+  definition: { readonly name: string; readonly responseAdapter?: ResponseAdapter },
+  operation?: { readonly responseAdapter?: ResponseAdapter },
+  operationName?: string,
+): ResponseRequestOptions {
+  const adapter = operation?.responseAdapter ?? definition.responseAdapter;
+  return {
+    kind,
+    resource: definition.name,
+    ...(operationName ? { operation: operationName } : {}),
+    ...(adapter ? { adapter } : {}),
+  };
+}
+
+function paginationFor<TContext>(
+  runtime: Runtime<TContext>,
+  definition: RuntimeDefinition<TContext>,
+  operation?: RuntimeQuery<TContext>,
+): PaginationAdapter {
+  return (
+    operation?.pagination ??
+    definition.configuredPagination ??
+    configuredPagination.get(definition) ??
+    (operation?.responseAdapter ?? definition.responseAdapter ?? runtime.responseAdapter)
+      ?.pagination ??
+    definition.pagination
+  );
+}
+
 function encodeRelationKeys<TContext>(
   options: RelationKeyFetchOptions<TContext>,
   keys: readonly EntityKey[],
@@ -3730,25 +4684,63 @@ function adaptFailure(
     const failure = adapter.adapt(response);
     if (failure) return failure;
   }
-  const kind =
-    response.status === 401
-      ? "authentication"
-      : response.status === 403
-        ? "permission"
-        : response.status === 404
-          ? "not-found"
-          : response.status === 409
-            ? "conflict"
-            : response.status === 429
-              ? "rate-limit"
-              : response.status >= 500
-                ? "server"
-                : "unknown";
+  const validation = response.status === 400 || response.status === 422;
+  const plainText = safePlainText(response);
+  const message = validation
+    ? (plainText ?? statusMessage(response.status))
+    : (statusMessage(response.status) ?? plainText);
   return {
-    kind,
+    kind: failureKind(response.status, validation),
     status: response.status,
-    issues: [],
+    ...(message === undefined ? {} : { message }),
+    issues: validation && plainText ? [serverIssue(plainText)] : [],
     retryable: response.status === 429 || response.status >= 500,
+  };
+}
+
+function failureKind(status: number, validation: boolean): NormalizedFailure["kind"] {
+  if (validation) return "validation";
+  if (status === 401) return "authentication";
+  if (status === 403) return "permission";
+  if (status === 404) return "not-found";
+  if (status === 409) return "conflict";
+  if (status === 429) return "rate-limit";
+  return status >= 500 ? "server" : "unknown";
+}
+
+function safePlainText(response: TransportResponse<unknown>): string | undefined {
+  if (typeof response.data !== "string" || contentType(response).includes("text/html"))
+    return undefined;
+  const value = response.data.trim().replace(/\s+/g, " ");
+  if (!value || /<\/?[a-z][^>]*>/i.test(value)) return undefined;
+  return value.length > 280 ? `${value.slice(0, 277)}…` : value;
+}
+
+function contentType(response: TransportResponse<unknown>): string {
+  const header = Object.entries(response.headers ?? {}).find(
+    ([name]) => name.toLowerCase() === "content-type",
+  )?.[1];
+  return header?.toLowerCase() ?? "";
+}
+
+function statusMessage(status: number): string | undefined {
+  if (status === 401) return "Your session has expired. Please sign in again.";
+  if (status === 403) return "You do not have permission to perform this action.";
+  if (status === 404) return "The requested record could not be found.";
+  if (status === 405) return "This action is not available.";
+  if (status === 409) return "This record has changed. Refresh and try again.";
+  if (status === 422) return "The submitted data could not be processed. Please check the errors.";
+  if (status === 429) return "Too many requests. Please try again shortly.";
+  return status >= 500 ? "The server encountered an error. Please try again." : undefined;
+}
+
+function serverIssue(message: string) {
+  return {
+    path: [],
+    message,
+    code: "server",
+    source: "server" as const,
+    severity: "error" as const,
   };
 }
 
@@ -3760,6 +4752,28 @@ function validateViews<TContext>(definition: RuntimeDefinition<TContext>): void 
         `View ${name} on resource ${definition.name} must include key ${definition.key}`,
       );
   }
+}
+
+function validateDisabledResourceOperations(operations: Readonly<Record<string, unknown>>): void {
+  for (const [name, operation] of Object.entries(operations)) {
+    if (operation === false && name !== "retrieve")
+      throw new TypeError(
+        `Only retrieve may be disabled on resource definitions; received ${name}`,
+      );
+  }
+}
+
+function disabledOperationFailure(operation: string, resource: string): NormalizedFailure {
+  return Object.freeze({
+    kind: "operation-disabled",
+    message: `Operation ${operation} is disabled on resource ${resource}`,
+    issues: Object.freeze([]),
+    retryable: false,
+  });
+}
+
+function enabledOperation<T>(operation: T | false | undefined): Exclude<T, false> | undefined {
+  return (operation === false ? undefined : operation) as Exclude<T, false> | undefined;
 }
 
 function identityAdapter<T extends ExternalStore<object>>(controller: T): T {
@@ -3797,6 +4811,34 @@ function bindFormContext<TContext, TForm extends FormSchema<SchemaLike<TContext>
   return schema.bindFields(fields) as unknown as TForm;
 }
 
+function bindServiceActions<TContext>(
+  actions: ActionMap<unknown>,
+  context: () => TContext,
+): ActionMap<TContext> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(actions).map(([name, action]) => [
+        name,
+        Object.freeze({
+          ...action,
+          ...(action.input ? { input: action.input.bindContext?.(context) ?? action.input } : {}),
+          ...(action.output
+            ? { output: action.output.bindContext?.(context) ?? action.output }
+            : {}),
+        }),
+      ]),
+    ),
+  ) as ActionMap<TContext>;
+}
+
+function parseServiceActionOutput<TContext>(
+  action: ActionMap<TContext>[string],
+  data: unknown,
+): unknown {
+  if (data === undefined) return undefined;
+  return action.output ? action.output.parse(data) : data;
+}
+
 function clearObjectError<T>(state: ObjectSnapshot<T>): ObjectSnapshot<T> {
   const next: {
     error?: NormalizedFailure;
@@ -3825,8 +4867,22 @@ function clearCollectionError<T>(state: CollectionSnapshot<T>): CollectionSnapsh
 
 function toRuntimeDefinition<TContext>(definition: {
   readonly schema: { readonly _context: TContext };
+  readonly actions: Readonly<Record<string, unknown>>;
+  readonly disabledOperations?: readonly string[];
 }): RuntimeDefinition<TContext> {
-  return definition as unknown as RuntimeDefinition<TContext>;
+  const entries = Object.entries(definition.actions);
+  const actions = Object.freeze(
+    Object.fromEntries(entries.filter(([, action]) => action !== false)),
+  ) as Readonly<Record<string, RuntimeAction<TContext>>>;
+  const disabledOperations = Object.freeze([
+    ...(definition.disabledOperations ?? []),
+    ...entries.flatMap(([name, action]) => (action === false ? [name] : [])),
+  ]);
+  return Object.freeze({
+    ...definition,
+    actions,
+    disabledOperations,
+  }) as RuntimeDefinition<TContext>;
 }
 
 function bindRuntimeDefinition<TContext>(
@@ -3844,22 +4900,38 @@ function bindRuntimeDefinition<TContext>(
       Object.freeze({ ...value, ...(value.input ? { input: bind(value.input) } : {}) }),
     ]),
   );
-  const actions = Object.fromEntries(
-    Object.entries(definition.actions).map(([name, value]) => [
-      name,
-      Object.freeze({
-        ...value,
-        ...(value.input ? { input: bind(value.input) } : {}),
-        ...(value.output ? { output: bind(value.output) } : {}),
-      }),
-    ]),
+  const actionEntries = Object.entries(
+    definition.actions as Readonly<Record<string, RuntimeAction<unknown> | false>>,
   );
+  const actions = Object.fromEntries(
+    actionEntries
+      .filter(([, value]) => value !== false)
+      .map(([name, value]) => {
+        const action = value as RuntimeAction<unknown>;
+        return [
+          name,
+          Object.freeze({
+            ...action,
+            ...(action.input ? { input: bind(action.input) } : {}),
+            ...(action.output ? { output: bind(action.output) } : {}),
+          }),
+        ];
+      }),
+  );
+  const disabledOperations = Object.freeze([
+    ...(definition.disabledOperations ?? []),
+    ...actionEntries.flatMap(([name, value]) => (value === false ? [name] : [])),
+  ]);
+  const paginationOverride =
+    definition.configuredPagination ?? configuredPagination.get(definition);
   return Object.freeze({
     ...definition,
+    ...(paginationOverride ? { configuredPagination: paginationOverride } : {}),
     schema: bind(definition.schema),
     views: Object.freeze(views),
     queries: Object.freeze(queries),
     actions: Object.freeze(actions),
+    disabledOperations,
   }) as RuntimeDefinition<TContext>;
 }
 
@@ -3889,5 +4961,18 @@ function isResourceOptions(value: unknown): value is {
     ("url" in value || "source" in value) &&
     "schema" in value &&
     "key" in value
+  );
+}
+
+function isServiceOptions(value: unknown): value is {
+  readonly name: string;
+  readonly url?: string;
+  readonly source?: ResourceSource<unknown>;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    ("url" in value || "source" in value)
   );
 }

@@ -7,7 +7,7 @@ This guide describes resource definitions and runtime controllers.
 A resource definition is the canonical identity of one entity type.
 
 ```ts
-import { operation, resource } from "@uicogs/core";
+import { operation, pagination, resource } from "@uicogs/core";
 
 const Tasks = resource({
   name: "tasks",
@@ -38,10 +38,39 @@ The resource owns:
 - named queries;
 - operations;
 - pagination;
+- an optional response profile;
 - TTL;
 - resource-level error adapters.
 
 Operations own relative request behavior. Operations do not own a base URL.
+
+## List-Only Keyed Resources
+
+Some endpoints return complete keyed rows from one collection URL but intentionally have no
+per-item URL. Disable only the inferred retrieve operation explicitly:
+
+```ts
+const CrawlerSources = resource({
+  name: "crawler-sources",
+  url: "news/sources/status",
+  schema: CrawlerSourceStatus,
+  key: "sourceId",
+  operations: {
+    list: operation.list({ pagination: pagination.client() }),
+    retrieve: false,
+  },
+});
+```
+
+`resource.get(key).load()` then rejects with a structured `operation-disabled` failure and
+never constructs an item URL. `retrieve: false` is opt-in: omitting `retrieve` keeps the normal
+`{resource.url}/{key}/` retrieve convention.
+
+For a Vue route such as `/sources/:id?`, `useRouteResource()` waits for the list collection,
+then resolves the selected row from normalized cache data. Selecting a row still updates the URL,
+and a pasted or refreshed detail URL works without a second request. If the loaded list does not
+contain the key, the active detail becomes a structured 404/not-found state for `UcResourceView`'s
+standard Retry/Close surface.
 
 ## Registry
 
@@ -230,12 +259,45 @@ Each `query()` call creates an independent collection controller. Equivalent col
 
 Query fields never enter the entity type.
 
+## Route-Aware Collections
+
+In Vue pages, `useRouteCollection()` can bind either a resource controller or a named
+query collection to route filters, pagination, and ordering. It keeps the collection
+controller as the data/cache owner; the URL is only the canonical page-state input.
+
+```ts
+const route = useRouteState({ route: "tasks", query: SearchTasks });
+const collection = useRouteCollection({
+  route,
+  collection: api.resource(Tasks).query("search", {}),
+  filters: SearchTasks,
+});
+```
+
+The default URL convention is `page`, `page_size`, and `ordering` (`-title` means
+descending). Filter form submission, sort changes, and pagination push locations;
+back/forward re-applies the corresponding collection state. Use `useRouteResource()`
+when the same page also owns an optional `:id` detail route.
+
+If a route-driven load rejects, the collection remains its error-state owner and the
+optional `onFailure` callback receives the failure. This is useful for a page-level
+notification when the page uses custom list rendering:
+
+```ts
+const collection = useRouteCollection({
+  route,
+  collection: api.resource(Tasks),
+  filters: SearchTasks,
+  onFailure: (failure) => reportPageFailure(failure),
+});
+```
+
 ## Operations
 
 Built-in operation factories are:
 
 ```text
-list, retrieve, create, replace, patch, remove, action, bulk
+list, retrieve, create, replace, patch, remove, action, object, bulk
 ```
 
 An operation can define:
@@ -249,6 +311,7 @@ An operation can define:
 - body encoding;
 - multipart adapter;
 - pagination;
+- response adapter;
 - sorter parameter;
 - invalidation policy;
 - error adapters;
@@ -282,6 +345,82 @@ Run it directly:
 ```ts
 const value = await tasks.action("publish", { notify: true });
 ```
+
+## Presented Resource Actions
+
+CRUD and custom operations are headless by default. Add `presentation` only when an
+application wants an action to appear in a UI. Presentation is immutable client-side
+metadata; it never authorizes a server endpoint.
+
+```ts
+const Tasks = resource({
+  name: "tasks",
+  url: "tasks/",
+  schema: Task,
+  key: "id",
+  operations: {
+    archive: operation.object({
+      path: "archive/",
+      presentation: {
+        placement: ["aside", "edit"],
+        label: "Archive",
+        icon: "archive",
+        confirmation: "Archive this task?",
+        scopes: ["tasks.archive"],
+        visible: ({ value }) => value?.status !== "archived",
+        disabled: ({ value }) => value?.locked === true,
+      },
+    }),
+    complete: operation.bulk({
+      input: CompleteInput,
+      bulk: { path: "complete/bulk/" },
+      presentation: {
+        placement: ["list"],
+        label: "Complete selected",
+        icon: "done_all",
+      },
+    }),
+  },
+});
+```
+
+`placement` identifies a view region, not a URL or transport target. Standard names
+are `list`, `create`, `edit`, and `aside`; any other string is application-owned.
+`scopes` is an all-of check. `visible` removes an action, while `disabled` keeps its
+presentation but prevents execution. The resolver supplies application context, auth
+state, effective scopes, the current object value/key, and selected keys.
+
+`operation.object()` is object-bound: `archive/` above calls
+`tasks/:key/archive/`. It must run through an object controller:
+
+```ts
+const task = tasks.get(42);
+await task.action("archive", undefined);
+
+const archive = task.operation("archive", undefined);
+const archiveForm = task.actionForm("archive", ArchiveInput.toForm());
+```
+
+Calling `tasks.action("archive", ...)` is rejected because there is no object key.
+`operation.action()` remains resource-bound; `operation.bulk()` runs through
+`tasks.bulk.action(name, selectedKeys, input)`.
+
+Use `tasks.actions()` to resolve immutable descriptors in a custom headless view:
+
+```ts
+const actions = tasks.actions({
+  placement: "aside",
+  object: { key: task.key, value: task.value },
+});
+
+await actions[0]?.execute(undefined);
+```
+
+Descriptors are ordered by `presentation.order` then declaration order. They expose
+their label, icon, confirmation, disabled state, `requiresInput`, target-bound
+`execute()` / `operation()` / `form()` helpers, and selected keys. Do not execute a
+descriptor with `requiresInput`; collect that input in an application-owned form or
+dialog first.
 
 Create a stateful action controller when the UI needs loading, failure, progress, and duplicate-execution control.
 
@@ -365,6 +504,11 @@ Every remote view must include the resource key. Runtime construction fails when
 View responses merge their known canonical fields into the resource entity cache. Computed fields are materialized from current data. They are not persisted.
 
 Views are read-only. They cannot be mutation input schemas.
+
+Use a named view as the declaration of table columns and other read-side projections.
+Pass it to `UcTable` through its optional `view` prop; there are no component-level
+include/exclude field lists. A view may be selected by a named query or operation output
+as well as by a default resource collection.
 
 ## Direct Cache Ingestion
 
@@ -583,3 +727,29 @@ interface PaginationAdapter {
 ```
 
 The controller owns current navigation and accumulation. The shared cache stores only collection keys and returned page metadata.
+
+A response profile may supply the resource's pagination adapter. An explicit query or
+list-operation adapter wins, followed by an explicit resource adapter, the active
+response profile, and the core page default.
+
+```ts
+import { responseAdapters } from "@uicogs/http";
+
+const Tasks = resource({
+  name: "tasks",
+  url: "tasks/",
+  schema: Task,
+  key: "id",
+  responseAdapter: responseAdapters.vyuh(),
+  queries: {
+    legacy: {
+      input: LegacySearch,
+      responseAdapter: responseAdapters.drf(),
+    },
+  },
+});
+```
+
+The same profile decodes object and action responses and normalizes server failures.
+Profiles may also be configured on `createUiCogs()`, services, and operations. See
+[Response adapters](response-adapters.md).
