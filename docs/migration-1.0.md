@@ -7,6 +7,27 @@ UiCogs 1.0 separates pure definitions from application runtime state.
 `@uicogs/echarts` is additive. Existing applications need no migration; install
 it with Vue and ECharts only when adding schema-bound charts.
 
+## Pagination Arguments And Cursor Routes
+
+All resource and collection `page()` methods now accept the existing `PageState`
+object. Replace `page(2, 25)` with `page({ index: 2, size: 25 })` for numbered pagination.
+For cursors, use `page({ size: 25, token })` or `page({ size: 25 })` for the first batch.
+`index` and `token` are mutually exclusive; cursor positions never contain `index`.
+There is no positional overload or synthetic cursor page number.
+This includes Vue/Quasar contracts and the legacy package's resource facade.
+
+Core navigation stays chainable: `await tasks.nextPage().load()`. Route navigation is
+asynchronous: `await collection.nextPage()` and `await collection.previousPage()`
+update the URL and await its load. In particular, route `previousPage()` no longer
+mutates the underlying collection outside the router.
+
+Custom `PaginationAdapter` and `RoutePaginationCodec` definitions must declare `mode: "page"` or `"cursor"`
+and round-trip `PageState.token` when using cursors. Built-in `cursorRoutePagination`
+handles string tokens. Pass the same codec to `useRouteCollection()` and
+`useRouteForm()`; `useRouteResource()` does this internally. Generated filter
+submissions now reset to the first page/batch. See [Routing](routing.md#cursor-pagination)
+for complete examples and cursor reset/recovery behavior.
+
 ## Definitions
 
 Create schemas, resources, operations, descriptors, and decorators with package-level factories.

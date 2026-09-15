@@ -316,6 +316,7 @@ export const pagination = {
   drf: (): PaginationAdapter => corePagination.page(),
   cursor: (options: { readonly cursorParam?: string } = {}): PaginationAdapter => ({
     name: "cursor",
+    mode: "cursor",
     request: (page) => ({
       ...(page.token ? { [options.cursorParam ?? "cursor"]: page.token } : {}),
       page_size: page.size,
@@ -339,7 +340,8 @@ export const pagination = {
   }),
   linkHeader: (): PaginationAdapter => ({
     name: "link-header",
-    request: (page) => ({ page: page.index, page_size: page.size }),
+    mode: "page",
+    request: (page) => ({ page: numberedIndex(page), page_size: page.size }),
     response: (response) => {
       const links = parseLinks(response.headers?.link);
       return {
@@ -434,12 +436,13 @@ function profile(
 function vyuhPagination(): PaginationAdapter {
   return Object.freeze({
     name: "vyuh",
-    request: (page: PageState) => ({ page: page.index, per_page: page.size }),
+    mode: "page",
+    request: (page: PageState) => ({ page: numberedIndex(page), per_page: page.size }),
     response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
       if (Array.isArray(response.data)) return boundedPage(response.data, page);
       const data = asRecord(response.data);
       const items = Array.isArray(data.items) ? data.items : [];
-      const index = positiveNumber(data.page) ?? page.index;
+      const index = positiveNumber(data.page) ?? numberedIndex(page);
       const size = positiveNumber(data.per_page) ?? page.size;
       const count = nonNegativeNumber(data.total);
       const totalPages = nonNegativeNumber(data.total_pages);
@@ -461,11 +464,12 @@ function vyuhPagination(): PaginationAdapter {
 function laravelPagination(): PaginationAdapter {
   return Object.freeze({
     name: "laravel",
-    request: (page: PageState) => ({ page: page.index, per_page: page.size }),
+    mode: "page",
+    request: (page: PageState) => ({ page: numberedIndex(page), per_page: page.size }),
     response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
       const data = asRecord(response.data);
       const items = Array.isArray(data.data) ? data.data : [];
-      const index = positiveNumber(data.current_page) ?? page.index;
+      const index = positiveNumber(data.current_page) ?? numberedIndex(page);
       const size = positiveNumber(data.per_page) ?? page.size;
       const count = nonNegativeNumber(data.total);
       const totalPages = nonNegativeNumber(data.last_page);
@@ -493,12 +497,13 @@ function laravelPagination(): PaginationAdapter {
 function springDataPagination(): PaginationAdapter {
   return Object.freeze({
     name: "spring-data",
-    request: (page: PageState) => ({ page: Math.max(0, page.index - 1), size: page.size }),
+    mode: "page",
+    request: (page: PageState) => ({ page: Math.max(0, numberedIndex(page) - 1), size: page.size }),
     response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
       const data = asRecord(response.data);
       const items = Array.isArray(data.content) ? data.content : [];
       const number = nonNegativeNumber(data.number);
-      const index = number === undefined ? page.index : number + 1;
+      const index = number === undefined ? numberedIndex(page) : number + 1;
       const size = positiveNumber(data.size) ?? page.size;
       const count = nonNegativeNumber(data.totalElements);
       const totalPages = nonNegativeNumber(data.totalPages);
@@ -522,12 +527,13 @@ function jsonApiPagination(options: JsonApiResponseOptions): PaginationAdapter {
   const sizeParam = options.sizeParam ?? "page[size]";
   return Object.freeze({
     name: "json-api",
+    mode: "cursor",
     request(page: PageState) {
       return typeof page.token === "string"
         ? queryFromUrl(page.token)
-        : { [pageParam]: page.index, [sizeParam]: page.size };
+        : { [pageParam]: 1, [sizeParam]: page.size };
     },
-    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+    response(response: TransportResponse<unknown>, page: PageState = { size: 25 }) {
       const data = asRecord(response.data);
       const links = asRecord(data.links);
       const meta = asRecord(data.meta);
@@ -537,7 +543,6 @@ function jsonApiPagination(options: JsonApiResponseOptions): PaginationAdapter {
       return {
         items: Array.isArray(data.data) ? data.data : [],
         pageInfo: Object.freeze({
-          index: page.index,
           size: page.size,
           ...(count !== undefined
             ? { count, totalPages: page.size > 0 ? Math.ceil(count / page.size) : 1 }
@@ -559,11 +564,12 @@ function graphqlConnectionPagination(options: GraphqlConnectionResponseOptions):
   const sizeParam = options.sizeParam ?? "first";
   return Object.freeze({
     name: "graphql-connection",
+    mode: "cursor",
     request: (page: PageState) => ({
       ...(page.token !== undefined ? { [cursorParam]: page.token } : {}),
       [sizeParam]: page.size,
     }),
-    response(response: TransportResponse<unknown>, page: PageState = { index: 1, size: 25 }) {
+    response(response: TransportResponse<unknown>, page: PageState = { size: 25 }) {
       const connection = asRecord(response.data);
       const pageInfo = asRecord(connection.pageInfo);
       const next = pageInfo.endCursor;
@@ -576,7 +582,6 @@ function graphqlConnectionPagination(options: GraphqlConnectionResponseOptions):
           ? connection.edges.map((edge) => asRecord(edge).node)
           : [],
         pageInfo: Object.freeze({
-          index: page.index,
           size: page.size,
           ...(count !== undefined ? { count } : {}),
           hasNext,
@@ -615,16 +620,24 @@ function decodeJsonApiResource(value: unknown): unknown {
   });
 }
 
+function numberedIndex(page: PageState): number {
+  if (page.index === undefined || page.token !== undefined) {
+    throw new TypeError("Numbered pagination requires an index and does not accept a token");
+  }
+  return page.index;
+}
+
 function boundedPage(items: readonly unknown[], page: PageState) {
+  const index = numberedIndex(page);
   return {
     items,
     pageInfo: Object.freeze({
-      index: page.index,
+      index,
       size: page.size,
       count: items.length,
       totalPages: 1,
       hasNext: false,
-      hasPrevious: page.index > 1,
+      hasPrevious: index > 1,
     }),
   };
 }

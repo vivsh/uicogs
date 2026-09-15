@@ -12,6 +12,7 @@ import {
   type FormProgress,
   type FormSchema,
   type NormalizedFailure,
+  type PageState,
   type ResourceActionDescriptor,
   type ResourceActionResolveOptions,
   type ResponsiveFieldLayout,
@@ -306,7 +307,7 @@ interface ResourceLike extends ExternalStore<object> {
   all(): readonly object[];
   load(): Promise<unknown>;
   refresh(): Promise<unknown>;
-  page(index: number, size?: number): ResourceLike;
+  page(state: PageState): ResourceLike;
   sort(field?: string, descending?: boolean): ResourceLike;
   nextPage(): ResourceLike;
   hasMore(): boolean;
@@ -325,7 +326,7 @@ interface TableCollectionLike extends ExternalStore<object> {
   all(): readonly object[];
   load(): Promise<unknown>;
   refresh(): Promise<unknown>;
-  page(index: number, size?: number): TableCollectionLike | Promise<void>;
+  page(state: PageState): TableCollectionLike | Promise<void>;
   sort(field?: string, descending?: boolean): TableCollectionLike | Promise<void>;
   nextPage(): TableCollectionLike | Promise<void>;
   hasMore(): boolean;
@@ -922,6 +923,12 @@ export const UcField = defineComponent({
         ...(kind === "textarea"
           ? {
               autogrow: booleanOption(descriptorOptions.autogrow),
+              ...(descriptorOptions.counter === undefined
+                ? {}
+                : { counter: booleanOption(descriptorOptions.counter) }),
+              ...(descriptorOptions.maxLength === undefined
+                ? {}
+                : { maxlength: numberOption(descriptorOptions.maxLength) }),
               inputStyle: multilineInputStyle(
                 resizeOption(descriptorOptions.resize, descriptorOptions.autogrow),
               ),
@@ -1451,7 +1458,8 @@ export const UcTable = defineComponent({
       if (!page) return;
       void run(async () => {
         await collection.sort(page.sortBy, page.descending);
-        if (page.page) await collection.page(page.page, page.rowsPerPage || props.pageSize);
+        if (page.page)
+          await collection.page({ index: page.page, size: page.rowsPerPage || props.pageSize });
         return collection.load();
       });
     };

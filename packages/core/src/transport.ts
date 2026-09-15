@@ -144,15 +144,16 @@ export interface PaginationResult {
 
 export interface PaginationAdapter {
   readonly name: string;
+  /** Determines the controller's initial position and accepted page arguments. */
+  readonly mode: "page" | "cursor";
   request(page: Readonly<PageState>): Readonly<Record<string, unknown>>;
   response(response: TransportResponse<unknown>, page?: Readonly<PageState>): PaginationResult;
 }
 
-export interface PageState {
-  readonly index: number;
-  readonly size: number;
-  readonly token?: unknown;
-}
+/** Numbered or cursor position. A cursor's first batch needs only size; positions cannot mix. */
+export type PageState =
+  | { readonly size: number; readonly index: number; readonly token?: never }
+  | { readonly size: number; readonly token?: unknown; readonly index?: never };
 
 export const pagination = {
   page(
@@ -173,8 +174,9 @@ export const pagination = {
     const previousKey = options.previousKey ?? "previous";
     return Object.freeze({
       name: "page",
+      mode: "page",
       request: (page: PageState) => ({
-        [pageParam]: page.index,
+        [pageParam]: numberedIndex(page),
         [sizeParam]: page.size,
       }),
       response: (
@@ -185,12 +187,12 @@ export const pagination = {
           return {
             items: response.data,
             pageInfo: {
-              index: page.index,
+              ...(page.index === undefined ? {} : { index: page.index }),
               size: page.size,
               count: response.data.length,
               totalPages: 1,
               hasNext: false,
-              hasPrevious: page.index > 1,
+              hasPrevious: (page.index ?? 1) > 1,
             },
           };
         }
@@ -202,7 +204,7 @@ export const pagination = {
         return {
           items,
           pageInfo: Object.freeze({
-            index: page.index,
+            ...(page.index === undefined ? {} : { index: page.index }),
             size: page.size,
             ...(count !== undefined
               ? {
@@ -232,8 +234,9 @@ export const pagination = {
     const pageAdapter = pagination.page();
     return Object.freeze({
       name: "offset",
+      mode: "page",
       request: (page: PageState) => ({
-        [offsetParam]: Math.max(0, page.index - 1) * page.size,
+        [offsetParam]: Math.max(0, numberedIndex(page) - 1) * page.size,
         [limitParam]: page.size,
       }),
       response: pageAdapter.response,
@@ -250,32 +253,40 @@ export const pagination = {
     const pageAdapter = pagination.page();
     return Object.freeze({
       name: "cursor",
-      request: (page: PageState) => ({
-        ...(page.token !== undefined ? { [cursorParam]: page.token } : {}),
-        [sizeParam]: page.size,
-      }),
-      response: pageAdapter.response,
+      mode: "cursor",
+      request: (page: PageState) => {
+        if (page.index !== undefined)
+          throw new TypeError("Cursor pagination does not accept an index");
+        return {
+          ...(page.token !== undefined ? { [cursorParam]: page.token } : {}),
+          [sizeParam]: page.size,
+        };
+      },
+      response: (response: TransportResponse<unknown>, page: PageState = { size: 25 }) =>
+        pageAdapter.response(response, page),
     });
   },
   client(): PaginationAdapter {
     return Object.freeze({
       name: "client",
+      mode: "page",
       request: () => ({}),
       response: (
         response: TransportResponse<unknown>,
         page: PageState = { index: 1, size: 25 },
       ) => {
         const source = Array.isArray(response.data) ? response.data : [];
-        const start = Math.max(0, page.index - 1) * page.size;
+        const index = numberedIndex(page);
+        const start = Math.max(0, index - 1) * page.size;
         return {
           items: source.slice(start, start + page.size),
           pageInfo: Object.freeze({
-            index: page.index,
+            index,
             size: page.size,
             count: source.length,
             totalPages: page.size > 0 ? Math.ceil(source.length / page.size) : 1,
             hasNext: start + page.size < source.length,
-            hasPrevious: page.index > 1,
+            hasPrevious: index > 1,
           }),
         };
       },
@@ -285,6 +296,14 @@ export const pagination = {
     return Object.freeze(adapter);
   },
 };
+
+/** Validates the numbered position expected by page, offset, and client adapters. */
+function numberedIndex(page: PageState): number {
+  if (page.index === undefined || page.token !== undefined) {
+    throw new TypeError("Numbered pagination requires an index and does not accept a token");
+  }
+  return page.index;
+}
 
 /** Framework-neutral response adapter builders. */
 export const responseAdapters = {

@@ -32,6 +32,10 @@ export interface EditorDescriptorMap {
   textarea: {
     readonly rows?: number;
     readonly autogrow?: boolean;
+    /** Displays the editor's native character counter. */
+    readonly counter?: boolean;
+    /** Native input limit in UTF-16 code units; does not add schema validation. */
+    readonly maxLength?: number;
     /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
     readonly resize?: EditorResize;
   };

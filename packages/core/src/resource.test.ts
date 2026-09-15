@@ -350,7 +350,7 @@ describe("local resources and cache facade", () => {
     await tasks.update(3, { title: "Ship package" });
     expect(tasks.get(3).value?.title).toBe("Ship package");
 
-    tasks.filter({ title: "write" }).sort("title").page(1, 1);
+    tasks.filter({ title: "write" }).sort("title").page({ index: 1, size: 1 });
     expect(tasks.all().map((value) => value.id)).toEqual([1]);
     await tasks.remove(1);
     expect(tasks.all()).toEqual([]);

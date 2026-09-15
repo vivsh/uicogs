@@ -120,7 +120,7 @@ describe("workflow contracts", () => {
       schema,
       key: "id",
     });
-    const resource = cogs.resource(definition).page(2, 10);
+    const resource = cogs.resource(definition).page({ index: 2, size: 10 });
 
     await resource.load();
     expect(requests[0]?.query).toMatchObject({ page: 2, page_size: 10 });
@@ -260,7 +260,7 @@ describe("workflow contracts", () => {
       key: "id",
       pagination: pagination.client(),
     });
-    const resource = cogs.resource(definition).page(1, 2).accumulate();
+    const resource = cogs.resource(definition).page({ index: 1, size: 2 }).accumulate();
 
     await resource.load();
     expect(resource.all().map((item) => item.id)).toEqual([1, 2]);

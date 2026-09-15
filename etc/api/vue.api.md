@@ -1,12 +1,12 @@
 # @uicogs/vue API
 
-Declaration SHA-256: `86eb6f289fbafe9dcefe6312a6897b84ab7bca3b3e9a3a33ea4a491f428ecf8c`
+Declaration SHA-256: `ef395b3c7c30fe189634300e733f5d85d82551858634d61ffd334a79382c2e85`
 
 ```ts
 // index.d.ts
 import * as _vue_reactivity from '@vue/reactivity';
 import * as _uicogs_core from '@uicogs/core';
-import { EntityKey, Shape, FormController, FormSchema, Schema, Infer, ValidationIssue, Descriptor, ExternalStore, ActionPlacement, ResourceActionResolveOptions, ResourceActionDescriptor, NotificationController, AlertController, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
+import { EntityKey, PageState, Shape, FormController, FormSchema, Schema, Infer, ValidationIssue, Descriptor, ExternalStore, ActionPlacement, ResourceActionResolveOptions, ResourceActionDescriptor, NotificationController, AlertController, RuntimeAuthController, ControllerAdapter, FormCompatibleSchema } from '@uicogs/core';
 export * from '@uicogs/core';
 import { ComputedRef, WritableComputedRef, Ref, Plugin, ShallowRef } from 'vue';
 import { NavigationGroup, NavigationDefinition, ScopeAccess } from '@uicogs/routes';
@@ -110,29 +110,32 @@ declare function useRouteForm<TSchema extends Shape, TContext, TParams extends S
     readonly route: RouteState<TSchema, TContext, TParams, TParamsContext>;
     readonly schema: Schema<TSchema, TContext>;
     readonly history?: "push" | "replace";
+    /** Must match the collection codec so filter submissions reset its page and cursor. */
+    readonly pagination?: RoutePaginationCodec;
 }): FormController<FormSchema<Schema<TSchema, TContext>, Infer<Schema<TSchema, TContext>>>>;
 /** The route keys read and written by a page/sort codec. */
 interface RoutePaginationCodec {
+    /** Cursor navigation requires a response token instead of arbitrary numbered jumps. */
+    readonly mode: "page" | "cursor";
     readonly keys: readonly string[];
-    read(query: RouteQueryValues): Readonly<{
-        index: number;
-        size: number;
+    read(query: RouteQueryValues): Readonly<PageState & {
         ordering?: string;
     }>;
-    write(state: Readonly<{
-        index: number;
-        size: number;
+    write(state: Readonly<PageState & {
         ordering?: string;
     }>): RouteQueryValues;
 }
 /** The standard `page`, `page_size`, and `ordering` query convention. */
 declare const standardRoutePagination: RoutePaginationCodec;
+/** Opaque string cursors in `cursor`. Conflicting numbered `page` input is removed. */
+declare const cursorRoutePagination: RoutePaginationCodec;
 /** A collection facade whose filter, sorting, and page changes first update the URL. */
-type RouteCollection<TCollection extends RouteCollectionSource> = Omit<TCollection, "resource" | "sort" | "page" | "nextPage"> & {
+type RouteCollection<TCollection extends RouteCollectionSource> = Omit<TCollection, "resource" | "sort" | "page" | "nextPage" | "previousPage"> & {
     readonly resource: RouteCollectionMetadata;
     sort(field?: string, descending?: boolean): Promise<void>;
-    page(index: number, size?: number): Promise<void>;
+    page(state: PageState): Promise<void>;
     nextPage(): Promise<void>;
+    previousPage(): Promise<void>;
 };
 /** Immutable metadata shared by resources and named query collections. */
 interface RouteCollectionMetadata {
@@ -158,8 +161,9 @@ interface RouteCollectionSource {
     refresh(): Promise<unknown>;
     filter(values: Readonly<Record<string, unknown>>): unknown;
     sort(field?: string, descending?: boolean): unknown;
-    page(index: number, size?: number): unknown;
+    page(state: PageState): unknown;
     nextPage(): unknown;
+    previousPage(): unknown;
     hasMore(): boolean;
 }
 /** Binds collection filters, sorting, and pagination to an existing route state controller. */
@@ -380,7 +384,7 @@ declare function useUcTableModel<TContext, TSchema extends Schema<Shape, TContex
     readonly loading: boolean;
     readonly pageInfo?: unknown;
     sort(field?: string, descending?: boolean): unknown;
-    page(index: number, size?: number): unknown;
+    page(state: PageState): unknown;
     load(): Promise<unknown>;
 }>(collection: TCollection, schema: TSchema): Readonly<{
     collection: TCollection;
@@ -407,5 +411,5 @@ declare function useUcResourceView<TKey extends EntityKey, TEntity, TResource ex
     close(): void;
 }>;
 
-export { type RendererRegistry, type ResourceAccess, type ResourceAccessOptions, type ResourceCapability, type ResourcePermit, type ResourcePermitContext, type ResourcePermitTarget, type ResourceScopes, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResource, type RouteResourceMode, type RouteResourceNavigationOptions, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueRouteIntegration, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, standardRoutePagination, useResourceAccess, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
+export { type RendererRegistry, type ResourceAccess, type ResourceAccessOptions, type ResourceCapability, type ResourcePermit, type ResourcePermitContext, type ResourcePermitTarget, type ResourceScopes, type RouteCollection, type RouteCollectionMetadata, type RouteCollectionSource, type RouteKeyOptions, type RoutePaginationCodec, type RouteResource, type RouteResourceMode, type RouteResourceNavigationOptions, type RouteResourceSource, type RouteState, type RouteStateOptions, type RouteStateUpdate, type UcFieldModel, type UcObjectActionSource, type UcResourceActionOptions, type UcResourceActionOverride, type UcResourceActionSource, type UcResourceModel, type UcTableColumnModel, type UiCogsBreadcrumb, type UiCogsNavigationContext, type UiCogsNavigationGroup, type UiCogsNavigationGroupNode, type UiCogsNavigationIcon, type UiCogsNavigationLabel, type UiCogsNavigationLink, type UiCogsNavigationNode, type UiCogsNavigationOptions, type UiCogsNavigationRoute, type UiCogsRouteMeta, type VueBoundUiCogs, type VueRouteIntegration, type VueUiCogsBinding, type WithVueOptions, canAccessRoute, createRendererRegistry, cursorRoutePagination, standardRoutePagination, useResourceAccess, useRouteCollection, useRouteForm, useRouteResource, useRouteState, useUcAction, useUcCollection, useUcController, useUcForm, useUcFormModel, useUcObject, useUcObjectActions, useUcResource, useUcResourceActions, useUcResourceView, useUcSnapshot, useUcTableModel, useUiCogs, useUiCogsNavigation, validateNavigation, vueReactive, withVue };
 ```

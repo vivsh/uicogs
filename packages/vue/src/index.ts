@@ -3,6 +3,7 @@ import {
   type Descriptor,
   type EntityKey,
   type ExternalStore,
+  type PageState,
   type FormCompatibleSchema,
   type FormController,
   type FormSchema,
@@ -421,7 +422,7 @@ export function useUcTableModel<
     readonly loading: boolean;
     readonly pageInfo?: unknown;
     sort(field?: string, descending?: boolean): unknown;
-    page(index: number, size?: number): unknown;
+    page(state: PageState): unknown;
     load(): Promise<unknown>;
   },
 >(collection: TCollection, schema: TSchema) {

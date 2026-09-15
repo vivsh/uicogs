@@ -6,6 +6,8 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computed, defineComponent, h, nextTick, ref, type App } from "vue";
 import { Dialog, Notify } from "quasar";
+import { createMemoryHistory, createRouter } from "vue-router";
+import { cursorRoutePagination, useRouteCollection, useRouteState } from "@uicogs/vue";
 import {
   RequestError,
   Store,
@@ -15,8 +17,13 @@ import {
   fields,
   format,
   remoteFile,
+  operation,
+  pagination,
+  resource,
+  schema,
   type NormalizedFailure,
   type TransportRequest,
+  type PageState,
 } from "@uicogs/core";
 import {
   UcAction,
@@ -936,6 +943,62 @@ describe("Quasar views and tables", () => {
     expect(resource.nextPage).toHaveBeenCalledOnce();
   });
 
+  it("loads the next cursor through a route-bound infinite table", async () => {
+    const Tasks = resource({
+      name: "cursor-tasks",
+      url: "tasks",
+      key: "id",
+      schema: schema({ id: fields.Int({ required: true }), title: fields.Str() }),
+      operations: { list: operation.list({ pagination: pagination.cursor() }) },
+    });
+    const request = vi.fn(async (request: TransportRequest) => ({
+      status: 200,
+      data: {
+        results: [
+          { id: request.query?.cursor ? 2 : 1, title: request.query?.cursor ? "Second" : "First" },
+        ],
+        next: request.query?.cursor ? null : "second",
+        previous: request.query?.cursor ? "first" : null,
+      },
+    }));
+    const api = createUiCogs({ resources: [Tasks], transport: { request } });
+    const tasks = api.resource(Tasks).accumulate();
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ name: "tasks", path: "/tasks", component: { render: () => null } }],
+    });
+    await router.push("/tasks");
+    const Page = defineComponent({
+      setup() {
+        const route = useRouteState({ route: "tasks" });
+        const collection = useRouteCollection({
+          route,
+          collection: tasks,
+          pagination: cursorRoutePagination,
+        });
+        return () => h(UcTable, { collection, infinite: true });
+      },
+    });
+    const wrapper = mount(Page, { global: { plugins: [router], stubs: quasarStubs } });
+    try {
+      await flushPromises();
+      const table = wrapper.findComponent({ name: "QTableStub" });
+      expect(table.props("rows")).toMatchObject([{ id: 1 }]);
+      table.vm.$emit("scroll", {
+        target: { scrollTop: 100, clientHeight: 100, scrollHeight: 210 },
+      });
+      await flushPromises();
+      expect(router.currentRoute.value.query.cursor).toBe("second");
+      expect(request.mock.calls.at(-1)?.[0].query).toEqual({ cursor: "second", page_size: 25 });
+      expect(request).toHaveBeenCalledTimes(2);
+      expect(table.props("rows")).toMatchObject([{ id: 1 }, { id: 2 }]);
+      expect(wrapper.findComponent(UcTable).emitted("failure")).toBeUndefined();
+    } finally {
+      wrapper.unmount();
+      api.dispose();
+    }
+  });
+
   it("exercises table selection, row formatting, and guarded request branches", async () => {
     const resource = externalResource({
       rows: [{ id: 1, title: "One" }],
@@ -1352,8 +1415,8 @@ describe("Quasar views and tables", () => {
         all: () => resource.all(),
         load: () => resource.load(),
         refresh: () => resource.refresh(),
-        page: async (index: number, size?: number) => {
-          resource.page(index, size);
+        page: async (state: PageState) => {
+          resource.page(state);
         },
         sort: async (field?: string, descending?: boolean) => {
           resource.sort(field as never, descending);

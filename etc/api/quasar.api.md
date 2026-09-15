@@ -1,6 +1,6 @@
 # @uicogs/quasar API
 
-Declaration SHA-256: `6668ff215ab524d26dd28d441154214e1ddc8faedc5a02b646c116f5681f6d3a`
+Declaration SHA-256: `8359ee1ec55a2db3e1e384c20740c29fcf29b157046657445ceb5c90af48ece9`
 
 ```ts
 // index.d.ts
@@ -8,7 +8,7 @@ import * as vue from 'vue';
 import { PropType, App } from 'vue';
 import * as _uicogs_vue from '@uicogs/vue';
 import { UiCogsNavigationNode, ResourceAccess, ResourceCapability, ResourcePermitTarget, RouteResourceNavigationOptions, ResourceScopes, ResourcePermit } from '@uicogs/vue';
-import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Choice, FieldLayout, ResponsiveFieldLayout, NormalizedFailure, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
+import { UiNotification, UiNotificationAction, NotificationController, AlertController, EditorResize, Descriptor, Field, FormController, FormSchema, FormCompatibleSchema, ExternalStore, FormProgress, Choice, FieldLayout, ResponsiveFieldLayout, PageState, NormalizedFailure, ResourceActionResolveOptions, ResourceActionDescriptor } from '@uicogs/core';
 import { QEditor, QDialogOptions, QNotifyCreateOptions, QBtnProps } from 'quasar';
 import { RouteLocationRaw } from 'vue-router';
 
@@ -562,7 +562,7 @@ interface ResourceLike extends ExternalStore<object> {
     all(): readonly object[];
     load(): Promise<unknown>;
     refresh(): Promise<unknown>;
-    page(index: number, size?: number): ResourceLike;
+    page(state: PageState): ResourceLike;
     sort(field?: string, descending?: boolean): ResourceLike;
     nextPage(): ResourceLike;
     hasMore(): boolean;
@@ -580,7 +580,7 @@ interface TableCollectionLike extends ExternalStore<object> {
     all(): readonly object[];
     load(): Promise<unknown>;
     refresh(): Promise<unknown>;
-    page(index: number, size?: number): TableCollectionLike | Promise<void>;
+    page(state: PageState): TableCollectionLike | Promise<void>;
     sort(field?: string, descending?: boolean): TableCollectionLike | Promise<void>;
     nextPage(): TableCollectionLike | Promise<void>;
     hasMore(): boolean;

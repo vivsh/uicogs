@@ -372,6 +372,42 @@ describe("Quasar forms and fields", () => {
     expect(richText?.props("minHeight")).toBe("calc(8 * 1.5em)");
   });
 
+  it("forwards native textarea counters and limits without truncating form values", () => {
+    const schema = defineSchema({
+      limited: fields.Text({ editor: editor.Textarea({ rows: 5, counter: true, maxLength: 4 }) }),
+      plain: fields.Text({ editor: editor.Textarea() }),
+      hidden: fields.Text({ editor: editor.Textarea({ counter: false, maxLength: 10 }) }),
+    });
+    const form = createFormController(schema.toForm(), {
+      limited: "Longer than four",
+      plain: "Plain",
+      hidden: "Hidden",
+    });
+    const wrapper = mount(UcForm, { props: { form }, global: { stubs: quasarStubs } });
+    const controls = wrapper.findAllComponents(controlStub);
+    expect(controls[0]?.props()).toMatchObject({ rows: 5, counter: true, maxlength: 4 });
+    expect(controls[1]?.props("counter")).toBeUndefined();
+    expect(controls[1]?.props("maxlength")).toBeUndefined();
+    expect(controls[2]?.props()).toMatchObject({ counter: false, maxlength: 10 });
+    expect(form.values.limited).toBe("Longer than four");
+  });
+
+  it("preserves explicit textarea attribute overrides", () => {
+    const schema = defineSchema({
+      text: fields.Text({ editor: editor.Textarea({ counter: true, maxLength: 4 }) }),
+    });
+    const form = createFormController(schema.toForm(), { text: "Text" });
+    const wrapper = mount(UcForm, {
+      props: { form },
+      slots: { default: () => h(UcField, { name: "text", counter: false, maxlength: 8 }) },
+      global: { stubs: quasarStubs },
+    });
+    expect(wrapper.findComponent(controlStub).props()).toMatchObject({
+      counter: false,
+      maxlength: 8,
+    });
+  });
+
   it("renders named Quasar rich-text tools in the configured toolbar", () => {
     const runAction = vi.fn();
     const schema = defineSchema({
@@ -1167,6 +1203,8 @@ const controlStub = defineComponent({
     toolbar: Array,
     definitions: Object,
     rows: Number,
+    counter: { type: Boolean, default: undefined },
+    maxlength: Number,
     minHeight: String,
     autogrow: Boolean,
     inputStyle: [String, Array, Object],

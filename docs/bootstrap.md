@@ -301,7 +301,7 @@ Do not create controllers in `api.ts`. A view creates its own controller, applie
 local query state, and begins loading when that view is ready:
 
 ```ts
-const tasks = api.resource(Tasks).filter({ complete: false }).page(1, 25);
+const tasks = api.resource(Tasks).filter({ complete: false }).page({ index: 1, size: 25 });
 await tasks.load();
 ```
 

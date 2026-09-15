@@ -79,7 +79,7 @@ Use fresh controllers for each workflow. They share entity data, but never page-
 ```ts
 const tasks = api.resource(Tasks);
 
-await tasks.filter({ complete: false }).sort("title").page(1, 25).load();
+await tasks.filter({ complete: false }).sort("title").page({ index: 1, size: 25 }).load();
 
 tasks.all();
 tasks.loading;

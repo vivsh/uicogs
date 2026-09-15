@@ -1,9 +1,10 @@
 import { expectAssignable, expectError, expectType } from "tsd";
-import { createUiCogs, fields, resource, schema } from "@uicogs/core";
+import { createUiCogs, fields, resource, schema, type PageState } from "@uicogs/core";
 import { UcResourceView } from "@uicogs/quasar";
 import { createNavigation } from "@uicogs/routes";
 import {
   standardRoutePagination,
+  cursorRoutePagination,
   useRouteCollection,
   useRouteForm,
   useRouteResource,
@@ -63,25 +64,35 @@ declare const collection: {
   refresh(): Promise<unknown>;
   filter(values: Readonly<Record<string, unknown>>): unknown;
   sort(field?: string, descending?: boolean): unknown;
-  page(index: number, size?: number): unknown;
+  page(state: PageState): unknown;
   nextPage(): unknown;
+  previousPage(): unknown;
   hasMore(): boolean;
 };
 const routeCollection = useRouteCollection({ route, collection, filters: TaskFilters });
 expectType<Promise<void>>(routeCollection.sort("title", true));
-expectType<Promise<void>>(routeCollection.page(2, 50));
+expectType<Promise<void>>(routeCollection.page({ index: 2, size: 50 }));
+expectType<Promise<void>>(routeCollection.page({ size: 50, token: "next" }));
+expectType<Promise<void>>(routeCollection.page({ size: 50 }));
+expectError(routeCollection.page({ index: 2, size: 50, token: "next" }));
+expectError(routeCollection.page(2, 50));
+expectError(routeCollection.page({ index: 2 }));
 expectType<Promise<void>>(routeCollection.nextPage());
+expectType<Promise<void>>(routeCollection.previousPage());
 type ResourceViewCollection = NonNullable<
   InstanceType<typeof UcResourceView>["$props"]["collection"]
 >;
 expectAssignable<ResourceViewCollection>(routeCollection);
 
 const customPagination: RoutePaginationCodec = {
+  mode: "page",
   keys: ["offset", "limit"],
   read: () => ({ index: 1, size: 25 }),
   write: () => ({ offset: undefined, limit: undefined }),
 };
 expectType<RoutePaginationCodec>(standardRoutePagination);
+expectType<RoutePaginationCodec>(cursorRoutePagination);
+expectType<unknown>(cursorRoutePagination.read({ cursor: "next" }).token);
 useRouteCollection({ route, collection, filters: TaskFilters, pagination: customPagination });
 
 declare const taskResource: {
@@ -95,8 +106,9 @@ declare const taskResource: {
   refresh(): Promise<unknown>;
   filter(values: Readonly<Record<string, unknown>>): unknown;
   sort(field?: string, descending?: boolean): unknown;
-  page(index: number, size?: number): unknown;
+  page(state: PageState): unknown;
   nextPage(): unknown;
+  previousPage(): unknown;
   hasMore(): boolean;
   get(key: number): {
     readonly loading: boolean;

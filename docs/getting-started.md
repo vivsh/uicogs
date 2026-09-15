@@ -149,7 +149,7 @@ import { useUiCogs } from "../api.js";
 import { TaskCreate, TaskTable, Tasks } from "../definitions/tasks.js";
 
 const api = useUiCogs();
-const tasks = api.resource(Tasks).sort("title").page(1, 25);
+const tasks = api.resource(Tasks).sort("title").page({ index: 1, size: 25 });
 const form = tasks.form(TaskCreate);
 
 async function saved(): Promise<void> {

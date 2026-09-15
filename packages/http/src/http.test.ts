@@ -411,15 +411,14 @@ describe("HTTP adapters", () => {
       data: [{ id: "1", type: "tasks", title: "One" }],
       included: [{ type: "users", id: "7" }],
     });
-    expect(
-      profile.pagination?.response({ status: 200, data: decoded }, { index: 1, size: 2 }),
-    ).toMatchObject({
-      items: [{ id: "1", type: "tasks", title: "One" }],
-      pageInfo: { count: 3, totalPages: 2, hasNext: true, hasPrevious: false },
-    });
+    expect(profile.pagination?.response({ status: 200, data: decoded }, { size: 2 })).toMatchObject(
+      {
+        items: [{ id: "1", type: "tasks", title: "One" }],
+        pageInfo: { count: 3, totalPages: 2, hasNext: true, hasPrevious: false },
+      },
+    );
     expect(
       profile.pagination?.request({
-        index: 2,
         size: 2,
         token: "/tasks?page[number]=2&page[size]=2",
       }),
@@ -456,7 +455,7 @@ describe("HTTP adapters", () => {
       items: [{ id: 1, name: "Ada" }],
       pageInfo: { count: 4, hasNext: true, nextToken: "next-1" },
     });
-    expect(profile.pagination?.request({ index: 2, size: 25, token: "next-1" })).toEqual({
+    expect(profile.pagination?.request({ size: 25, token: "next-1" })).toEqual({
       after: "next-1",
       first: 25,
     });
@@ -616,7 +615,7 @@ describe("HTTP adapters", () => {
     });
 
     const cursor = pagination.cursor({ cursorParam: "after" });
-    expect(cursor.request({ index: 1, size: 10, token: "next-token" })).toEqual({
+    expect(cursor.request({ size: 10, token: "next-token" })).toEqual({
       after: "next-token",
       page_size: 10,
     });

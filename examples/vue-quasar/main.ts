@@ -206,6 +206,10 @@ const TaskFilters = schema({
   }),
 });
 const EditorShowcase = schema({
+  summary: fields.Text({
+    label: "Short summary",
+    editor: editor.Textarea({ rows: 3, counter: true, maxLength: 4 }),
+  }),
   published: fields.Date({ label: "Published" }),
   publishingTime: fields.Time({
     label: "Publishing time",
@@ -377,7 +381,7 @@ liveItems.cache.add({ id: 2, title: "To delete" });
 const app = defineComponent({
   name: "WorkflowExample",
   setup() {
-    const tasks = cogs.resource(Tasks).page(1, 2);
+    const tasks = cogs.resource(Tasks).page({ index: 1, size: 2 });
     const activeKey = ref<number>();
     const selectedKeys = ref<readonly number[]>([]);
     const lastEvent = ref("Ready");
@@ -397,7 +401,7 @@ const app = defineComponent({
       { search: "" },
       async (values) => {
         const search = typeof values.search === "string" ? values.search : "";
-        tasks.filter({ search }, { merge: false }).page(1, 2);
+        tasks.filter({ search }, { merge: false }).page({ index: 1, size: 2 });
         await tasks.load({ policy: "network-only" });
         lastEvent.value = `Filtered: ${search || "all"}`;
         return {};
@@ -562,6 +566,7 @@ const app = defineComponent({
                     { "data-testid": "editor-showcase", "aria-label": "Editor showcase" },
                     [
                       h(UcForm, { form: editorForm }, () => [
+                        h(UcField, { name: "summary" }),
                         h(UcField, { name: "published" }),
                         h(UcField, { name: "publishingTime" }),
                         h(UcField, { name: "publishingWindow" }),

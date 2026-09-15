@@ -60,7 +60,7 @@ Getter functions may drive object keys and named-query input.
 Chain methods that return `this` return the reactive proxy.
 
 ```ts
-tasks.filter({ complete: false }).sort("title").page(1, 25);
+tasks.filter({ complete: false }).sort("title").page({ index: 1, size: 25 });
 ```
 
 ## Vue Application Binding

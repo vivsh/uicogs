@@ -135,7 +135,7 @@ describe("legacy migration adapters", () => {
       key: "id",
     });
 
-    expect(source.filter({ search: "one" }).sort("name").page(1, 10)).toBe(source);
+    expect(source.filter({ search: "one" }).sort("name").page({ index: 1, size: 10 })).toBe(source);
     await source.load();
     expect(source.all()).toEqual([{ id: 1, name: "Existing" }]);
     expect(source.get(1)?.name).toBe("Existing");
@@ -150,7 +150,7 @@ describe("legacy migration adapters", () => {
     expect(source.error).toBeUndefined();
     expect(source.filter({ search: "one" }, { merge: false })).toBe(source);
     expect(source.sort("name", true)).toBe(source);
-    expect(source.page(2)).toBe(source);
+    expect(source.page({ index: 2, size: 10 })).toBe(source);
     expect(source.accumulate(false).nextPage().previousPage()).toBe(source);
     expect(source.hasMorePages()).toBe(true);
     await expect(source.load()).resolves.toEqual([{ id: 1, name: "One" }]);

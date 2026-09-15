@@ -1,6 +1,6 @@
 # @uicogs/core API
 
-Declaration SHA-256: `7a9636adc8d7becb568c263917e3c3cfb79c55d80b6fe99ff4549563ffde7ef8`
+Declaration SHA-256: `fb501b803d6fa8341729884e9074b502f5f0a9592297a1e26eb4c000fbb44495`
 
 ```ts
 // index.d.ts
@@ -339,14 +339,21 @@ interface PaginationResult {
 }
 interface PaginationAdapter {
     readonly name: string;
+    /** Determines the controller's initial position and accepted page arguments. */
+    readonly mode: "page" | "cursor";
     request(page: Readonly<PageState>): Readonly<Record<string, unknown>>;
     response(response: TransportResponse<unknown>, page?: Readonly<PageState>): PaginationResult;
 }
-interface PageState {
+/** Numbered or cursor position. A cursor's first batch needs only size; positions cannot mix. */
+type PageState = {
+    readonly size: number;
     readonly index: number;
+    readonly token?: never;
+} | {
     readonly size: number;
     readonly token?: unknown;
-}
+    readonly index?: never;
+};
 declare const pagination: {
     page(options?: {
         readonly pageParam?: string;
@@ -597,6 +604,10 @@ interface EditorDescriptorMap {
     textarea: {
         readonly rows?: number;
         readonly autogrow?: boolean;
+        /** Displays the editor's native character counter. */
+        readonly counter?: boolean;
+        /** Native input limit in UTF-16 code units; does not add schema validation. */
+        readonly maxLength?: number;
         /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
         readonly resize?: EditorResize;
     };
@@ -762,6 +773,10 @@ declare const editor: {
     Textarea: (options?: EditorDescriptorMap["textarea"]) => Descriptor<"textarea", {
         readonly rows?: number;
         readonly autogrow?: boolean;
+        /** Displays the editor's native character counter. */
+        readonly counter?: boolean;
+        /** Native input limit in UTF-16 code units; does not add schema validation. */
+        readonly maxLength?: number;
         /** Native drag direction. Autogrow disables manual resizing to avoid competing height controls. */
         readonly resize?: EditorResize;
     }>;
@@ -2222,7 +2237,8 @@ declare class Resource<TSchema extends SchemaLike<TContext>, TKey extends Entity
         readonly merge?: boolean;
     }): this;
     sort(field?: keyof Infer<TSchema> & string, descending?: boolean): this;
-    page(index: number, size?: number): this;
+    /** Applies a complete page position; an omitted token clears the previous cursor. */
+    page(state: PageState): this;
     accumulate(enabled?: boolean): this;
     nextPage(): this;
     previousPage(): this;
@@ -2468,7 +2484,8 @@ declare class CollectionController<T, TKey extends EntityKey, TContext> implemen
         readonly merge?: boolean;
     }): this;
     sort(field?: string, descending?: boolean): this;
-    page(index: number, size?: number): this;
+    /** Applies a complete page position without discarding accumulated records. */
+    page(state: PageState): this;
     accumulate(enabled?: boolean): this;
     nextPage(): this;
     previousPage(): this;

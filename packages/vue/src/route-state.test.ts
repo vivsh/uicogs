@@ -7,6 +7,7 @@ import {
   resource,
   schema,
   type TransportRequest,
+  type PageState,
   type TransportResponse,
 } from "@uicogs/core";
 import { createApp, defineComponent, effectScope, nextTick } from "vue";
@@ -143,13 +144,18 @@ class TestCollection implements RouteCollectionSource {
     return this;
   }
 
-  page(index: number, size?: number): this {
-    this.calls.push(["page", { index, size }]);
+  page(state: PageState): this {
+    this.calls.push(["page", state]);
     return this;
   }
 
   nextPage(): this {
     this.calls.push(["nextPage", undefined]);
+    return this;
+  }
+
+  previousPage(): this {
+    this.calls.push(["previousPage", undefined]);
     return this;
   }
 
@@ -320,7 +326,6 @@ describe("Vue route state", () => {
     expect(push).toHaveBeenCalledTimes(1);
     expect(router.currentRoute.value.query).toEqual({
       state: "closed",
-      page: "2",
       foreign: "kept",
     });
     router.back();

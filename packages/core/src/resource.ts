@@ -1662,8 +1662,9 @@ export class Resource<
     return this;
   }
 
-  page(index: number, size = 25): this {
-    this.defaultCollection.page(index, size);
+  /** Applies a complete page position; an omitted token clears the previous cursor. */
+  page(state: PageState): this {
+    this.defaultCollection.page(state);
     return this;
   }
 
@@ -3632,7 +3633,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
   readonly resource: CollectionResourceMetadata;
   private filters: Readonly<Record<string, unknown>> = {};
   private sortState?: { readonly field: string; readonly descending: boolean };
-  private pageState: PageState = { index: 1, size: 25 };
+  private pageState: PageState;
   private accumulating = false;
   private accumulatedKeys: EntityKey[] = [];
   private readonly store = new Store<CollectionSnapshot<T>>({
@@ -3654,6 +3655,10 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
     private readonly inputSource?:
       Readonly<Record<string, unknown>> | (() => Readonly<Record<string, unknown>>),
   ) {
+    this.pageState =
+      paginationFor(runtime, definition, queryDefinition).mode === "cursor"
+        ? { size: 25 }
+        : { index: 1, size: 25 };
     this.resource = Object.freeze({
       name: definition.name,
       key: definition.key,
@@ -3690,7 +3695,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
     options: { readonly merge?: boolean } = {},
   ): this {
     this.filters = Object.freeze(options.merge ? { ...this.filters, ...values } : { ...values });
-    this.pageState = { ...this.pageState, index: 1 };
+    this.pageState = firstPage(this.pageState);
     this.accumulatedKeys = [];
     this.rebind();
     return this;
@@ -3698,18 +3703,29 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
 
   sort(field?: string, descending = false): this {
     this.sortState = field ? { field, descending } : undefined;
-    this.pageState = { ...this.pageState, index: 1, token: undefined };
+    this.pageState = firstPage(this.pageState);
     this.accumulatedKeys = [];
     this.rebind();
     return this;
   }
 
-  page(index: number, size = this.pageState.size): this {
-    this.pageState = {
-      index,
-      size,
-      ...(index === this.pageState.index ? { token: this.pageState.token } : {}),
-    };
+  /** Applies a complete page position without discarding accumulated records. */
+  page(state: PageState): this {
+    const cursor =
+      paginationFor(this.runtime, this.definition, this.queryDefinition).mode === "cursor";
+    if (
+      cursor ? state.index !== undefined : state.index === undefined || state.token !== undefined
+    ) {
+      throw new TypeError(
+        cursor
+          ? "Cursor pagination does not accept an index"
+          : "Numbered pagination requires an index and does not accept a token",
+      );
+    }
+    this.pageState =
+      state.index === undefined
+        ? { size: state.size, ...(state.token === undefined ? {} : { token: state.token }) }
+        : { size: state.size, index: state.index };
     this.rebind();
     return this;
   }
@@ -3723,23 +3739,37 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
   nextPage(): this {
     const info = this.pageInfo as PageInfo | undefined;
     if (info && !info.hasNext) return this;
-    this.pageState = {
-      index: this.pageState.index + 1,
-      size: this.pageState.size,
-      ...(info?.nextToken !== undefined ? { token: info.nextToken } : {}),
-    };
+    if (
+      this.pageState.index === undefined &&
+      (info?.nextToken === undefined || info.nextToken === null)
+    ) {
+      throw new TypeError("Cursor pagination requires a nextToken before advancing");
+    }
+    this.pageState =
+      this.pageState.index === undefined
+        ? { size: this.pageState.size, token: info?.nextToken }
+        : { size: this.pageState.size, index: this.pageState.index + 1 };
     this.rebind();
     return this;
   }
 
   previousPage(): this {
     const info = this.pageInfo as PageInfo | undefined;
-    if (this.pageState.index <= 1 || (info && !info.hasPrevious)) return this;
-    this.pageState = {
-      index: Math.max(1, this.pageState.index - 1),
-      size: this.pageState.size,
-      ...(info?.previousToken !== undefined ? { token: info.previousToken } : {}),
-    };
+    if (
+      (this.pageState.index !== undefined && this.pageState.index <= 1) ||
+      (info && !info.hasPrevious)
+    )
+      return this;
+    if (
+      this.pageState.index === undefined &&
+      (info?.previousToken === undefined || info.previousToken === null)
+    ) {
+      throw new TypeError("Cursor pagination requires a previousToken before returning");
+    }
+    this.pageState =
+      this.pageState.index === undefined
+        ? { size: this.pageState.size, token: info?.previousToken }
+        : { size: this.pageState.size, index: Math.max(1, this.pageState.index - 1) };
     this.rebind();
     return this;
   }
@@ -3751,7 +3781,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
   reset(): this {
     this.filters = {};
     this.sortState = undefined;
-    this.pageState = { index: 1, size: this.pageState.size };
+    this.pageState = firstPage(this.pageState);
     this.accumulatedKeys = [];
     this.rebind();
     return this;
@@ -4048,7 +4078,9 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
           ),
         )
       : filtered;
-    const start = Math.max(0, this.pageState.index - 1) * this.pageState.size;
+    const index = this.pageState.index;
+    if (index === undefined) throw new TypeError("Local collections require numbered pagination");
+    const start = Math.max(0, index - 1) * this.pageState.size;
     const page = sorted.slice(start, start + this.pageState.size);
     this.writeCollection(
       page.map(({ key }) => key),
@@ -4058,7 +4090,7 @@ export class CollectionController<T, TKey extends EntityKey, TContext> implement
         count: sorted.length,
         totalPages: this.pageState.size ? Math.ceil(sorted.length / this.pageState.size) : 1,
         hasNext: start + this.pageState.size < sorted.length,
-        hasPrevious: this.pageState.index > 1,
+        hasPrevious: index > 1,
       }),
     );
   }
@@ -4646,6 +4678,10 @@ function responseRequest(
     ...(operationName ? { operation: operationName } : {}),
     ...(adapter ? { adapter } : {}),
   };
+}
+
+function firstPage(state: PageState): PageState {
+  return state.index === undefined ? { size: state.size } : { index: 1, size: state.size };
 }
 
 function paginationFor<TContext>(

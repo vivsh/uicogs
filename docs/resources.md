@@ -105,7 +105,7 @@ Controllers in one runtime share normalized entity and collection data.
 One resource instance is also its default collection.
 
 ```ts
-await page.filter({ complete: false }).sort("title", false).page(1, 25).load();
+await page.filter({ complete: false }).sort("title", false).page({ index: 1, size: 25 }).load();
 
 page.all();
 page.loading;
@@ -715,16 +715,71 @@ Join operations use ordinary resource behavior. Join forms use ordinary form def
 
 ## Pagination
 
-Core includes page and offset adapters. `@uicogs/http` adds cursor and Link header adapters.
+Core includes page, offset, opaque-cursor, and client-side adapters. `@uicogs/http`
+also provides response-specific adapters, including DRF cursor URLs and Link headers.
+
+Every resource and named collection accepts one complete pagination argument:
+
+```ts
+type PageState =
+  | { readonly size: number; readonly index: number; readonly token?: never }
+  | { readonly size: number; readonly token?: unknown; readonly index?: never };
+
+await tasks.page({ index: 1, size: 25 }).load();
+await tasks.nextPage().load();
+await tasks.previousPage().load();
+```
+
+`page(state)` replaces the current position. `size` is always required. Numbered
+pagination requires `index` and forbids `token`; cursor pagination forbids `index`
+and permits an optional `token`. `{ size: 25 }` selects the first cursor batch.
+Mixed positions are rejected by TypeScript; the controller also rejects arguments
+that do not match its adapter's mode at runtime. The core methods
+are chainable and loading remains explicit. `accumulate()` retains unique records
+as additional pages load. Filter and sort changes clear accumulation and the cursor.
+
+For an endpoint whose `next` and `previous` values are opaque tokens:
+
+```ts
+operations: {
+  list: operation.list({ pagination: pagination.cursor() }),
+}
+```
+
+The core cursor adapter reads `{ results, next, previous }` and sends
+`{ cursor: token, page_size: size }`; null links mean there is no adjacent page.
+Use `pagination.cursor({ cursorParam: "after", sizeParam: "limit" })` for alternative
+request names. When the server returns full DRF URLs in `next`/`previous`, use the
+cursor adapter from `@uicogs/http` instead; it extracts the cursor from those URLs.
+
+You can also restore a known cursor explicitly:
+
+```ts
+await tasks.page({ size: 25, token: "opaque-bookmark" }).load();
+await tasks.page({ size: 25 }).load(); // Return to the first batch.
+```
+
+Cursor pagination has no page index or synthetic ordinal: the server token
+determines the records. Arbitrary numbered jumps are not supported.
+Tokens may depend on filters, ordering, and page size, and can expire. Start
+with a fresh token when those inputs change. The route helpers handle resets for
+their generated filter submissions, sort changes, and page-size changes.
 
 A pagination adapter implements:
 
 ```ts
 interface PaginationAdapter {
+  readonly name: string;
+  readonly mode: "page" | "cursor";
   request(page: PageState): Readonly<Record<string, unknown>>;
   response(response: TransportResponse<unknown>, page?: PageState): PaginationResult;
 }
 ```
+
+An adapter's immutable `mode` determines the initial position and accepted arguments.
+Page, offset, and client adapters use `"page"`; token and link-following adapters such
+as DRF cursor, JSON:API, and GraphQL connections use `"cursor"`. The HTTP Link-header
+adapter uses numbered requests and therefore declares `"page"`.
 
 The controller owns current navigation and accumulation. The shared cache stores only collection keys and returned page metadata.
 

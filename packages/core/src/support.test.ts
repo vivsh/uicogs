@@ -75,10 +75,9 @@ describe("pagination contracts", () => {
         size: 10,
       }),
     ).toEqual({ start: 20, count: 10 });
-    expect(pagination.cursor().request({ index: 1, size: 25 })).toEqual({ page_size: 25 });
+    expect(pagination.cursor().request({ size: 25 })).toEqual({ page_size: 25 });
     expect(
       pagination.cursor({ cursorParam: "after", sizeParam: "limit" }).request({
-        index: 2,
         size: 10,
         token: "abc",
       }),
@@ -105,6 +104,7 @@ describe("pagination contracts", () => {
     });
     const custom: PaginationAdapter = {
       name: "custom",
+      mode: "page",
       request: () => ({ custom: true }),
       response: () => ({ items: [] }),
     };

@@ -78,6 +78,22 @@ test("cycles a nullable generated Boolean and opens a temporal picker", async ({
   await expect(page.locator(".q-date")).toBeVisible();
 });
 
+test("enforces the textarea native UTF-16 limit and displays its counter", async ({ page }) => {
+  const field = page.getByTestId("editor-showcase").locator(".uc-field-summary");
+  const input = field.getByRole("textbox", { name: "Short summary" });
+  await expect(input).toHaveAttribute("maxlength", "4");
+  await expect(input).toHaveAttribute("rows", "3");
+  await expect(field.locator(".q-field__counter")).toHaveText("0 / 4");
+  await input.pressSequentially("abcde");
+  await expect(input).toHaveValue("abcd");
+  await expect(field.locator(".q-field__counter")).toHaveText("4 / 4");
+  await input.fill("😀");
+  await expect(field.locator(".q-field__counter")).toHaveText("2 / 4");
+  await input.pressSequentially("abc");
+  await expect(input).toHaveValue("😀ab");
+  await expect(field.locator(".q-field__counter")).toHaveText("4 / 4");
+});
+
 test("creates, edits and uploads through schema-driven forms", async ({ page }) => {
   await page.getByRole("button", { name: "Create task" }).click();
   await page.getByRole("textbox", { name: "Task title" }).fill("Ship release");

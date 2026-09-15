@@ -139,6 +139,32 @@ remain native React Router concerns.
 
 ## Shareable List And Detail State
 
+`useRouteCollection()` supports collections configured with `accumulate()`. Moving
+between pages, changing page size, and browser back/forward retain previously loaded
+records and append unseen keys. Changing filters or ordering resets accumulation.
+Going back does not truncate the accumulated list; opening page N directly loads only
+that page, without prefetching earlier pages.
+
+Only changes to effective filters, ordering, or page state trigger an automatic list
+load. Detail parameters, hashes, unrelated query values, and equivalent URL encodings
+do not reset or reload the collection. Use `load()` or `refresh()` explicitly to retry
+a failure or request a reload. Generated filter submissions and sort changes select
+page one. Direct URLs and history entries restore the supplied position.
+
+The default `standardRoutePagination` codec uses `page`, `page_size`, and `ordering`.
+Navigation methods accept a complete `PageState` and await the URL change and its
+collection load:
+
+```ts
+await collection.page({ index: 2, size: 25 });
+await collection.nextPage();
+await collection.previousPage();
+```
+
+Route methods return promises; do not chain `.nextPage().load()` on a route facade.
+That chain is for direct core collections. `await collection.load()` remains valid
+and joins an in-flight route load, or explicitly loads the current page when idle.
+
 Route-state helpers use the router you installed. A single named route with an optional
 key parameter gives a list, active detail, and creation one shareable location:
 
@@ -226,3 +252,117 @@ Route-driven loads retain the collection's normal error state. To render a custo
 page-level notification as well, pass `onFailure` to `useRouteCollection()` or
 `onCollectionFailure` to `useRouteResource()`. The callback observes failures; it does
 not replace the collection's error state.
+
+## Cursor Pagination
+
+Use `cursorRoutePagination` with a cursor-based resource. The resource's pagination
+adapter defines the HTTP request/response contract; the route codec defines the URL.
+Both must describe cursor pagination.
+
+```ts
+import { operation, pagination, resource } from "@uicogs/core";
+import { cursorRoutePagination, useRouteResource } from "@uicogs/vue";
+
+const Tasks = resource({
+  name: "tasks",
+  url: "tasks",
+  schema: Task,
+  key: "id",
+  operations: {
+    list: operation.list({ input: TaskFilters, pagination: pagination.cursor() }),
+  },
+});
+
+const page = useRouteResource({
+  route: "tasks",
+  resource: cogs.resource(Tasks).accumulate(),
+  filters: TaskFilters,
+  pagination: cursorRoutePagination,
+});
+
+await page.collection.nextPage();
+// URL: /tasks?cursor=opaque-bookmark
+// HTTP: GET /tasks?cursor=opaque-bookmark&page_size=25
+await page.collection.previousPage();
+```
+
+The URL stores the cursor used to fetch the **current** batch. `nextPage()` and
+`previousPage()` take their destination tokens from the current response. There is
+no page index in cursor mode. A direct `/tasks?cursor=...` link needs only its token.
+The built-in codec removes conflicting `page` query input through `replace()` before loading.
+Detail selection changes only `:id`, preserving the cursor and filters.
+
+For custom pages, share the same codec with the collection and its filter form:
+
+```ts
+const route = useRouteState({ route: "tasks", query: TaskFilters });
+const collection = useRouteCollection({
+  route,
+  collection: cogs.resource(Tasks).accumulate(),
+  pagination: cursorRoutePagination,
+});
+const form = useRouteForm({ route, schema: TaskFilters, pagination: cursorRoutePagination });
+```
+
+`useRouteResource()` passes the codec to its generated filter form automatically.
+Filter submissions and changed ordering clear the cursor and select the first batch.
+Changing page size through `page({ size })` also restarts at the first batch.
+Full URLs supplied through the router or browser history restore their explicit
+cursor, filters, and size together; the watcher does not erase historical cursors.
+Unrelated query values are preserved.
+
+Cursor endpoints generally cannot jump to an arbitrary numbered page. Use
+`UcTable` with `infinite`, or hide numbered pagination with `no-pagination` and provide
+Next/Previous controls. `UcTable` awaits route navigation before loading. A route
+cursor collection rejects any `index`, including `page({ index: 5, size: 25 })`, instead of
+silently fetching the first batch. It also rejects next/previous metadata that claims
+an adjacent page exists but omits its token. Custom navigation controls should handle
+the returned promise's rejection; collection request failures remain in `error`.
+
+The built-in codec accepts non-empty string tokens and writes `cursor`, `page_size`,
+and `ordering`. It also owns `page` solely to remove conflicting numbered input.
+Keep tokens opaque; Vue Router handles URL encoding.
+For alternative URL keys or JSON-serializable token shapes, supply a `RoutePaginationCodec`:
+
+```ts
+import { cursorRoutePagination, type RoutePaginationCodec } from "@uicogs/vue";
+
+const afterPagination: RoutePaginationCodec = {
+  mode: "cursor",
+  keys: ["after", "limit", "page", "ordering"],
+  read: (query) =>
+    cursorRoutePagination.read({
+      cursor: query.after,
+      page_size: query.limit,
+      page: query.page,
+      ordering: query.ordering,
+    }),
+  write: (state) => {
+    const query = cursorRoutePagination.write(state);
+    return {
+      after: query.cursor,
+      limit: query.page_size,
+      page: query.page,
+      ordering: query.ordering,
+    };
+  },
+};
+```
+
+Annotate an object with the exported `RoutePaginationCodec` type to infer its query
+parameter types. Its `read`/`write` pair must round-trip tokens and write `undefined`
+for owned keys that should be removed. `mode: "cursor"` enables token-based navigation
+and reset rules; `mode: "page"` enables numbered navigation. The collection's HTTP
+adapter must accept the decoded token format.
+
+Cursors can expire. UiCogs retains the URL and displays the ordinary collection
+failure; it does not silently navigate elsewhere. Retry with `collection.refresh()`
+or explicitly return to the first batch:
+
+```ts
+await page.collection.page({ size: 25 });
+```
+
+Restoring a cursor URL loads that batch, not all preceding batches. Previously
+accumulated records remain available within the live controller until filters or
+ordering change. No separate cursor-history cache is maintained.

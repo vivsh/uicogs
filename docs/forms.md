@@ -447,6 +447,18 @@ fields.Text({ editor: editor.Textarea({ rows: 6, resize: "both" }) });
 fields.RichText({ editor: editor.RichText({ rows: 10, resize: false }) });
 ```
 
+To display a native Quasar character counter and limit keyboard input:
+
+```ts
+fields.Text({ editor: editor.Textarea({ rows: 5, counter: true, maxLength: 500 }) });
+```
+
+`counter` and `maxLength` are optional presentation controls. They do not add schema
+validation or truncate values assigned through form APIs. Native HTML maxlength and
+Quasar's default counter measure UTF-16 code units: `"😀"` counts as two, although it
+is one Unicode code point. For an API limit measured in code points, use a matching
+schema validator and a custom editor/counter instead of relying on native maxlength.
+
 `UcSubmit` submits the controller and defaults to Quasar's `primary` color. `UcButton`
 is the matching presentation-only button for custom links, toggles, and auxiliary controls.
 

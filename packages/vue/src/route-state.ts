@@ -7,6 +7,8 @@ import {
   isLoggedIn,
   normalizeFailure,
   type NormalizedFailure,
+  type PageInfo,
+  type PageState,
   type Schema,
   type Shape,
   type ValidationIssue,
@@ -153,7 +155,10 @@ export function useRouteForm<
   readonly route: RouteState<TSchema, TContext, TParams, TParamsContext>;
   readonly schema: Schema<TSchema, TContext>;
   readonly history?: "push" | "replace";
+  /** Must match the collection codec so filter submissions reset its page and cursor. */
+  readonly pagination?: RoutePaginationCodec;
 }): FormController<FormSchema<Schema<TSchema, TContext>, Infer<Schema<TSchema, TContext>>>> {
+  const location = useRoute();
   const form = createFormController(
     options.schema.toForm<Infer<Schema<TSchema, TContext>>>({
       mode: "query",
@@ -163,7 +168,12 @@ export function useRouteForm<
     async (payload) => {
       const result = options.schema.parsePartialResult(payload);
       if (result.issues.length) throw new Error("Route form produced invalid query values");
-      await options.route[options.history ?? "push"]({ query: result.values });
+      const codec = options.pagination ?? standardRoutePagination;
+      const current = codec.read(routeQuery(location));
+      await options.route[options.history ?? "push"]({
+        query: result.values,
+        extraQuery: codec.write(firstRoutePage(codec.mode, current)),
+      });
       return result.values;
     },
   );
@@ -178,13 +188,16 @@ export function useRouteForm<
 
 /** The route keys read and written by a page/sort codec. */
 export interface RoutePaginationCodec {
+  /** Cursor navigation requires a response token instead of arbitrary numbered jumps. */
+  readonly mode: "page" | "cursor";
   readonly keys: readonly string[];
-  read(query: RouteQueryValues): Readonly<{ index: number; size: number; ordering?: string }>;
-  write(state: Readonly<{ index: number; size: number; ordering?: string }>): RouteQueryValues;
+  read(query: RouteQueryValues): Readonly<PageState & { ordering?: string }>;
+  write(state: Readonly<PageState & { ordering?: string }>): RouteQueryValues;
 }
 
 /** The standard `page`, `page_size`, and `ordering` query convention. */
 export const standardRoutePagination: RoutePaginationCodec = Object.freeze({
+  mode: "page",
   keys: Object.freeze(["page", "page_size", "ordering"]),
   read(query: RouteQueryValues) {
     const page = positiveInteger(query.page) ?? 1;
@@ -192,7 +205,10 @@ export const standardRoutePagination: RoutePaginationCodec = Object.freeze({
     const ordering = firstText(query.ordering);
     return Object.freeze({ index: page, size, ...(ordering ? { ordering } : {}) });
   },
-  write(state: Readonly<{ index: number; size: number; ordering?: string }>) {
+  write(state: Readonly<PageState & { ordering?: string }>) {
+    if (state.index === undefined || state.token !== undefined) {
+      throw new TypeError("Numbered pagination requires an index and does not accept a token");
+    }
     return Object.freeze({
       page: state.index === 1 ? undefined : String(state.index),
       page_size: state.size === 25 ? undefined : String(state.size),
@@ -201,15 +217,56 @@ export const standardRoutePagination: RoutePaginationCodec = Object.freeze({
   },
 });
 
+/** Opaque string cursors in `cursor`. Conflicting numbered `page` input is removed. */
+export const cursorRoutePagination: RoutePaginationCodec = Object.freeze({
+  mode: "cursor",
+  keys: Object.freeze(["cursor", "page", "page_size", "ordering"]),
+  read(query: RouteQueryValues) {
+    const token = firstText(query.cursor);
+    return Object.freeze({
+      size: positiveInteger(query.page_size) ?? 25,
+      ordering: firstText(query.ordering) || undefined,
+      ...(token ? { token } : {}),
+    });
+  },
+  write(state: Readonly<PageState & { ordering?: string }>) {
+    if (state.index !== undefined)
+      throw new TypeError("Cursor pagination does not accept an index");
+    if (state.token !== undefined && (typeof state.token !== "string" || !state.token.length)) {
+      throw new TypeError(
+        "Cursor route tokens must be non-empty strings; use a custom codec for other formats",
+      );
+    }
+    return Object.freeze({
+      page: undefined,
+      page_size: state.size === 25 ? undefined : String(state.size),
+      ordering: state.ordering,
+      cursor: state.token as string | undefined,
+    });
+  },
+});
+
+function firstRoutePage(
+  mode: RoutePaginationCodec["mode"],
+  state: Readonly<PageState & { ordering?: string }>,
+): Readonly<PageState & { ordering?: string }> {
+  return {
+    ...(mode === "page" ? { index: 1 } : {}),
+    size: state.size,
+    ordering: state.ordering,
+  };
+}
+
 /** A collection facade whose filter, sorting, and page changes first update the URL. */
 export type RouteCollection<TCollection extends RouteCollectionSource> = Omit<
   TCollection,
-  "resource" | "sort" | "page" | "nextPage"
+  "resource" | "sort" | "page" | "nextPage" | "previousPage"
 > & {
   readonly resource: RouteCollectionMetadata;
   sort(field?: string, descending?: boolean): Promise<void>;
-  page(index: number, size?: number): Promise<void>;
+  page(state: PageState): Promise<void>;
   nextPage(): Promise<void>;
+  previousPage(): Promise<void>;
 };
 
 /** Immutable metadata shared by resources and named query collections. */
@@ -240,8 +297,9 @@ export interface RouteCollectionSource {
   refresh(): Promise<unknown>;
   filter(values: Readonly<Record<string, unknown>>): unknown;
   sort(field?: string, descending?: boolean): unknown;
-  page(index: number, size?: number): unknown;
+  page(state: PageState): unknown;
   nextPage(): unknown;
+  previousPage(): unknown;
   hasMore(): boolean;
 }
 
@@ -265,30 +323,68 @@ export function useRouteCollection<
   const metadata = collection.resource ?? collection.definition;
   if (!metadata) throw new Error("Route collections must expose resource or definition metadata");
   const location = useRoute();
-  let loadedLocation = "";
+  let applied:
+    | Readonly<{
+        filters: string;
+        ordering: string | undefined;
+        index: number | undefined;
+        size: number;
+        token: string;
+      }>
+    | undefined;
   let applying: Promise<void> | undefined;
 
-  const apply = (): Promise<void> => {
+  const apply = async (
+    ownCleanup?: Promise<void>,
+    previousApplication?: Promise<void>,
+  ): Promise<void> => {
     const query = routeQuery(location);
     const state = codec.read(query);
     const canonical = codec.write(state);
     if (!codecIsCanonical(query, canonical, codec.keys)) {
-      return options.route.replace({ extraQuery: canonical });
+      const preceding = applying;
+      const pending: Promise<void> = options.route
+        .replace({ extraQuery: canonical })
+        .then(() => apply(pending, preceding));
+      applying = pending;
+      try {
+        await pending;
+      } finally {
+        if (applying === pending) applying = undefined;
+      }
+      return;
     }
     const filters = options.route.query.value as Readonly<Record<string, unknown>>;
-    const locationId = `${location.fullPath}|${JSON.stringify(state)}|${JSON.stringify(filters)}`;
-    if (locationId === loadedLocation) return applying ?? Promise.resolve();
-    loadedLocation = locationId;
-    applying = (async () => {
-      collection.filter(filters);
-      const sort = decodeOrdering(state.ordering);
-      collection.sort(sort?.field, sort?.descending);
-      collection.page(state.index, state.size);
-      await collection.load();
-    })();
-    return applying.finally(() => {
-      applying = undefined;
-    });
+    const sort = decodeOrdering(state.ordering);
+    const next = {
+      filters: routeFilterSignature(filters),
+      ordering: encodeOrdering(sort?.field, sort?.descending ?? false),
+      index: state.index,
+      size: state.size,
+      token: routeFilterSignature({ token: state.token }),
+    };
+    const filtersChanged = applied?.filters !== next.filters;
+    const orderingChanged = !applied || applied.ordering !== next.ordering;
+    const pageChanged =
+      !applied ||
+      applied.index !== next.index ||
+      applied.size !== next.size ||
+      applied.token !== next.token;
+    // Cleanup may leave effective inputs unchanged: join the earlier load, never itself.
+    if (!filtersChanged && !orderingChanged && !pageChanged)
+      return applying === ownCleanup ? previousApplication : applying;
+    if (filtersChanged) collection.filter(filters);
+    if (orderingChanged) collection.sort(sort?.field, sort?.descending);
+    // Filter and sort setters reset pagination even when the URL page is unchanged.
+    collection.page(state);
+    applied = next;
+    const pending = collection.load().then(() => undefined);
+    applying = pending;
+    try {
+      await pending;
+    } finally {
+      if (applying === pending) applying = undefined;
+    }
   };
   const stop = watch(
     () => location.fullPath,
@@ -301,8 +397,9 @@ export function useRouteCollection<
   );
   onScopeDispose(stop);
 
-  const update = async (next: Readonly<{ index: number; size: number; ordering?: string }>) => {
+  const update = async (next: Readonly<PageState & { ordering?: string }>) => {
     await options.route.push({ extraQuery: codec.write(next) });
+    await apply();
   };
   const facade = new Proxy(collection, {
     get(target, property, receiver) {
@@ -310,18 +407,58 @@ export function useRouteCollection<
       if (property === "sort")
         return async (field?: string, descending = false): Promise<void> => {
           const current = codec.read(routeQuery(location));
-          await update({ ...current, index: 1, ordering: encodeOrdering(field, descending) });
+          const ordering = encodeOrdering(field, descending);
+          const currentSort = decodeOrdering(current.ordering);
+          if (ordering === encodeOrdering(currentSort?.field, currentSort?.descending ?? false))
+            return;
+          await update({ ...firstRoutePage(codec.mode, current), ordering });
         };
       if (property === "page")
-        return async (index: number, size?: number): Promise<void> => {
+        return async (state: PageState): Promise<void> => {
           const current = codec.read(routeQuery(location));
-          await update({ ...current, index, size: size ?? current.size });
+          const next = { ...state, ordering: current.ordering };
+          codec.write(next);
+          if (codec.mode === "cursor" && state.size !== current.size) {
+            await update(firstRoutePage(codec.mode, next));
+            return;
+          }
+          await update(next);
         };
       if (property === "nextPage")
         return async (): Promise<void> => {
           if (!target.hasMore()) return;
           const current = codec.read(routeQuery(location));
-          await update({ ...current, index: current.index + 1 });
+          const info = target.pageInfo as PageInfo | undefined;
+          const token = info?.nextToken;
+          if (codec.mode === "cursor" && (token === undefined || token === null)) {
+            throw new TypeError("Cursor pagination reported a next page without a nextToken");
+          }
+          await update({
+            size: current.size,
+            ordering: current.ordering,
+            ...(codec.mode === "cursor" ? { token } : { index: (current.index ?? 1) + 1 }),
+          });
+        };
+      if (property === "previousPage")
+        return async (): Promise<void> => {
+          const current = codec.read(routeQuery(location));
+          const info = target.pageInfo as PageInfo | undefined;
+          if (info?.hasPrevious === false || (codec.mode === "page" && (current.index ?? 1) <= 1))
+            return;
+          const token = info?.previousToken;
+          if (codec.mode === "cursor" && !info?.hasPrevious) return;
+          if (codec.mode === "cursor" && (token === undefined || token === null)) {
+            throw new TypeError(
+              "Cursor pagination reported a previous page without a previousToken",
+            );
+          }
+          await update({
+            size: current.size,
+            ordering: current.ordering,
+            ...(codec.mode === "cursor"
+              ? { token }
+              : { index: Math.max(1, (current.index ?? 1) - 1) }),
+          });
         };
       if (property === "load") return (): Promise<unknown> => applying ?? collection.load();
       const value = Reflect.get(target, property, receiver) as unknown;
@@ -329,6 +466,19 @@ export function useRouteCollection<
     },
   });
   return facade as RouteCollection<TCollection>;
+}
+
+/** Compares parsed filters independently of object insertion order; arrays retain their order. */
+function routeFilterSignature(filters: Readonly<Record<string, unknown>>): string {
+  return JSON.stringify(filters, (_key, value: unknown) => {
+    // JSON serialization already converts Dates through their ISO-valued toJSON method.
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      return Object.fromEntries(
+        Object.entries(value).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
+      );
+    }
+    return value;
+  });
 }
 
 /** Key codecs are needed only when a resource key is calculated rather than a schema field. */
@@ -554,7 +704,11 @@ export function useRouteResource<
   readonly permit?: ResourcePermit<RouteResourceKey<TResource>, RouteResourceValue<TResource>>;
 }): RouteResource<TResource, TFilters, TFilterContext> {
   const route = useRouteState({ route: options.route, query: options.filters });
-  const filterForm = useRouteForm({ route, schema: options.filters });
+  const filterForm = useRouteForm({
+    route,
+    schema: options.filters,
+    pagination: options.pagination,
+  });
   const collection = useRouteCollection({
     route,
     collection: options.resource,

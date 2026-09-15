@@ -197,7 +197,7 @@ describe("collections and queries", () => {
       .filter({ owner: 2 })
       .filter({ search: " merged " }, { merge: true })
       .sort("title", true)
-      .page(3, 10);
+      .page({ index: 3, size: 10 });
     await collection.load();
     expect(requests[0]).toMatchObject({
       method: "GET",
@@ -253,7 +253,7 @@ describe("collections and queries", () => {
       key: "id",
       pagination: pagination.client(),
     });
-    const resource = cogs.resource(definition).page(1, 2).accumulate();
+    const resource = cogs.resource(definition).page({ index: 1, size: 2 }).accumulate();
     resource.previousPage();
     await resource.load();
     expect(resource.hasMore()).toBe(true);

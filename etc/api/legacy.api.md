@@ -1,11 +1,11 @@
 # @uicogs/legacy API
 
-Declaration SHA-256: `a43aa87a259f40045e50467b9a8c306483557718a09be688ce018814b11d0a77`
+Declaration SHA-256: `596fb9db11d6904dfbe49e3795c095549489bd8c8cec3ed9b4a5f91dc64a2546`
 
 ```ts
 // index.d.ts
 import * as _uicogs_core from '@uicogs/core';
-import { Field, fields as fields$1, FormSchema, Schema, Shape } from '@uicogs/core';
+import { Field, fields as fields$1, PageState, FormSchema, Schema, Shape } from '@uicogs/core';
 export { struct } from '@uicogs/core';
 
 type RuntimeField = Field<unknown, unknown, unknown, unknown, boolean, boolean, boolean>;
@@ -120,7 +120,7 @@ interface LegacyResource<TValue extends object, TKey> {
         readonly merge?: boolean;
     }): this;
     sort(field?: keyof TValue & string, descending?: boolean): this;
-    page(index: number, size?: number): this;
+    page(state: PageState): this;
     accumulate(enabled?: boolean): this;
     nextPage(): this;
     previousPage(): this;
@@ -150,7 +150,7 @@ declare class DataSource<TValue extends object, TKey = string | number> {
         readonly merge?: boolean;
     }): this;
     sort(field?: keyof TValue & string, descending?: boolean): this;
-    page(index: number, size?: number): this;
+    page(state: PageState): this;
     accumulate(enabled?: boolean): this;
     nextPage(): this;
     previousPage(): this;
