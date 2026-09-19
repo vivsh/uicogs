@@ -235,6 +235,18 @@ A missing submit operation is a programming error and throws.
 
 A second submission while one is active returns an operation failure. It does not start another request.
 
+Editing fields while a request is in flight preserves the newer draft. If that
+request fails, `form.error` still records its failure and `submit()` returns
+`{ success: false, failure }`. Server issues from the older payload are not attached
+to the edited draft's fields or issue summary. Without intervening edits, server
+issues are mapped normally. Treat `form.error` as feedback about the submitted
+payload, not necessarily the current draft.
+
+For a composer that clears after sending, use `form.set()` once submission has
+reached the request stage. `form.reset()` is not an equivalent way to clear it:
+reset cancels the submission. Cancelled or disposed submissions cannot apply late
+failures to the form. Retaining the submitted text for retry remains application-owned.
+
 Submission order is:
 
 1. Parse the draft.

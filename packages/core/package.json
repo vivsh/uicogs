@@ -1,6 +1,6 @@
 {
   "name": "@uicogs/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Immutable schemas, resources, caches and forms for UiCogs.",
   "license": "MIT",
   "author": "UiCogs",

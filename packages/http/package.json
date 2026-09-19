@@ -1,6 +1,6 @@
 {
   "name": "@uicogs/http",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "SSE, pagination, multipart, and server-error adapters for UiCogs.",
   "license": "MIT",
   "author": "UiCogs",

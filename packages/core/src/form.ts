@@ -430,9 +430,11 @@ export class FormController<
     } catch (error) {
       const failure = normalizeFailure(error);
       if (generation === this.submissionGeneration) {
-        if (revision === this.store.getSnapshot().revision) this.applyFailure(failure);
+        const edited = revision !== this.store.getSnapshot().revision;
+        if (!edited) this.applyFailure(failure);
         this.store.update((state) => ({
           ...state,
+          ...(edited ? { error: failure } : {}),
           revision: state.revision + 1,
           submitting: false,
           progress: idleProgress,

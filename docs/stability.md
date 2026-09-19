@@ -1,6 +1,6 @@
 # Package Stability
 
-UiCogs is at `0.1.0`.
+UiCogs is at `0.1.1`.
 
 The API may change before the first stable 1.0 release. This version is intended for integration testing and early adopters.
 

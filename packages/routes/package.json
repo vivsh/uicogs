@@ -1,6 +1,6 @@
 {
   "name": "@uicogs/routes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Framework-neutral scope resolution for UiCogs framework bindings.",
   "license": "MIT",
   "author": "UiCogs",

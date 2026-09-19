@@ -215,7 +215,7 @@ describe("forms", () => {
     ]);
   });
 
-  it("discards late server issues without leaving a newer draft submitting", async () => {
+  it("retains a late failure without attaching stale server issues to a newer draft", async () => {
     const schema = defineSchema({ title: fields.Str({ required: true }) });
     let rejectSubmission: ((reason: unknown) => void) | undefined;
     const form = createFormController(
@@ -237,9 +237,14 @@ describe("forms", () => {
         retryable: false,
       }),
     );
-    await submission;
+    await expect(submission).resolves.toMatchObject({ success: false });
     expect(form.values.title).toBe("Newer draft");
     expect(form.issues).toEqual([]);
+    expect(form.unboundIssues).toEqual([]);
+    expect(form.error).toMatchObject({
+      kind: "validation",
+      issues: [serverIssue(["title"], "Old response")],
+    });
     expect(form.submitting).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ fields + schema + resource
           └── Vue, React, and Quasar interfaces
 ```
 
-> **Status:** UiCogs is `0.1.0`. It is usable as a workspace or packed artifact, but its public API can change before 1.0.
+> **Status:** UiCogs is `0.1.1`. It is usable as a workspace or packed artifact, but its public API can change before 1.0.
 
 ## Why UiCogs?
 

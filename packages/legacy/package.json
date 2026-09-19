@@ -1,6 +1,6 @@
 {
   "name": "@uicogs/legacy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Compatibility adapters for earlier UiCogs data-source patterns.",
   "license": "MIT",
   "author": "UiCogs",
