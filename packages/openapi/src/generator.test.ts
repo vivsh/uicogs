@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
+import { fields, schema } from "@uicogs/core";
 import { readFile } from "node:fs/promises";
 import { generateOpenApi, readOpenApi, type OpenApiDocument } from "./index.js";
 
@@ -98,6 +100,77 @@ describe("OpenAPI generation", () => {
     expect(result.code).toContain("const listProjectsQuery = schema");
     expect(result.code).toContain('encoding: "json"');
     expect(result.code).toContain('"url": "/projects/"');
+  });
+
+  it("preserves tagged arrays, scalar enum references, and nullable literals at runtime and in types", () => {
+    const result = generateOpenApi(
+      {
+        openapi: "3.1.0",
+        components: {
+          schemas: {
+            Kind: { type: "string", enum: ["reading", "assignment"] },
+            Work: {
+              type: "object",
+              required: ["kind", "activities"],
+              properties: {
+                kind: { $ref: "#/components/schemas/Kind" },
+                nothing: { enum: [null] },
+                maybe: { type: ["string", "null"], enum: ["draft", null] },
+                activities: {
+                  type: "array",
+                  items: {
+                    oneOf: [
+                      {
+                        type: "object",
+                        required: ["kind", "text"],
+                        properties: {
+                          kind: { const: "written" },
+                          text: { type: "string" },
+                        },
+                      },
+                      {
+                        type: "object",
+                        required: ["kind", "choice"],
+                        properties: {
+                          kind: { enum: ["choice"] },
+                          choice: { type: "integer" },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      { strict: true },
+    );
+    expect(result.warnings).toEqual([]);
+    expect(result.code).toContain('kind: fields.Enum(["reading","assignment"]');
+    expect(result.code).toContain("as Field<Array<");
+    expect(result.code).not.toContain("fields.Enum([null]");
+    const javascript = ts.transpileModule(result.code.replace(/^import .*$/m, ""), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    }).outputText;
+    const exports: { createGeneratedDefinitions?: () => { schemas: { Work: unknown } } } = {};
+    new Function("fields", "schema", "exports", javascript)(fields, schema, exports);
+    expect(exports.createGeneratedDefinitions?.().schemas.Work).toBeDefined();
+    assertGeneratedTypes(
+      result.code +
+        `
+import type { Infer } from "@uicogs/core";
+type Work = Infer<ReturnType<typeof createGeneratedDefinitions>["schemas"]["Work"]>;
+const valid: Work = { kind: "reading", activities: [{ kind: "written", text: "hello" }] };
+// @ts-expect-error enum references retain their literal choices
+const wrongKind: Work = { kind: "outsider", activities: [] };
+// @ts-expect-error a tagged variant must retain its required payload
+const missingText: Work = { kind: "reading", activities: [{ kind: "written" }] };
+// @ts-expect-error a variant cannot borrow a different branch's fields
+const wrongPayload: Work = { kind: "assignment", activities: [{ kind: "written", choice: 1 }] };
+void [valid, wrongKind, missingText, wrongPayload];
+`,
+    );
   });
 
   it("reports unsupported unions and fails deterministic strict generation", () => {
@@ -326,3 +399,27 @@ describe("OpenAPI generation", () => {
     expect(generateOpenApi(document, { strict: true }).code).toBe(generated);
   });
 });
+
+/** Type-checks a virtual consumer against the actual core declarations. */
+function assertGeneratedTypes(source: string): void {
+  const file = `${process.cwd()}/__uicogs_generator_typecheck.ts`;
+  const options: ts.CompilerOptions = {
+    strict: true,
+    noEmit: true,
+    skipLibCheck: true,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  };
+  const host = ts.createCompilerHost(options);
+  const original = host.getSourceFile.bind(host);
+  host.getSourceFile = (name, language, onError, createNew) =>
+    name === file
+      ? ts.createSourceFile(file, source, language, true)
+      : original(name, language, onError, createNew);
+  const program = ts.createProgram([file], options, host);
+  const diagnostics = ts.getPreEmitDiagnostics(program);
+  expect(
+    diagnostics.map((item) => ts.flattenDiagnosticMessageText(item.messageText, "\n")),
+  ).toEqual([]);
+}
