@@ -25,6 +25,7 @@ export interface OpenApiSchema {
   readonly $ref?: string;
   readonly allOf?: readonly OpenApiSchema[];
   readonly oneOf?: readonly OpenApiSchema[];
+  readonly anyOf?: readonly OpenApiSchema[];
   readonly discriminator?: {
     readonly propertyName: string;
     readonly mapping?: Readonly<Record<string, string>>;
@@ -202,6 +203,20 @@ function fieldExpression(
   path: string,
   indentation: string,
 ): string {
+  if (schema.anyOf) {
+    const variants = schema.anyOf.filter((item) => item.type !== "null");
+    if (variants.length === 1 && variants.length < schema.anyOf.length) {
+      return fieldExpression(
+        { ...variants[0], ...schema, anyOf: undefined, nullable: true },
+        required,
+        context,
+        path,
+        indentation,
+      );
+    }
+    addWarning(context, `${path}: unsupported anyOf is represented as typed JSON`);
+    return `fields.JSON(${configExpression(schema, required)})`;
+  }
   if (schema.$ref) return referencedField(schema, schema.$ref, required, context, path);
   if (schema.oneOf) {
     if (taggedUnion(schema, context)) return typedJson(schema, required, jsonType(schema, context));
@@ -565,6 +580,7 @@ function referencedSchemas(schema: OpenApiSchema | undefined): readonly string[]
       ...Object.values(schema.properties ?? {}).flatMap(referencedSchemas),
       ...(schema.allOf ?? []).flatMap(referencedSchemas),
       ...(schema.oneOf ?? []).flatMap(referencedSchemas),
+      ...(schema.anyOf ?? []).flatMap(referencedSchemas),
     ]),
   ];
 }

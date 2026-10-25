@@ -173,6 +173,40 @@ void [valid, wrongKind, missingText, wrongPayload];
     );
   });
 
+  it("resolves nullable component references without silently generating string fields", () => {
+    const result = generateOpenApi(
+      {
+        openapi: "3.1.0",
+        components: {
+          schemas: {
+            Report: { type: "object", required: ["ok"], properties: { ok: { type: "boolean" } } },
+            Job: {
+              type: "object",
+              properties: {
+                report: { anyOf: [{ $ref: "#/components/schemas/Report" }, { type: "null" }] },
+              },
+            },
+          },
+        },
+      },
+      { strict: true },
+    );
+    expect(result.code).toContain("report: fields.Object(Report, { nullable: true })");
+    expect(result.code.indexOf("const Report")).toBeLessThan(result.code.indexOf("const Job"));
+    assertGeneratedTypes(
+      result.code +
+        `
+import type { Infer } from "@uicogs/core";
+type Job = Infer<ReturnType<typeof createGeneratedDefinitions>["schemas"]["Job"]>;
+const ok: Job = { report: { ok: true } };
+const absent: Job = { report: null };
+// @ts-expect-error nullable object references do not become strings
+const wrong: Job = { report: "incorrect" };
+void [ok, absent, wrong];
+`,
+    );
+  });
+
   it("reports unsupported unions and fails deterministic strict generation", () => {
     const document: OpenApiDocument = {
       openapi: "3.1.0",
