@@ -245,7 +245,10 @@ function fieldExpression(
     return `fields.Object(${nested}, ${configExpression(schema, required)})`;
   }
   const factory = stringFactory(schema) ?? scalarFactory(type);
-  if (factory) return `fields.${factory}(${configExpression(schema, required)})`;
+  if (factory) {
+    const preserveEmpty = factory === "Str" && !schema.format && (schema.minLength ?? 0) === 0;
+    return `fields.${factory}(${configExpression(schema, required, undefined, preserveEmpty)})`;
+  }
   context.warnings.push(
     `${path}: unsupported schema type ${String(type)}; represented as typed JSON`,
   );
@@ -357,9 +360,11 @@ function configExpression(
   schema: OpenApiSchema,
   required: boolean,
   metadata?: Readonly<Record<string, unknown>>,
+  preserveEmpty = false,
 ): string {
   const config: string[] = [];
   if (required) config.push("required: true");
+  if (preserveEmpty) config.push('empty: "preserve"');
   if (schema.readOnly) config.push("readonly: true");
   if (schema.writeOnly) config.push("writeonly: true");
   if (

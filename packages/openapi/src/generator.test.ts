@@ -207,6 +207,59 @@ void [ok, absent, wrong];
     );
   });
 
+  it("preserves present empty plain strings while enforcing presence and constrained values", () => {
+    const result = generateOpenApi(
+      {
+        openapi: "3.1.0",
+        components: {
+          schemas: {
+            Text: {
+              type: "object",
+              required: ["text", "nonempty", "choice"],
+              properties: {
+                text: { type: "string" },
+                nullable: { type: ["string", "null"] },
+                nonempty: { type: "string", minLength: 1 },
+                choice: { type: "string", enum: ["yes", "no"] },
+                email: { type: "string", format: "email" },
+              },
+            },
+          },
+        },
+      },
+      { strict: true },
+    );
+    const javascript = ts.transpileModule(result.code.replace(/^import .*$/m, ""), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+    }).outputText;
+    const exports: {
+      createGeneratedDefinitions?: () => {
+        schemas: {
+          Text: { parse(value: unknown): unknown; validate(value: unknown): unknown };
+        };
+      };
+    } = {};
+    new Function("fields", "schema", "exports", javascript)(fields, schema, exports);
+    const text = exports.createGeneratedDefinitions!().schemas.Text;
+    expect(text.parse({ text: "", nullable: "", nonempty: "a", choice: "yes" })).toEqual({
+      text: "",
+      nullable: "",
+      nonempty: "a",
+      choice: "yes",
+    });
+    expect(text.parse({ text: "", nullable: null, nonempty: "a", choice: "yes" })).toEqual({
+      text: "",
+      nullable: null,
+      nonempty: "a",
+      choice: "yes",
+    });
+    expect(() => text.parse({})).toThrow();
+    expect(() => text.parse({ text: undefined })).toThrow();
+    expect(() => text.parse({ text: "", nonempty: "", choice: "yes" })).toThrow();
+    expect(() => text.parse({ text: "", choice: "", nonempty: "a" })).toThrow();
+    expect(result.code).toContain("email: fields.Email({  })");
+  });
+
   it("reports unsupported unions and fails deterministic strict generation", () => {
     const document: OpenApiDocument = {
       openapi: "3.1.0",
@@ -293,7 +346,7 @@ void [ok, absent, wrong];
               { $ref: "#/components/schemas/Base" },
               {
                 type: "object",
-                required: ["text"],
+                required: ["text", "nonempty", "choice"],
                 properties: { text: { type: "string" } },
               },
             ],
@@ -362,7 +415,9 @@ void [ok, absent, wrong];
     });
 
     expect(result.code).toContain("const post_projects_project_id_attachmentsQuery");
-    expect(result.code).toContain('"search-term": fields.Str({ required: true })');
+    expect(result.code).toContain(
+      '"search-term": fields.Str({ required: true, empty: "preserve" })',
+    );
     expect(result.code).toContain("page: fields.Int({ default: 1 })");
     expect(result.code).toContain('encoding: "multipart"');
     expect(result.code).toContain("const post_projects_project_id_attachmentsInput = schema");
