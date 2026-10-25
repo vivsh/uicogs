@@ -346,7 +346,7 @@ void [ok, absent, wrong];
               { $ref: "#/components/schemas/Base" },
               {
                 type: "object",
-                required: ["text", "nonempty", "choice"],
+                required: ["text"],
                 properties: { text: { type: "string" } },
               },
             ],
