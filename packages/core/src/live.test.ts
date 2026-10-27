@@ -62,6 +62,50 @@ function event(type: string, payload: unknown, id?: string): LiveFrame {
 }
 
 describe("live source", () => {
+  it("consumes control effects without cache, notification or alert mutations and preserves diagnostics", async () => {
+    const queue = new FrameQueue();
+    const consumed = vi.fn();
+    const cogs = createUiCogs({
+      context: undefined,
+      live: controlledLive(queue, {
+        map: ({ event: name }) => {
+          if (name === "control") {
+            consumed();
+            return { kind: "handled" };
+          }
+          if (name === "broken") throw new Error("control mapper failed");
+          return undefined;
+        },
+      }),
+    });
+    const schema = defineSchema({ id: fields.ID(), title: fields.Str() });
+    const Tasks = registerResource(cogs)({
+      name: "control-tasks",
+      url: "tasks/",
+      schema,
+      key: "id",
+    });
+    const tasks = cogs.resource(Tasks);
+    tasks.cache.replaceAll([{ id: 1, title: "Unchanged" }]);
+    const notifications = cogs.notifications.getSnapshot();
+    const alerts = cogs.alerts.getSnapshot();
+    await vi.waitFor(() => expect(cogs.live.status).toBe("open"));
+    queue.push(event("control", { nonce: "test" }, "control-1"));
+    queue.push(event("control", { nonce: "test" }, "control-1"));
+    await vi.waitFor(() => expect(consumed).toHaveBeenCalledOnce());
+    expect(cogs.live.lastError).toBeUndefined();
+    expect(tasks.all()).toEqual([{ id: 1, title: "Unchanged" }]);
+    expect(cogs.notifications.getSnapshot()).toBe(notifications);
+    expect(cogs.alerts.getSnapshot()).toBe(alerts);
+    queue.push({ kind: "event", event: { type: "control", data: "{" } });
+    await vi.waitFor(() => expect(cogs.live.lastError?.kind).toBe("json"));
+    queue.push(event("broken", {}, "control-2"));
+    await vi.waitFor(() => expect(cogs.live.lastError?.message).toBe("control mapper failed"));
+    queue.push(event("unknown", {}, "control-3"));
+    await vi.waitFor(() => expect(cogs.live.lastError?.kind).toBe("unhandled"));
+    cogs.dispose();
+  });
+
   it("is always present and disabled without configuration", () => {
     const cogs = createUiCogs({ context: undefined });
     expect(cogs.live.status).toBe("disabled");

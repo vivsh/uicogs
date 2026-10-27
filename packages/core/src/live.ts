@@ -69,6 +69,7 @@ export type NotificationMutation =
 
 /** One normalized consequence of a live event. Plain LiveMutation values remain accepted for compatibility. */
 export type LiveEffect =
+  | { readonly kind: "handled" }
   | { readonly kind: "mutation"; readonly mutation: LiveMutation }
   | { readonly kind: "notification"; readonly mutation: NotificationMutation }
   | { readonly kind: "alert"; readonly alert: UiAlert };

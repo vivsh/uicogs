@@ -1500,6 +1500,7 @@ export class UiCogs<
   ): void {
     for (const effect of effects) {
       if ("kind" in effect) {
+        if (effect.kind === "handled") continue;
         if (effect.kind === "mutation") this.dispatchLiveMutation(effect.mutation, version, scope);
         else if (effect.kind === "notification") this.notifications.apply(effect.mutation);
         else this.alerts.enqueue(effect.alert);
