@@ -42,6 +42,7 @@ export function stableSerialize(value: unknown): string {
 }
 
 export function joinUrl(base: string, path: string): string {
+  if (!path) return base;
   const left = base.endsWith("/") ? base.slice(0, -1) : base;
   const right = path.startsWith("/") ? path.slice(1) : path;
   return left ? `${left}/${right}` : right;

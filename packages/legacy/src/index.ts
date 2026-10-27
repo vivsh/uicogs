@@ -5,6 +5,7 @@ import {
   type Field,
   type FormSchema,
   type Shape,
+  type PageState,
 } from "@uicogs/core";
 
 type RuntimeField = Field<unknown, unknown, unknown, unknown, boolean, boolean, boolean>;
@@ -311,7 +312,7 @@ interface LegacyResource<TValue extends object, TKey> {
   readonly error?: unknown;
   filter(values: object, options?: { readonly merge?: boolean }): this;
   sort(field?: keyof TValue & string, descending?: boolean): this;
-  page(index: number, size?: number): this;
+  page(state: PageState): this;
   accumulate(enabled?: boolean): this;
   nextPage(): this;
   previousPage(): this;
@@ -360,8 +361,8 @@ export class DataSource<TValue extends object, TKey = string | number> {
     this.resource.sort(field, descending);
     return this;
   }
-  page(index: number, size = 25): this {
-    this.resource.page(index, size);
+  page(state: PageState): this {
+    this.resource.page(state);
     return this;
   }
   accumulate(enabled = true): this {

@@ -160,4 +160,9 @@ Field-level validation uses the same definitions as full-form validation. Mounte
 
 Editing a field clears server issues for that field. It does not clear unrelated server issues.
 
+An explicit response profile can translate the backend's validation envelope into these
+server issues. Vyuh, DRF, Laravel, Spring Data, JSON:API, and GraphQL profiles are in
+`@uicogs/http`; custom backends implement the core `ResponseAdapter` contract. See
+[Response adapters](response-adapters.md).
+
 See [Forms](forms.md).

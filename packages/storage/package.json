@@ -1,6 +1,6 @@
 {
   "name": "@uicogs/storage",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Shared browser persistence backends for UiCogs context and cache data.",
   "license": "MIT",
   "author": "UiCogs",

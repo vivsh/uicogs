@@ -1,6 +1,6 @@
 {
   "name": "@uicogs/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React external-store hooks for UiCogs.",
   "license": "MIT",
   "author": "UiCogs",
@@ -28,7 +28,8 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --external react"
   },
   "dependencies": {
-    "@uicogs/core": "workspace:^"
+    "@uicogs/core": "workspace:^",
+    "@uicogs/routes": "workspace:^"
   },
   "engines": {
     "node": ">=22"

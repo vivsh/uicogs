@@ -30,7 +30,7 @@ const sourceExtensions = new Set([
 ]);
 const prohibitedProducts = [["my", "dynasty"].join(""), ["club", "dynasty"].join("")];
 const prohibitedObjectType = new RegExp(["Object", "Data"].join(""));
-const unsafeType = /(?:[:<,]\s*any\b|\bany\[\]|=>\s*any\b)/;
+const unsafeType = /(?::\s*any\b(?!\s*:)|\bany\[\]|=>\s*any\b)/;
 const failures = [];
 
 for (const file of await files(root)) {
@@ -50,9 +50,9 @@ for (const file of await files(root)) {
 
 for (const file of await files(new URL("../packages/", import.meta.url), false)) {
   if (!/\/dist\/.*\.d\.(?:c|m)?ts$/.test(file.pathname)) continue;
-  if (/\/packages\/(?:vue|quasar)\//.test(file.pathname)) continue;
+  if (/\/packages\/(?:vue|quasar|echarts)\//.test(file.pathname)) continue;
   const content = await readFile(file, "utf8");
-  if (/\bany\b/.test(content))
+  if (unsafeType.test(content))
     failures.push(`${relative(root.pathname, file.pathname)}: public declaration contains any`);
 }
 

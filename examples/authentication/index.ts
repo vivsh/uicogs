@@ -19,7 +19,7 @@ export const Tokens = schema({
 export const Claims = schema({
   sub: fields.Str({ required: true }),
   tenant: fields.Str({ required: true }),
-  permissions: fields.StrList({ required: true }),
+  scopes: fields.StrList({ required: true }),
   exp: fields.Int(),
 });
 
@@ -68,7 +68,7 @@ export const jwt = jwtAuth({
   currentUser: Users.operation("current"),
   storage: memoryAuthStorage(),
   state: () => ({ selectedProject: undefined as number | undefined }),
-  permissions: ({ claims }) => claims.permissions,
+  scopes: ({ claims }) => claims.scopes,
   cacheScope: ({ claims }) => ({ subject: claims.sub, tenant: claims.tenant }),
 });
 

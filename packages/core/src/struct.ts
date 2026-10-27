@@ -12,10 +12,19 @@ import {
   type TimeConfig,
   type TargetEntity,
 } from "./field.js";
+import type { Choice } from "./descriptors.js";
 import { Schema, type Shape } from "./schema.js";
 
 type Constructor<T = object> = abstract new (...args: never[]) => T;
 type DecoratedField = Field<unknown, unknown, unknown, unknown, boolean, boolean, boolean>;
+type EnumEntry = string | number | Choice<string | number, unknown>;
+type EnumValue<TEntries extends readonly EnumEntry[]> = TEntries[number] extends infer TEntry
+  ? TEntry extends Choice<infer TValue, unknown>
+    ? TValue
+    : TEntry extends string | number
+      ? TEntry
+      : never
+  : never;
 
 export type ClassSchema<T extends object, TContext = unknown> = {
   readonly _input: Partial<T>;
@@ -88,13 +97,17 @@ export const struct = {
   DateRange: <TContext = unknown>(
     config: FieldConfig<readonly [Date, Date], readonly [string, string], TContext> = {},
   ) => decorate(fields.DateRange(config) as never),
-  Enum: <const TValues extends readonly (string | number)[], TContext = unknown>(
+  Enum: <const TValues extends readonly EnumEntry[], TContext = unknown>(
     values: TValues,
-    config: FieldConfig<TValues[number], TValues[number], TContext> = {},
+    config: FieldConfig<EnumValue<TValues>, EnumValue<TValues>, TContext> = {},
   ) => decorate(fields.Enum(values, config) as never),
-  EnumList: <const TValues extends readonly (string | number)[], TContext = unknown>(
+  EnumList: <const TValues extends readonly EnumEntry[], TContext = unknown>(
     values: TValues,
-    config: FieldConfig<readonly TValues[number][], readonly TValues[number][], TContext> = {},
+    config: FieldConfig<
+      readonly EnumValue<TValues>[],
+      readonly EnumValue<TValues>[],
+      TContext
+    > = {},
   ) => decorate(fields.EnumList(values, config) as never),
   StrList: <TContext = unknown>(
     config: FieldConfig<readonly string[], readonly string[], TContext> = {},

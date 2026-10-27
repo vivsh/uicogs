@@ -34,6 +34,19 @@ describe("form schemas", () => {
     expect(object.writeValue(value, new Set())).toEqual({ label: "Task" });
     expect(scalar.writeValue(value, new Set())).toBe("Task");
   });
+
+  it("keeps field presentation immutable and scoped to its form definition", () => {
+    const schema = defineSchema({ kind: fields.Str(), secretRef: fields.Str() });
+    const form = schema.toForm({
+      fields: { secretRef: { visible: ({ values }) => values.kind !== "paper" } },
+    });
+
+    expect(form.visible("secretRef", { kind: "paper" })).toBe(false);
+    expect(form.visible("secretRef", { kind: "broker" })).toBe(true);
+    expect(Object.isFrozen(form.presentation)).toBe(true);
+    expect(Object.isFrozen(form.presentation.secretRef)).toBe(true);
+    expect(schema.toForm().visible("secretRef", { kind: "paper" })).toBe(true);
+  });
 });
 
 describe("form field state and validation", () => {
@@ -85,6 +98,47 @@ describe("form field state and validation", () => {
     expect(malformed.valid).toBe(false);
     expect(malformed.issues).toContainEqual(
       expect.objectContaining({ path: ["state"], source: "parse" }),
+    );
+  });
+
+  it("hides conditional fields from validation and generated payloads without discarding drafts", async () => {
+    const schema = defineSchema({
+      kind: fields.Enum(["paper", "broker"] as const, { required: true }),
+      secretRef: fields.Str({
+        wireName: "secret_ref",
+        validate: [
+          ({ value }) => (value === "invalid" ? "Credential reference is invalid" : undefined),
+        ],
+      }),
+    });
+    const submitter = vi.fn(async () => ({ ok: true }));
+    const form = createFormController(
+      schema.toForm({
+        mode: "create",
+        fields: { secretRef: { visible: ({ values }) => values.kind !== "paper" } },
+      }),
+      { kind: "paper", secretRef: "invalid" },
+      submitter,
+    );
+
+    expect(form.field("secretRef")).toMatchObject({ visible: false, value: "invalid" });
+    await expect(form.submit()).resolves.toMatchObject({ success: true });
+    expect(submitter).toHaveBeenLastCalledWith(
+      { kind: "paper" },
+      expect.objectContaining({ encoding: "auto" }),
+    );
+
+    form.set("kind", "broker");
+    expect(form.field("secretRef")).toMatchObject({ visible: true, value: "invalid" });
+    await expect(form.validate()).resolves.toMatchObject({
+      valid: false,
+      issues: [expect.objectContaining({ path: ["secretRef"] })],
+    });
+    form.set("secretRef", "active-secret");
+    await expect(form.submit()).resolves.toMatchObject({ success: true });
+    expect(submitter).toHaveBeenLastCalledWith(
+      { kind: "broker", secret_ref: "active-secret" },
+      expect.objectContaining({ encoding: "auto" }),
     );
   });
 

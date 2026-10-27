@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { AuthRuntimeBindings, AuthStrategyDefinition, RuntimeAuthController } from "./auth.js";
+import {
+  isLoggedIn,
+  type AuthRuntimeBindings,
+  type AuthStrategyDefinition,
+  type RuntimeAuthController,
+} from "./auth.js";
 import { createUiCogs } from "./factory.js";
 import { fields } from "./field.js";
-import { local, operation, resource } from "./resource.js";
+import { local, operation, resource, service } from "./resource.js";
 import { schema } from "./schema.js";
 import type { TransportMiddleware } from "./transport.js";
 
 class TestAuthController implements RuntimeAuthController<object> {
-  readonly status = "anonymous";
+  constructor(readonly status = "anonymous") {}
+  readonly scopes = new Set<string>();
   readonly sessionGeneration = 0;
   bindings?: AuthRuntimeBindings;
 
@@ -53,6 +59,37 @@ function testAuth(
 }
 
 describe("pure definitions and runtime instances", () => {
+  it("exposes one startup barrier and an explicit login-state helper", async () => {
+    let releaseRead: (() => void) | undefined;
+    const read = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const runtime = createUiCogs({
+      context: { locale: "en" },
+      persistence: {
+        backend: {
+          read: async () => {
+            await read;
+            return { locale: "fr" };
+          },
+          write: async () => undefined,
+          remove: async () => undefined,
+        },
+      },
+    });
+    let resolved = false;
+    void runtime.ready.then(() => {
+      resolved = true;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    releaseRead?.();
+    await runtime.ready;
+    expect(runtime.context.value.locale).toBe("fr");
+    expect(isLoggedIn(runtime.auth)).toBe(false);
+    expect(isLoggedIn(new TestAuthController("authenticated"))).toBe(true);
+  });
+
   it("reuses immutable definitions while keeping runtime state isolated", () => {
     const Task = schema({
       id: fields.ID(),
@@ -265,6 +302,36 @@ describe("pure definitions and runtime instances", () => {
       ),
     ).rejects.toThrow("is not registered");
     runtime.dispose();
+    runtime.dispose();
+  });
+
+  it("executes registered service operations through authentication bindings", async () => {
+    const Credentials = schema({ email: fields.Email({ required: true }) });
+    const Authentication = service({
+      name: "auth-service",
+      source: local(),
+      actions: {
+        login: operation.action({
+          input: Credentials,
+          output: schema({ token: fields.Str({ required: true }) }),
+          local: (input: { readonly email: string }) => ({ token: input.email }),
+        }),
+      },
+    });
+    const controller = new TestAuthController();
+    const runtime = createUiCogs({
+      services: [Authentication],
+      auth: testAuth([Authentication.operation("login")], controller),
+    });
+
+    await expect(
+      controller.bindings?.execute(
+        Authentication.operation("login"),
+        { email: "ada@example.test" },
+        "establish",
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ token: "ada@example.test" });
     runtime.dispose();
   });
 });

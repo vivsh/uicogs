@@ -24,6 +24,7 @@ export interface RuntimeAuthController<
 > extends ExternalStore<TSnapshot> {
   readonly value: TSnapshot;
   readonly status: string;
+  readonly scopes: ReadonlySet<string>;
   readonly sessionGeneration: number;
   middleware(): TransportMiddleware;
   attach(bindings: AuthRuntimeBindings): void;
@@ -31,6 +32,11 @@ export interface RuntimeAuthController<
   cacheScope(): string;
   subscribeLogout(listener: () => void): () => void;
   dispose(): void;
+}
+
+/** Returns whether an initialized auth controller currently has an authenticated session. */
+export function isLoggedIn(auth: RuntimeAuthController | undefined): boolean {
+  return auth?.status === "authenticated";
 }
 
 export interface AuthStrategyDefinition<

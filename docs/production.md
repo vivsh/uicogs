@@ -1,6 +1,6 @@
 # Production Checklist
 
-UiCogs is currently at version `0.1.0`. Complete an application-specific pilot before production use.
+UiCogs is currently at version `0.1.1`. Complete an application-specific pilot before production use.
 
 ## Runtime Ownership
 

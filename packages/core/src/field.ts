@@ -38,6 +38,30 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
   JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 
+/** A responsive grid cell understood by framework presentation adapters. */
+export type FieldLayoutCell =
+  1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | "auto" | "grow" | "shrink";
+
+/** Responsive field placement shared by generated form adapters. */
+export interface ResponsiveFieldLayout {
+  readonly xs?: FieldLayoutCell;
+  readonly sm?: FieldLayoutCell;
+  readonly md?: FieldLayoutCell;
+  readonly lg?: FieldLayoutCell;
+  readonly xl?: FieldLayoutCell;
+}
+
+/** Responsive filter placement with optional-filter disclosure semantics. */
+export interface FilterFieldLayout extends ResponsiveFieldLayout {
+  readonly placement?: "static" | "collapsible";
+}
+
+/** Field-owned presentation intent for generated form and filter surfaces. */
+export interface FieldLayout {
+  readonly form?: ResponsiveFieldLayout;
+  readonly filter?: FilterFieldLayout;
+}
+
 export interface FieldConfig<TValue, TEncoded = TValue, TContext = unknown> {
   readonly required?: boolean;
   readonly nullable?: boolean;
@@ -52,6 +76,7 @@ export interface FieldConfig<TValue, TEncoded = TValue, TContext = unknown> {
   readonly filter?: FilterDescriptor | Descriptor;
   readonly sort?: string | SortDescriptor | Descriptor;
   readonly help?: string;
+  readonly layout?: FieldLayout;
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly validate?: readonly Validator<TValue, TContext>[];
   readonly parse?: (input: unknown) => TValue;
@@ -398,6 +423,161 @@ type NullableOf<TConfig, TValue> = TConfig extends { readonly nullable: true }
   ? TValue | null
   : TValue;
 
+type EnumEntry = string | number | Choice<string | number, unknown>;
+type EnumValue<TEntries extends readonly EnumEntry[]> = TEntries[number] extends infer TEntry
+  ? TEntry extends Choice<infer TValue, unknown>
+    ? TValue
+    : TEntry extends string | number
+      ? TEntry
+      : never
+  : never;
+type NormalizedChoice<TEntry extends EnumEntry> =
+  TEntry extends Choice<infer TValue, infer TMeta> ? Choice<TValue, TMeta> : Choice<TEntry, never>;
+type EnumChoices<TEntries extends readonly EnumEntry[]> = readonly NormalizedChoice<
+  TEntries[number]
+>[];
+type EnumField<
+  TEntries extends readonly EnumEntry[],
+  TContext,
+  TConfig extends FieldConfig<EnumValue<TEntries>, EnumValue<TEntries>, TContext>,
+> = Field<
+  EnumValue<TEntries>,
+  NullableOf<TConfig, EnumValue<TEntries>>,
+  EnumValue<TEntries>,
+  TContext,
+  RequiredOf<TConfig>,
+  false,
+  WritableOf<TConfig>
+> & {
+  readonly options: Readonly<
+    FieldRuntimeOptions<EnumValue<TEntries>, EnumValue<TEntries>, TContext> & {
+      readonly choices: EnumChoices<TEntries>;
+    }
+  >;
+};
+type EnumListField<
+  TEntries extends readonly EnumEntry[],
+  TContext,
+  TConfig extends FieldConfig<
+    readonly EnumValue<TEntries>[],
+    readonly EnumValue<TEntries>[],
+    TContext
+  >,
+> = Field<
+  readonly EnumValue<TEntries>[],
+  NullableOf<TConfig, readonly EnumValue<TEntries>[]>,
+  readonly EnumValue<TEntries>[],
+  TContext,
+  RequiredOf<TConfig>,
+  false,
+  WritableOf<TConfig>
+> & {
+  readonly options: Readonly<
+    FieldRuntimeOptions<
+      readonly EnumValue<TEntries>[],
+      readonly EnumValue<TEntries>[],
+      TContext
+    > & { readonly choices: EnumChoices<TEntries> }
+  >;
+};
+
+function enumChoices<const TEntries extends readonly EnumEntry[]>(
+  entries: TEntries,
+): EnumChoices<TEntries> {
+  const values = new Set<string | number>();
+  const choices = entries.map((entry) => {
+    if (isChoice(entry) && "metadata" in entry)
+      throw new Error("Enum choice metadata was renamed to meta");
+    const choice = isChoice(entry)
+      ? {
+          value: entry.value,
+          presentation: entry.presentation,
+          ...(entry.meta === undefined ? {} : { meta: entry.meta }),
+        }
+      : ({ value: entry, presentation: { label: String(entry) } } as Choice<
+          string | number,
+          never
+        >);
+    if (typeof choice.presentation.label !== "string")
+      throw new Error("Enum choice presentation requires a string label");
+    if (values.has(choice.value))
+      throw new Error(`Enum choice value ${String(choice.value)} is declared more than once`);
+    values.add(choice.value);
+    return choice;
+  });
+  return Object.freeze(choices) as EnumChoices<TEntries>;
+}
+
+function isChoice(value: EnumEntry): value is Choice<string | number, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "value" in value &&
+    "presentation" in value &&
+    typeof value.presentation === "object" &&
+    value.presentation !== null
+  );
+}
+
+function enumField<
+  const TEntries extends readonly EnumEntry[],
+  TContext = unknown,
+  const TConfig extends FieldConfig<EnumValue<TEntries>, EnumValue<TEntries>, TContext> =
+    FieldConfig<EnumValue<TEntries>, EnumValue<TEntries>, TContext>,
+>(entries: TEntries, config?: TConfig): EnumField<TEntries, TContext, TConfig> {
+  const options = config ?? ({} as TConfig);
+  const choices = enumChoices(entries);
+  const values = choices.map((choice) => choice.value) as unknown as readonly EnumValue<TEntries>[];
+  return new Field({
+    ...options,
+    kind: "enum",
+    choices,
+    editor: options.editor ?? editor.Select(),
+    format: options.format ?? format.Choice(),
+    parse:
+      options.parse ??
+      ((input) => {
+        if (!values.includes(input as EnumValue<TEntries>))
+          throw new Error("Expected an allowed value");
+        return input as EnumValue<TEntries>;
+      }),
+  }) as EnumField<TEntries, TContext, TConfig>;
+}
+
+function enumListField<
+  const TEntries extends readonly EnumEntry[],
+  TContext = unknown,
+  const TConfig extends FieldConfig<
+    readonly EnumValue<TEntries>[],
+    readonly EnumValue<TEntries>[],
+    TContext
+  > = FieldConfig<readonly EnumValue<TEntries>[], readonly EnumValue<TEntries>[], TContext>,
+>(entries: TEntries, config?: TConfig): EnumListField<TEntries, TContext, TConfig> {
+  const choices = enumChoices(entries);
+  const values = choices.map((choice) => choice.value) as unknown as readonly EnumValue<TEntries>[];
+  return listField<
+    EnumValue<TEntries>,
+    EnumValue<TEntries>,
+    EnumValue<TEntries>,
+    TContext,
+    TConfig
+  >(
+    "enum-list",
+    {
+      ...config,
+      choices,
+      format: config?.format ?? format.Choices(),
+    } as unknown as TConfig,
+    (input) => {
+      if (!values.includes(input as EnumValue<TEntries>))
+        throw new Error("Expected an allowed value");
+      return input as EnumValue<TEntries>;
+    },
+    (value) => value,
+    editor.Select({ multiple: true }),
+  ) as EnumListField<TEntries, TContext, TConfig>;
+}
+
 function stringField<
   TContext = unknown,
   const TConfig extends StringConfig<TContext> = StringConfig<TContext>,
@@ -405,6 +585,7 @@ function stringField<
   kind: string,
   config?: TConfig,
   defaultEditor: Descriptor = editor.Text(),
+  defaultFormat: Descriptor = format.Text(),
 ): Field<
   string,
   NullableOf<TConfig, string>,
@@ -434,7 +615,7 @@ function stringField<
     ...options,
     kind,
     editor: options.editor ?? defaultEditor,
-    format: options.format ?? format.Text(),
+    format: options.format ?? defaultFormat,
     validate: validators,
     parse:
       options.parse ??
@@ -726,70 +907,8 @@ export const fields = {
       WritableOf<TConfig>
     >;
   },
-  Enum: <
-    const TValues extends readonly (string | number)[],
-    TContext = unknown,
-    const TConfig extends FieldConfig<TValues[number], TValues[number], TContext> = FieldConfig<
-      TValues[number],
-      TValues[number],
-      TContext
-    >,
-  >(
-    values: TValues,
-    config?: TConfig,
-  ) => {
-    const options = config ?? ({} as TConfig);
-    const choices = values.map((value) => ({ value, label: String(value) }));
-    return new Field({
-      ...options,
-      kind: "enum",
-      choices,
-      editor: options.editor ?? editor.Select(),
-      format: options.format ?? format.Choice(),
-      parse:
-        options.parse ??
-        ((input) => {
-          if (!values.includes(input as TValues[number]))
-            throw new Error("Expected an allowed value");
-          return input as TValues[number];
-        }),
-    }) as Field<
-      TValues[number],
-      NullableOf<TConfig, TValues[number]>,
-      TValues[number],
-      TContext,
-      RequiredOf<TConfig>,
-      false,
-      WritableOf<TConfig>
-    >;
-  },
-  EnumList: <
-    const TValues extends readonly (string | number)[],
-    TContext = unknown,
-    const TConfig extends FieldConfig<
-      readonly TValues[number][],
-      readonly TValues[number][],
-      TContext
-    > = FieldConfig<readonly TValues[number][], readonly TValues[number][], TContext>,
-  >(
-    values: TValues,
-    config?: TConfig,
-  ) =>
-    listField(
-      "enum-list",
-      {
-        ...config,
-        choices: values.map((value) => ({ value, label: String(value) })),
-        format: config?.format ?? format.Choices(),
-      } as unknown as TConfig,
-      (input) => {
-        if (!values.includes(input as TValues[number]))
-          throw new Error("Expected an allowed value");
-        return input as TValues[number];
-      },
-      (value) => value,
-      editor.Select({ multiple: true }),
-    ),
+  Enum: enumField,
+  EnumList: enumListField,
   StrList: <
     TContext = unknown,
     const TConfig extends FieldConfig<readonly string[], readonly string[], TContext> = FieldConfig<

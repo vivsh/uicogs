@@ -1,6 +1,6 @@
 # @uicogs/auth API
 
-Declaration SHA-256: `2b2a8a46471542b260b49280814492f78cfe8d52b6fb8c94162af1641cbf0180`
+Declaration SHA-256: `5964eaa8d74b20df32f6d93e9b9a5aea4e6930a6eab983d06f63f9f14bf26052`
 
 ```ts
 // index.d.ts
@@ -38,7 +38,7 @@ interface JwtAuthSnapshot<TUser, TClaims extends JwtClaims, TState> {
     readonly user?: Readonly<TUser>;
     readonly claims?: Readonly<TClaims>;
     readonly state: Readonly<TState>;
-    readonly permissions: ReadonlySet<string>;
+    readonly scopes: ReadonlySet<string>;
     readonly sessionGeneration: number;
     readonly error?: NormalizedFailure;
 }
@@ -47,7 +47,7 @@ interface CookieAuthSnapshot<TUser, TState> {
     readonly status: RuntimeAuthStatus;
     readonly user?: Readonly<TUser>;
     readonly state: Readonly<TState>;
-    readonly permissions: ReadonlySet<string>;
+    readonly scopes: ReadonlySet<string>;
     readonly sessionGeneration: number;
     readonly error?: NormalizedFailure;
 }
@@ -56,7 +56,7 @@ interface JwtAuthController<TCredentials, TUser, TClaims extends JwtClaims, TSta
     readonly user: Readonly<TUser> | undefined;
     readonly claims: Readonly<TClaims> | undefined;
     readonly state: Readonly<TState>;
-    readonly permissions: ReadonlySet<string>;
+    readonly scopes: ReadonlySet<string>;
     readonly error: NormalizedFailure | undefined;
     login(credentials: TCredentials): Promise<AuthResult<Readonly<TUser> | undefined>>;
     logout(): Promise<AuthResult<void>>;
@@ -67,7 +67,7 @@ interface CookieAuthController<TCredentials, TUser, TState> extends RuntimeAuthC
     readonly status: RuntimeAuthStatus;
     readonly user: Readonly<TUser> | undefined;
     readonly state: Readonly<TState>;
-    readonly permissions: ReadonlySet<string>;
+    readonly scopes: ReadonlySet<string>;
     readonly error: NormalizedFailure | undefined;
     login(credentials: TCredentials): Promise<AuthResult<Readonly<TUser>>>;
     logout(): Promise<AuthResult<void>>;
@@ -82,7 +82,7 @@ interface JwtAuthOptions<TClaims extends JwtClaims, TLogin extends OperationRefe
     readonly currentUser?: TCurrentUser;
     readonly storage?: AuthStorage;
     readonly state?: () => TState;
-    readonly permissions?: (input: {
+    readonly scopes?: (input: {
         readonly claims: Readonly<TClaims>;
         readonly user?: Readonly<UserOutput<TCurrentUser>>;
         readonly state: Readonly<TState>;
@@ -108,7 +108,7 @@ interface CookieAuthOptions<TLogin extends OperationReference, TLogout extends O
         readonly token: () => string | undefined;
     };
     readonly state?: () => TState;
-    readonly permissions?: (input: {
+    readonly scopes?: (input: {
         readonly user: Readonly<ReferenceOutput<TSession>>;
         readonly state: Readonly<TState>;
     }) => Iterable<string>;

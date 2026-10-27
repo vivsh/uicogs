@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Store, fields, type LiveSource } from "@uicogs/core";
 import {
   createUiCogs,
+  useUiCogs,
+  withReact,
   useAction,
   useAuth,
   useCollection,
@@ -21,6 +23,57 @@ import {
 afterEach(cleanup);
 
 describe("React controller integration", () => {
+  it("binds one core runtime through React context", () => {
+    const core = createUiCogs();
+    const cogs = withReact(core);
+    function View() {
+      const runtime = useUiCogs();
+      return createElement("span", null, runtime.core === core ? "bound" : "missing");
+    }
+
+    render(createElement(cogs.Provider, null, createElement(View)));
+    expect(screen.getByText("bound")).toBeDefined();
+    core.dispose();
+  });
+
+  it("reads scopes and independent navigation from native React Router declarations", () => {
+    const core = createUiCogs();
+    const cogs = withReact(core, {
+      routes: [
+        {
+          id: "login",
+          path: "/login",
+          handle: {
+            uicogs: {
+              navigation: {
+                side: {
+                  parent: "account",
+                  label: ({ matches }) => `Sign in ${matches[0]?.pathname}`,
+                },
+              },
+            },
+          },
+        },
+      ],
+      navigation: { side: { groups: [{ id: "account", label: "Account" }] } },
+      useMatches: () => [{ id: "login", pathname: "/login" }],
+    });
+    function View() {
+      const runtime = useUiCogs();
+      const navigation = runtime.useNavigation("side");
+      const breadcrumbs = runtime.useBreadcrumbs("side");
+      return createElement(
+        "span",
+        null,
+        `${navigation[0]?.kind}:${breadcrumbs.map((item) => item.label).join("/")}:${runtime.useCanAccessRoute()}`,
+      );
+    }
+
+    render(createElement(cogs.Provider, null, createElement(View)));
+    expect(screen.getByText("group:Account/Sign in /login:true")).toBeDefined();
+    core.dispose();
+  });
+
   it("rerenders from runtime context updates", () => {
     const api = createUiCogs({ context: { locale: "en" } });
     function View() {

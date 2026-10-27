@@ -1,4 +1,4 @@
-import { bindUiCogs, createUiCogs, fields, operation, resource, schema } from "@uicogs/vue";
+import { createUiCogs, fields, operation, resource, schema } from "@uicogs/core";
 
 export const Project = schema({
   id: fields.ID(),
@@ -20,8 +20,6 @@ export const api = createUiCogs({
   resources: [Projects],
   context: { locale: "en" },
 });
-
-export const { UiCogsPlugin, useUiCogs } = bindUiCogs(api);
 
 export const project = api.resource(Projects).get(1);
 

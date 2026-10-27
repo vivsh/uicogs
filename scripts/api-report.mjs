@@ -5,10 +5,11 @@ import { dirname, relative, resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const packages = [
   "core",
+  "echarts",
   "auth",
   "http",
   "vue",
-  "vue-router",
+  "routes",
   "react",
   "quasar",
   "openapi",

@@ -2,11 +2,18 @@ import { defineSchema, registerResource } from "../../core/src/test-utils.js";
 
 import { describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, effectScope, nextTick, ref, watchEffect } from "vue";
-import { Store, createFormController, editor, fields, type LiveSource } from "@uicogs/core";
+import { createMemoryHistory, createRouter } from "vue-router";
 import {
-  bindUiCogs,
+  createUiCogs as createCoreUiCogs,
+  Store,
+  createFormController,
+  editor,
+  fields,
+  type LiveSource,
+} from "@uicogs/core";
+import {
   createRendererRegistry,
-  createUiCogs,
+  useUiCogs,
   useUcAction,
   useUcCollection,
   useUcController,
@@ -18,36 +25,91 @@ import {
   useUcSnapshot,
   useUcTableModel,
   vueReactive,
+  withVue,
+  type VueRouteIntegration,
 } from "./index.js";
 
+async function createUiCogs(options: Parameters<typeof createCoreUiCogs>[0]) {
+  const core = createCoreUiCogs(options);
+  const app = createApp(defineComponent({ setup: () => () => null }));
+  const binding = await withVue(core);
+  app.use(createRouter({ history: createMemoryHistory(), routes: [] })).use(binding.uiCogs);
+  return app.runWithContext(() => binding.useUiCogs()) as unknown as typeof core;
+}
+
 describe("Vue controller integration", () => {
-  it("binds one application-owned runtime without owning its disposal", () => {
-    const runtime = createUiCogs({ context: undefined });
-    const binding = bindUiCogs(runtime);
-    let injected: typeof runtime | undefined;
+  it("waits for the core runtime before creating a Vue binding", async () => {
+    let releaseRead: (() => void) | undefined;
+    const read = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const runtime = createCoreUiCogs({
+      context: { locale: "en" },
+      persistence: {
+        backend: {
+          read: async () => {
+            await read;
+            return undefined;
+          },
+          write: async () => undefined,
+          remove: async () => undefined,
+        },
+      },
+    });
+    let resolved = false;
+    const binding = withVue(runtime).then((value) => {
+      resolved = true;
+      return value;
+    });
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    releaseRead?.();
+    await expect(binding).resolves.toMatchObject({ uiCogs: expect.any(Object) });
+    runtime.dispose();
+  });
+
+  /** Verifies that a route-free runtime installs as a standard Vue plugin. */
+  it("binds one application-owned runtime without owning its disposal", async () => {
+    const runtime = createCoreUiCogs({ context: undefined });
     const app = createApp(
       defineComponent({
         setup() {
-          injected = binding.useUiCogs();
           return () => null;
         },
       }),
     );
-    app.use(binding.UiCogsPlugin);
+    const binding = await withVue(runtime);
+    app.use(createRouter({ history: createMemoryHistory(), routes: [] })).use(binding.uiCogs);
+    let injected: typeof runtime | undefined;
+    let injectedBinding: ReturnType<typeof binding.useUiCogs> | undefined;
     app.runWithContext(() => {
-      injected = binding.useUiCogs();
+      injectedBinding = binding.useUiCogs();
+      injected = injectedBinding.core;
     });
     expect(injected).toBe(runtime);
+    expect(injectedBinding).toBeDefined();
     expect(runtime.requests.isDisposed).toBe(false);
     runtime.dispose();
   });
 
-  it("fails clearly when the bound runtime plugin is missing", () => {
-    const binding = bindUiCogs(createUiCogs({ context: undefined }));
-    const app = createApp(defineComponent({ setup: () => () => null }));
-    expect(() => app.runWithContext(() => binding.useUiCogs())).toThrow(
-      "UiCogsPlugin is not installed",
+  it("installs an optional route integration before binding the Vue runtime", async () => {
+    const runtime = createCoreUiCogs({ context: undefined });
+    const install = vi.fn((router) =>
+      router.addRoute({ name: "fixture-stylebook", path: "/__stylebook", component: {} }),
     );
+    const integration: VueRouteIntegration = { install };
+    const router = createRouter({ history: createMemoryHistory(), routes: [] });
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    const binding = await withVue(runtime, { stylebook: integration });
+    app.use(router).use(binding.uiCogs);
+    expect(install).toHaveBeenCalledWith(router);
+    expect(router.hasRoute("fixture-stylebook")).toBe(true);
+    runtime.dispose();
+  });
+
+  it("fails clearly when withVue is missing", () => {
+    const app = createApp(defineComponent({ setup: () => () => null }));
+    expect(() => app.runWithContext(() => useUiCogs())).toThrow("withVue() has not been called");
   });
 
   it("invalidates direct property reads from external-store notifications", async () => {
@@ -146,7 +208,7 @@ describe("Vue controller integration", () => {
   });
 
   it("creates Vue-adapted UiCogs resources", async () => {
-    const cogs = createUiCogs({
+    const cogs = await createUiCogs({
       context: undefined,
       transport: { request: async () => ({ status: 200, data: [{ id: 1, name: "One" }] }) },
     });
@@ -159,7 +221,7 @@ describe("Vue controller integration", () => {
   });
 
   it("rerenders local resources after synchronous cache facade writes", async () => {
-    const cogs = createUiCogs({ context: undefined });
+    const cogs = await createUiCogs({ context: undefined });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str({ required: true }) });
     const definition = registerResource(cogs)({
       name: "local-vue-items",
@@ -206,7 +268,7 @@ describe("Vue controller integration", () => {
         },
       }),
     };
-    const cogs = createUiCogs({ context: undefined, live });
+    const cogs = await createUiCogs({ context: undefined, live });
     const schema = defineSchema({ id: fields.ID(), name: fields.Str() });
     const Items = registerResource(cogs)({
       name: "live-vue-items",

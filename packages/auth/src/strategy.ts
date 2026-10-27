@@ -38,7 +38,7 @@ export interface JwtAuthSnapshot<TUser, TClaims extends JwtClaims, TState> {
   readonly user?: Readonly<TUser>;
   readonly claims?: Readonly<TClaims>;
   readonly state: Readonly<TState>;
-  readonly permissions: ReadonlySet<string>;
+  readonly scopes: ReadonlySet<string>;
   readonly sessionGeneration: number;
   readonly error?: NormalizedFailure;
 }
@@ -48,7 +48,7 @@ export interface CookieAuthSnapshot<TUser, TState> {
   readonly status: RuntimeAuthStatus;
   readonly user?: Readonly<TUser>;
   readonly state: Readonly<TState>;
-  readonly permissions: ReadonlySet<string>;
+  readonly scopes: ReadonlySet<string>;
   readonly sessionGeneration: number;
   readonly error?: NormalizedFailure;
 }
@@ -63,7 +63,7 @@ export interface JwtAuthController<
   readonly user: Readonly<TUser> | undefined;
   readonly claims: Readonly<TClaims> | undefined;
   readonly state: Readonly<TState>;
-  readonly permissions: ReadonlySet<string>;
+  readonly scopes: ReadonlySet<string>;
   readonly error: NormalizedFailure | undefined;
   login(credentials: TCredentials): Promise<AuthResult<Readonly<TUser> | undefined>>;
   logout(): Promise<AuthResult<void>>;
@@ -77,7 +77,7 @@ export interface CookieAuthController<TCredentials, TUser, TState> extends Runti
   readonly status: RuntimeAuthStatus;
   readonly user: Readonly<TUser> | undefined;
   readonly state: Readonly<TState>;
-  readonly permissions: ReadonlySet<string>;
+  readonly scopes: ReadonlySet<string>;
   readonly error: NormalizedFailure | undefined;
   login(credentials: TCredentials): Promise<AuthResult<Readonly<TUser>>>;
   logout(): Promise<AuthResult<void>>;
@@ -100,7 +100,7 @@ export interface JwtAuthOptions<
   readonly currentUser?: TCurrentUser;
   readonly storage?: AuthStorage;
   readonly state?: () => TState;
-  readonly permissions?: (input: {
+  readonly scopes?: (input: {
     readonly claims: Readonly<TClaims>;
     readonly user?: Readonly<UserOutput<TCurrentUser>>;
     readonly state: Readonly<TState>;
@@ -135,7 +135,7 @@ export interface CookieAuthOptions<
     readonly token: () => string | undefined;
   };
   readonly state?: () => TState;
-  readonly permissions?: (input: {
+  readonly scopes?: (input: {
     readonly user: Readonly<ReferenceOutput<TSession>>;
     readonly state: Readonly<TState>;
   }) => Iterable<string>;
@@ -216,6 +216,7 @@ abstract class RuntimeAuthBase<TSnapshot extends { readonly sessionGeneration: n
 
   abstract readonly store: Store<TSnapshot>;
   abstract get status(): RuntimeAuthStatus;
+  abstract get scopes(): ReadonlySet<string>;
   abstract get sessionGeneration(): number;
   abstract cacheScope(): string;
   abstract middleware(): TransportMiddleware;
@@ -305,7 +306,7 @@ class JwtRuntimeAuthController<
       revision: 0,
       status: "initializing",
       state: Object.freeze((options.state?.() ?? {}) as TState),
-      permissions: readonlySet(),
+      scopes: readonlySet(),
       sessionGeneration: 0,
     });
   }
@@ -322,8 +323,8 @@ class JwtRuntimeAuthController<
   get state(): Readonly<TState> {
     return this.getSnapshot().state;
   }
-  get permissions(): ReadonlySet<string> {
-    return this.getSnapshot().permissions;
+  get scopes(): ReadonlySet<string> {
+    return this.getSnapshot().scopes;
   }
   get error(): NormalizedFailure | undefined {
     return this.getSnapshot().error;
@@ -559,8 +560,8 @@ class JwtRuntimeAuthController<
 
   private publishAuthenticated(claims: TClaims, user: TUser | undefined, generation: number): void {
     const state = this.state;
-    const permissions = readonlySet(
-      this.options.permissions?.({
+    const scopes = readonlySet(
+      this.options.scopes?.({
         claims,
         user: user as Readonly<UserOutput<TCurrentUser>> | undefined,
         state,
@@ -572,7 +573,7 @@ class JwtRuntimeAuthController<
       claims: Object.freeze(claims),
       ...(user !== undefined ? { user: Object.freeze(user) as Readonly<TUser> } : {}),
       state,
-      permissions,
+      scopes,
       sessionGeneration: generation,
     });
     this.scheduleRefresh();
@@ -652,7 +653,7 @@ class JwtRuntimeAuthController<
       revision: this.getSnapshot().revision + 1,
       status: "anonymous",
       state: Object.freeze((this.options.state?.() ?? {}) as TState),
-      permissions: readonlySet(),
+      scopes: readonlySet(),
       sessionGeneration: generation,
     };
   }
@@ -690,7 +691,7 @@ class CookieRuntimeAuthController<
       revision: 0,
       status: "initializing",
       state: Object.freeze((options.state?.() ?? {}) as TState),
-      permissions: readonlySet(),
+      scopes: readonlySet(),
       sessionGeneration: 0,
     });
   }
@@ -704,8 +705,8 @@ class CookieRuntimeAuthController<
   get state(): Readonly<TState> {
     return this.getSnapshot().state;
   }
-  get permissions(): ReadonlySet<string> {
-    return this.getSnapshot().permissions;
+  get scopes(): ReadonlySet<string> {
+    return this.getSnapshot().scopes;
   }
   get error(): NormalizedFailure | undefined {
     return this.getSnapshot().error;
@@ -853,8 +854,8 @@ class CookieRuntimeAuthController<
 
   private publishUser(user: TUser, generation: number): void {
     const frozenUser = Object.freeze(user) as Readonly<TUser>;
-    const permissions = readonlySet(
-      this.options.permissions?.({
+    const scopes = readonlySet(
+      this.options.scopes?.({
         user: frozenUser as Readonly<ReferenceOutput<TSession>>,
         state: this.state,
       }) ?? [],
@@ -864,7 +865,7 @@ class CookieRuntimeAuthController<
       status: "authenticated",
       user: frozenUser,
       state: this.state,
-      permissions,
+      scopes,
       sessionGeneration: generation,
     });
   }
@@ -886,7 +887,7 @@ class CookieRuntimeAuthController<
       revision: this.getSnapshot().revision + 1,
       status: "anonymous",
       state: Object.freeze((this.options.state?.() ?? {}) as TState),
-      permissions: readonlySet(),
+      scopes: readonlySet(),
       sessionGeneration: generation,
     };
   }

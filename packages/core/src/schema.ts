@@ -130,6 +130,12 @@ export interface ValidateOptions {
   readonly signal?: AbortSignal;
 }
 
+/** The recoverable result of parsing a partial record. Invalid fields are omitted. */
+export interface PartialParseResult<TValues extends Readonly<Record<string, unknown>>> {
+  readonly values: Readonly<Partial<TValues>>;
+  readonly issues: readonly ValidationIssue[];
+}
+
 export interface ViewOptions<
   S extends Shape,
   K extends readonly (keyof S & string)[],
@@ -170,12 +176,24 @@ export class Schema<S extends Shape, TContext = unknown> {
   }
 
   parse(input: unknown): OutputShape<S> {
-    const parsed = this.parseRecord(input, false);
-    return this.materialize(parsed as Readonly<Partial<OutputShape<S>>>);
+    const result = this.parseRecord(input, false);
+    if (result.issues.length) throw new ParseError(result.issues);
+    return this.materialize(result.values as Readonly<Partial<OutputShape<S>>>);
   }
 
   parsePartial(input: unknown): Readonly<Partial<OutputShape<S>>> {
-    return deepFreeze(this.parseRecord(input, true)) as Readonly<Partial<OutputShape<S>>>;
+    const result = this.parsePartialResult(input);
+    if (result.issues.length) throw new ParseError(result.issues);
+    return result.values;
+  }
+
+  /** Parses each present field independently, retaining valid values when others fail. */
+  parsePartialResult(input: unknown): PartialParseResult<OutputShape<S>> {
+    const result = this.parseRecord(input, true);
+    return Object.freeze({
+      values: deepFreeze(result.values) as Readonly<Partial<OutputShape<S>>>,
+      issues: Object.freeze(result.issues),
+    });
   }
 
   materialize(input: Readonly<Partial<OutputShape<S>>>): OutputShape<S> {
@@ -427,17 +445,23 @@ export class Schema<S extends Shape, TContext = unknown> {
     return Object.entries(this.shape) as readonly [string, AnyField][];
   }
 
-  private parseRecord(input: unknown, partial: boolean): Record<string, unknown> {
+  private parseRecord(
+    input: unknown,
+    partial: boolean,
+  ): { readonly values: Record<string, unknown>; readonly issues: ValidationIssue[] } {
     if (!isRecord(input))
-      throw new ParseError([
-        {
-          path: [],
-          message: "Expected an object",
-          code: "invalid_type",
-          source: "parse",
-          severity: "error",
-        },
-      ]);
+      return {
+        values: {},
+        issues: [
+          {
+            path: [],
+            message: "Expected an object",
+            code: "invalid_type",
+            source: "parse",
+            severity: "error",
+          },
+        ],
+      };
     const output: Record<string, unknown> =
       this.options.unknownKeys === "passthrough" ? { ...input } : {};
     const issues: ValidationIssue[] = [];
@@ -469,8 +493,7 @@ export class Schema<S extends Shape, TContext = unknown> {
         else throw error;
       }
     }
-    if (issues.length) throw new ParseError(issues);
-    return output;
+    return { values: output, issues };
   }
 
   private createOutput(input: Readonly<Record<string, unknown>>): Record<string, unknown> {

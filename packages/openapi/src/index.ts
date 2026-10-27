@@ -15,7 +15,7 @@ export interface OpenApiSchema {
   readonly nullable?: boolean;
   readonly readOnly?: boolean;
   readonly writeOnly?: boolean;
-  readonly enum?: readonly (string | number | boolean)[];
+  readonly enum?: readonly (string | number | boolean | null)[];
   readonly const?: string | number | boolean | null;
   readonly default?: unknown;
   readonly required?: readonly string[];
@@ -25,6 +25,7 @@ export interface OpenApiSchema {
   readonly $ref?: string;
   readonly allOf?: readonly OpenApiSchema[];
   readonly oneOf?: readonly OpenApiSchema[];
+  readonly anyOf?: readonly OpenApiSchema[];
   readonly discriminator?: {
     readonly propertyName: string;
     readonly mapping?: Readonly<Record<string, string>>;
@@ -146,6 +147,8 @@ export function generateOpenApi(
     "}",
     "",
   );
+  if (lines.some((line) => line.includes(" as Field<")))
+    lines[1] = lines[1]!.replace("fields, schema", "fields, schema, type Field");
   if (options.strict && warnings.length) throw new Error(warnings.join("\n"));
   return { code: lines.join("\n"), warnings: Object.freeze(warnings) };
 }
@@ -157,6 +160,8 @@ function schemaDeclaration(
 ): string[] {
   context.currentSchema = name;
   const variable = safeName(name);
+  if (!isObjectSchema(source))
+    return [`  const ${variable} = ${fieldExpression(source, false, context, name, "  ")};`];
   const inherited = (source.allOf ?? []).flatMap((item) => {
     if (!item.$ref) return [];
     const target = refName(item.$ref);
@@ -198,8 +203,23 @@ function fieldExpression(
   path: string,
   indentation: string,
 ): string {
+  if (schema.anyOf) {
+    const variants = schema.anyOf.filter((item) => item.type !== "null");
+    if (variants.length === 1 && variants.length < schema.anyOf.length) {
+      return fieldExpression(
+        { ...variants[0], ...schema, anyOf: undefined, nullable: true },
+        required,
+        context,
+        path,
+        indentation,
+      );
+    }
+    addWarning(context, `${path}: unsupported anyOf is represented as typed JSON`);
+    return `fields.JSON(${configExpression(schema, required)})`;
+  }
   if (schema.$ref) return referencedField(schema, schema.$ref, required, context, path);
   if (schema.oneOf) {
+    if (taggedUnion(schema, context)) return typedJson(schema, required, jsonType(schema, context));
     const refs = schema.oneOf.flatMap((item) => (item.$ref ? [refName(item.$ref)] : []));
     if (refs.length === schema.oneOf.length && schema.discriminator)
       return `fields.JSON(${configExpression(schema, required, {
@@ -213,7 +233,8 @@ function fieldExpression(
   }
   const type = nonNullType(schema);
   if (schema.enum || schema.const !== undefined) {
-    const values = schema.enum ?? [schema.const!];
+    const values = (schema.enum ?? [schema.const!]).filter((value) => value !== null);
+    if (!values.length) return typedJson({ ...schema, nullable: true }, required, "null");
     return `fields.Enum(${JSON.stringify(values)} as const, ${configExpression(schema, required)})`;
   }
   if (type === "array") return arrayField(schema, required, context, path, indentation);
@@ -224,7 +245,10 @@ function fieldExpression(
     return `fields.Object(${nested}, ${configExpression(schema, required)})`;
   }
   const factory = stringFactory(schema) ?? scalarFactory(type);
-  if (factory) return `fields.${factory}(${configExpression(schema, required)})`;
+  if (factory) {
+    const preserveEmpty = factory === "Str" && !schema.format && (schema.minLength ?? 0) === 0;
+    return `fields.${factory}(${configExpression(schema, required, undefined, preserveEmpty)})`;
+  }
   context.warnings.push(
     `${path}: unsupported schema type ${String(type)}; represented as typed JSON`,
   );
@@ -244,28 +268,110 @@ function arrayField(
     return `fields.JSON(${configExpression(schema, required)})`;
   }
   const config = configExpression(schema, required);
-  if (item.$ref) return `fields.ObjectList(${safeName(refName(item.$ref))}, ${config})`;
+  if (item.$ref) {
+    const target = context.schemas[refName(item.$ref)];
+    if (target && !isObjectSchema(target))
+      return arrayField({ ...schema, items: target }, required, context, path, indentation);
+    if (!safeSchemaReference(refName(item.$ref), context, path)) return `fields.JSON(${config})`;
+    return `fields.ObjectList(${safeName(refName(item.$ref))}, ${config})`;
+  }
+  if (taggedUnion(item, context))
+    return typedJson(schema, required, `Array<${jsonType(item, context)}>`);
   if (item.properties || nonNullType(item) === "object") {
     const nested = objectSchemaExpression(item, context, `${path}[]`, `${indentation}  `);
     return `fields.ObjectList(${nested}, ${config})`;
   }
-  if (item.enum) return `fields.EnumList(${JSON.stringify(item.enum)} as const, ${config})`;
+  if (item.enum && !item.enum.includes(null))
+    return `fields.EnumList(${JSON.stringify(item.enum)} as const, ${config})`;
   if (nonNullType(item) === "string") return `fields.StrList(${config})`;
   if (nonNullType(item) === "integer") return `fields.IntList(${config})`;
   context.warnings.push(`${path}: array item type is represented as typed JSON`);
   return `fields.JSON(${config})`;
 }
 
+/** JSON parsing remains core-owned; the generated type describes the source wire contract. */
+function typedJson(source: OpenApiSchema, required: boolean, type: string): string {
+  return `fields.JSON(${configExpression(source, required)}) as Field<${type}, ${type}, ${type}, unknown, ${required}, false, ${!source.readOnly}>`;
+}
+
+/** Object schemas are reusable form schemas; scalar and union components are fields. */
+function isObjectSchema(source: OpenApiSchema): boolean {
+  return (
+    !source.oneOf && (nonNullType(source) === "object" || !!source.properties || !!source.allOf)
+  );
+}
+
+/** Recognizes inline or referenced object variants with a unique required literal tag. */
+function taggedUnion(source: OpenApiSchema, context: GenerateContext): boolean {
+  if (!source.oneOf?.length) return false;
+  const branches = source.oneOf.map((branch) =>
+    branch.$ref ? context.schemas[refName(branch.$ref)] : branch,
+  );
+  const first = branches[0];
+  if (!first?.properties) return false;
+  return Object.keys(first.properties).some((key) => {
+    const tags = branches.map((branch) => {
+      if (!branch?.required?.includes(key)) return undefined;
+      const field = branch.properties?.[key];
+      const values = field?.enum ?? (field?.const !== undefined ? [field.const] : []);
+      return values.length === 1 && typeof values[0] === "string" ? values[0] : undefined;
+    });
+    return tags.every((tag) => tag !== undefined) && new Set(tags).size === branches.length;
+  });
+}
+
+/** Preserves JSON wire types without inventing a second mutable form model. */
+function jsonType(
+  source: OpenApiSchema,
+  context: GenerateContext,
+  seen = new Set<string>(),
+): string {
+  if (source.$ref) {
+    const name = refName(source.$ref);
+    const target = context.schemas[name];
+    if (!target || seen.has(name)) return "unknown";
+    return jsonType(target, context, new Set([...seen, name]));
+  }
+  let value: string;
+  if (source.oneOf) value = source.oneOf.map((item) => jsonType(item, context, seen)).join(" | ");
+  else if (source.enum) value = source.enum.map((item) => JSON.stringify(item)).join(" | ");
+  else if (source.const !== undefined) value = JSON.stringify(source.const);
+  else if (source.properties) {
+    value = `{ ${Object.keys(source.properties)
+      .sort()
+      .map(
+        (key) =>
+          `${JSON.stringify(key)}${source.required?.includes(key) ? "" : "?"}: ${jsonType(source.properties![key]!, context, seen)}`,
+      )
+      .join("; ")} }`;
+  } else if (nonNullType(source) === "array")
+    value = `Array<${source.items ? jsonType(source.items, context, seen) : "unknown"}>`;
+  else if (nonNullType(source) === "string") value = "string";
+  else if (["integer", "number"].includes(nonNullType(source) ?? "")) value = "number";
+  else if (nonNullType(source) === "boolean") value = "boolean";
+  else if (nonNullType(source) === "null") value = "null";
+  else value = "unknown";
+  return source.nullable || (Array.isArray(source.type) && source.type.includes("null"))
+    ? `(${value}) | null`
+    : value;
+}
+
 function configExpression(
   schema: OpenApiSchema,
   required: boolean,
   metadata?: Readonly<Record<string, unknown>>,
+  preserveEmpty = false,
 ): string {
   const config: string[] = [];
   if (required) config.push("required: true");
+  if (preserveEmpty) config.push('empty: "preserve"');
   if (schema.readOnly) config.push("readonly: true");
   if (schema.writeOnly) config.push("writeonly: true");
-  if (schema.nullable || (Array.isArray(schema.type) && schema.type.includes("null")))
+  if (
+    schema.nullable ||
+    schema.enum?.includes(null) ||
+    (Array.isArray(schema.type) && schema.type.includes("null"))
+  )
     config.push("nullable: true");
   if (schema.default !== undefined) config.push(`default: ${JSON.stringify(schema.default)}`);
   if (schema.minLength !== undefined) config.push(`minLength: ${schema.minLength}`);
@@ -439,6 +545,15 @@ function referencedField(
   const target = refName(reference);
   if (!safeSchemaReference(target, context, path))
     return `fields.JSON(${configExpression(schema, required, { reference })})`;
+  const targetSchema = context.schemas[target]!;
+  if (!isObjectSchema(targetSchema))
+    return fieldExpression(
+      { ...targetSchema, ...schema, $ref: undefined },
+      required,
+      context,
+      path,
+      "  ",
+    );
   return `fields.Object(${safeName(target)}, ${configExpression(schema, required)})`;
 }
 
@@ -470,6 +585,7 @@ function referencedSchemas(schema: OpenApiSchema | undefined): readonly string[]
       ...Object.values(schema.properties ?? {}).flatMap(referencedSchemas),
       ...(schema.allOf ?? []).flatMap(referencedSchemas),
       ...(schema.oneOf ?? []).flatMap(referencedSchemas),
+      ...(schema.anyOf ?? []).flatMap(referencedSchemas),
     ]),
   ];
 }

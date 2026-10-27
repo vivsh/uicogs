@@ -12,7 +12,7 @@ export function createGeneratedDefinitions() {
     owner: fields.Object(User, {  }),
   });
   const listProjectsQuery = schema({
-    search: fields.Str({  }),
+    search: fields.Str({ empty: "preserve" }),
   });
   const listProjects = Object.freeze({
     method: "GET",

@@ -102,7 +102,7 @@ describe("runtime authentication strategies", () => {
       currentUser: Users.operation("current"),
       storage: memoryAuthStorage(),
       state: () => ({ selected: undefined as number | undefined }),
-      permissions: ({ claims }) => claims.permissions,
+      scopes: ({ claims }) => claims.permissions,
       cacheScope: ({ claims }) => ({ subject: claims.sub, tenant: claims.tenant }),
     });
     const api = createUiCogs({
@@ -130,7 +130,7 @@ describe("runtime authentication strategies", () => {
     expect(api.context.value.locale).toBe("en");
     expect(api.auth.user?.name).toBe("Ada");
     expect(api.auth.claims?.tenant).toBe("a");
-    expect(api.auth.permissions.has("users.read")).toBe(true);
+    expect(api.auth.scopes.has("users.read")).toBe(true);
     expect(api.auth.cacheScope()).toContain("42");
     const authenticatedScope = api.auth.cacheScope();
     api.resource(Users).cache.add({ id: 99, name: "Cached user" });
@@ -461,7 +461,7 @@ describe("runtime authentication strategies", () => {
       csrf: { header: "X-CSRFToken", token: () => "csrf" },
       state: () => ({ selected: 0 }),
       subject: ({ user }) => user.id,
-      permissions: () => ["users.read", "users.write"],
+      scopes: () => ["users.read", "users.write"],
       cacheScope: ({ user }) => `account:${user.id}`,
     });
     const api = createUiCogs({
@@ -482,12 +482,12 @@ describe("runtime authentication strategies", () => {
       },
     });
     await api.auth.initialize();
-    expect(api.auth.permissions.size).toBe(2);
-    expect([...api.auth.permissions.keys()]).toEqual(["users.read", "users.write"]);
-    expect([...api.auth.permissions.values()]).toEqual(["users.read", "users.write"]);
-    expect([...api.auth.permissions.entries()]).toHaveLength(2);
+    expect(api.auth.scopes.size).toBe(2);
+    expect([...api.auth.scopes.keys()]).toEqual(["users.read", "users.write"]);
+    expect([...api.auth.scopes.values()]).toEqual(["users.read", "users.write"]);
+    expect([...api.auth.scopes.entries()]).toHaveLength(2);
     const visited: string[] = [];
-    api.auth.permissions.forEach((permission) => visited.push(permission));
+    api.auth.scopes.forEach((scope) => visited.push(scope));
     expect(visited).toEqual(["users.read", "users.write"]);
     expect(api.auth.cacheScope()).toBe("account:7");
     api.auth.updateUser({ id: 8, name: "Updated" });
@@ -758,7 +758,7 @@ describe("runtime authentication strategies", () => {
     expect(publicResponse.data).toBe("omit");
     await api.auth.login({ email: "cookie@example.test" });
     expect(api.auth.cacheScope()).toContain("subject");
-    expect([...api.auth.permissions]).toEqual([]);
+    expect([...api.auth.scopes]).toEqual([]);
     expect((await api.auth.logout()).ok).toBe(true);
     api.dispose();
     api.auth.updateState({});
